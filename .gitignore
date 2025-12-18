@@ -1,0 +1,50 @@
+# Build
+*.lib
+*.dll
+*.pdb
+*.a
+*.dylib
+*.exe
+*.so
+*.obj
+*.o
+*.exp
+*.ilk
+*.res
+*.manifest
+*.map
+*.wasm
+node_modules
+
+/build/shaders/*/*.wgsl
+/build/shaders/*/*.spv
+/build/shaders/*/*.metal
+/build/shaders/*/*.msl
+/build/shaders/*/*.frag
+/build/shaders/*/*.vert
+/build/shaders/*/*.dxil
+/build/*.exe
+/build/*.js
+/build/.shader_hash
+
+# IDE/Editor
+/.vscode
+!/.vscode/launch.json
+!/.vscode/tasks.json
+*.sublime-workspace
+*.code-workspace
+.idea/
+*.swp
+*.swo
+
+# Logs and temp
+/tmp
+*.log
+
+# OS
+**/.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project specific
+ols.json

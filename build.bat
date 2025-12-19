@@ -84,7 +84,6 @@ if "%CLEAN_BUILD%"=="true" (
 	if exist "%OUT%\*.wasm" del /F /Q %OUT%\*.wasm
 	if exist "%OUT%\gpu.js" del /F /Q %OUT%\gpu.js
 	if exist "%OUT%\odin.js" del /F /Q %OUT%\odin.js
-	if exist "%OUT%\.shader_hash" del /F /Q %OUT%\.shader_hash
 )
 
 set INITIAL_MEMORY_PAGES=2000
@@ -115,7 +114,7 @@ if "%WEB_BUILD%"=="true" (
 		pushd .\wasm
 		call tsc
 		popd
-		copy ".\wasm\odin.js" "%OUT%\odin.js" >nul
+		copy "%ODIN_ROOT%\core\sys\wasm\js\odin.js" "%OUT%\odin.js" >nul
 		copy ".\wasm\gpu.js" "%OUT%\gpu.js" >nul
 		echo [BUILD] --- Web build completed successfully.
 	)
@@ -140,7 +139,7 @@ echo [BUILD] --- Build process completed successfully.
 :: Run after build if requested
 if "%RUN_AFTER_BUILD%"=="true" (
 	if "%WEB_BUILD%"=="true" (
-		echo [BUILD] --- Note: Cannot automatically run web builds. Please open web/index.html in a browser.
+		echo [BUILD] --- Note: Cannot automatically run web builds. Please serve the build folder.
 	) else (
 		echo [BUILD] --- Running %TARGET_NAME%...
 		pushd build

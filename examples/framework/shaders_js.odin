@@ -8,7 +8,7 @@ import "core:log"
 import "core:mem"
 
 // Libs
-import "../../../gpu"
+import gpu "../../"
 
 foreign import "odin_env"
 

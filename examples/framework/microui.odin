@@ -64,7 +64,7 @@ mu_handle_events :: proc(mu_ctx: ^mu.Context, event: Event) {
         )
 
     case Mouse_Wheel_Event:
-        mu.input_scroll(mu_ctx, i32(ev.x * -25), i32(ev.y * -25))
+        mu.input_scroll(mu_ctx, i32(ev.x), i32(ev.y))
 
     case Mouse_Moved_Event:
         mu.input_mouse_move(mu_ctx, i32(ev.pos.x), i32(ev.pos.y))

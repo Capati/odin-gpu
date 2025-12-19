@@ -3,7 +3,6 @@ package framework
 // Core
 import "base:runtime"
 import "core:log"
-import os "core:os/os2"
 
 // Local packages
 import gpu "../../"
@@ -244,15 +243,15 @@ on_adapter_and_device :: proc() {
         if res := init_proc(&ctx.appstate); res != .Continue {
             destroy()
             #partial switch res {
-            case .Success: os.exit(0) // early exit
+            case .Success: return // early exit
             case .Failure:
                 log.fatal("Failed to initialize framework")
-                os.exit(-1)
+                return
             }
             return
         }
     }
-    os_run()
+    run()
 }
 
 get_gpu_context :: proc() -> GPU_Context {

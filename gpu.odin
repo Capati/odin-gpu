@@ -2967,79 +2967,81 @@ buffer_destroy: Proc_Buffer_Destroy
 // Returns the current map state for this `Buffer`.
 buffer_get_map_state: Proc_Buffer_Get_Map_State
 
-// This is used for both const and mut versions.
-buffer_get_mapped_range_impl :: proc(
-    buffer: Buffer,
-    #any_int offset: uint,
-    #any_int size: uint,
-    loc := #caller_location,
-) -> rawptr {
-    impl := get_impl(D3D11_Buffer_Impl, buffer, loc)
+when ODIN_OS != .JS {
+    // This is used for both const and mut versions.
+    buffer_get_mapped_range_impl :: proc(
+        buffer: Buffer,
+        #any_int offset: uint,
+        #any_int size: uint,
+        loc := #caller_location,
+    ) -> rawptr {
+        impl := get_impl(Buffer_Base, buffer, loc)
 
-    // Check if buffer is not mapped
-    assert(impl.map_state != .Unmapped, "buffer is not mapped", loc)
+        // Check if buffer is not mapped
+        assert(impl.map_state != .Unmapped, "buffer is not mapped", loc)
 
-    // Validate offset is within mapped range
-    assert(offset >= uint(impl.mapped_range.start),
-        "Offset is before the start of the mapped range", loc)
+        // Validate offset is within mapped range
+        assert(offset >= uint(impl.mapped_range.start),
+            "Offset is before the start of the mapped range", loc)
 
-    // Determine actual size to return
-    actual_size := size
-    if size == WHOLE_MAP_SIZE {
-        // Return from offset to end of buffer
-        actual_size = uint(impl.size) - offset
+        // Determine actual size to return
+        actual_size := size
+        if size == WHOLE_MAP_SIZE {
+            // Return from offset to end of buffer
+            actual_size = uint(impl.size) - offset
+        }
+
+        // Calculate the end of the requested range
+        request_end := offset + actual_size
+        mapped_end := uint(impl.mapped_range.start + impl.mapped_range.end)
+
+        // Validate requested range is within the mapped region
+        assert(request_end <= mapped_end, "Requested range exceeds the mapped range", loc)
+        // Validate size doesn't exceed buffer size
+        assert(offset + actual_size <= uint(impl.size), "Requested range exceeds buffer size", loc)
+
+        // Calculate pointer offset from the mapped base
+        offset_from_mapped_base := Buffer_Address(offset) - impl.mapped_range.start
+        result_ptr := rawptr(uintptr(impl.mapped_ptr) + uintptr(offset_from_mapped_base))
+
+        return result_ptr
     }
 
-    // Calculate the end of the requested range
-    request_end := offset + actual_size
-    mapped_end := uint(impl.mapped_range.start + impl.mapped_range.end)
+    buffer_get_const_mapped_range :: proc(
+        buffer: Buffer,
+        #any_int offset: uint,
+        #any_int size: uint,
+        loc := #caller_location,
+    ) -> rawptr {
+        impl := get_impl(Buffer_Base, buffer, loc)
 
-    // Validate requested range is within the mapped region
-    assert(request_end <= mapped_end, "Requested range exceeds the mapped range", loc)
-    // Validate size doesn't exceed buffer size
-    assert(offset + actual_size <= uint(impl.size), "Requested range exceeds buffer size", loc)
+        // Validate write access
+        assert(
+            impl.map_state != .Mapped_For_Write &&
+            impl.map_state != .Mapped_For_Read_Write &&
+            impl.map_state != .Mapped_At_Creation,
+            "Buffer must be not mapped with write access to get an immutable mapped range", loc)
 
-    // Calculate pointer offset from the mapped base
-    offset_from_mapped_base := Buffer_Address(offset) - impl.mapped_range.start
-    result_ptr := rawptr(uintptr(impl.mapped_ptr) + uintptr(offset_from_mapped_base))
+        return buffer_get_mapped_range_impl(buffer, offset, size, loc)
+    }
 
-    return result_ptr
-}
+    buffer_get_mapped_range :: proc(
+        buffer: Buffer,
+        #any_int offset: uint,
+        #any_int size: uint,
+        loc := #caller_location,
+    ) -> rawptr {
+        impl := get_impl(Buffer_Base, buffer, loc)
 
-buffer_get_const_mapped_range :: proc(
-    buffer: Buffer,
-    #any_int offset: uint,
-    #any_int size: uint,
-    loc := #caller_location,
-) -> rawptr {
-    impl := get_impl(D3D11_Buffer_Impl, buffer, loc)
+        // Validate write access
+        assert(
+            impl.map_state == .Mapped_For_Write ||
+            impl.map_state == .Mapped_For_Read_Write ||
+            impl.map_state == .Mapped_At_Creation,
+            "Buffer must be mapped with write access to get a mutable mapped range", loc)
 
-    // Validate write access
-    assert(
-        impl.map_state != .Mapped_For_Write &&
-        impl.map_state != .Mapped_For_Read_Write &&
-        impl.map_state != .Mapped_At_Creation,
-        "Buffer must be not mapped with write access to get an immutable mapped range", loc)
-
-    return buffer_get_mapped_range_impl(buffer, offset, size, loc)
-}
-
-buffer_get_mapped_range :: proc(
-    buffer: Buffer,
-    #any_int offset: uint,
-    #any_int size: uint,
-    loc := #caller_location,
-) -> rawptr {
-    impl := get_impl(D3D11_Buffer_Impl, buffer, loc)
-
-    // Validate write access
-    assert(
-        impl.map_state == .Mapped_For_Write ||
-        impl.map_state == .Mapped_For_Read_Write ||
-        impl.map_state == .Mapped_At_Creation,
-        "Buffer must be mapped with write access to get a mutable mapped range", loc)
-
-    return buffer_get_mapped_range_impl(buffer, offset, size, loc)
+        return buffer_get_mapped_range_impl(buffer, offset, size, loc)
+    }
 }
 
 buffer_get_mapped_range_slice :: proc(
@@ -3728,14 +3730,22 @@ device_describe_format_features :: proc(
 
 // Get the current backend.
 device_get_backend :: proc(device: Device) -> Backend {
-    impl := cast(^Device_Base)device
-    return impl.backend
+    when ODIN_OS != .JS {
+        impl := cast(^Device_Base)device
+        return impl.backend
+    } else {
+        return .WebGPU
+    }
 }
 
 // Get the shader formats that is compatible for the current backend.
 device_get_backend_shader_formats :: proc(device: Device) -> Shader_Formats {
-    impl := cast(^Device_Base)device
-    return impl.shader_formats
+    when ODIN_OS != .JS {
+        impl := cast(^Device_Base)device
+        return impl.shader_formats
+    } else {
+        return { .Wgsl }
+    }
 }
 
 // Get the `Device` debug label.
@@ -3853,7 +3863,7 @@ INSTANCE_DESCRIPTOR_DEFAULT :: Instance_Descriptor {
 }
 
 when ODIN_OS == .JS {
-    GPU_PLATFORM_BACKENDS :: Backends{ .Webgpu }
+    GPU_PLATFORM_BACKENDS :: Backends{ .WebGPU }
 } else when ODIN_OS == .Windows {
     GPU_PLATFORM_BACKENDS :: Backends{ .Dx12, .Dx11, .Vulkan, .Gl }
 } else when ODIN_OS == .Linux {

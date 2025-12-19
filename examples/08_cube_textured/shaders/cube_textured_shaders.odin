@@ -45,12 +45,12 @@ load :: proc(device: gpu.Device, stage: gpu.Shader_Stage) -> (code: []u8) {
         #partial switch stage {
         case .Vertex:
             #partial switch backend {
-            case .WebGpu: code = #load("WGSL/" + SHADER_NAME + ".vert.wgsl")
+            case .WebGPU: code = #load("WGSL/" + SHADER_NAME + ".vert.wgsl")
             case: unreachable()
             }
         case .Fragment:
             #partial switch backend {
-            case .WebGpu: code = #load("WGSL/" + SHADER_NAME + ".frag.wgsl")
+            case .WebGPU: code = #load("WGSL/" + SHADER_NAME + ".frag.wgsl")
             case: unreachable()
             }
         }

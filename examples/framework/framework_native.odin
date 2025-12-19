@@ -37,7 +37,13 @@ os_init :: proc(title: string, width, height: u32) {
     glfw.SetWindowFocusCallback(ctx.os.window, focus_callback)
 }
 
-os_run :: proc() {
+os_fini :: proc() {
+    glfw.DestroyWindow(ctx.os.window)
+    glfw.Terminate()
+    destroy()
+}
+
+run :: proc() {
     context = ctx.custom_ctx
 
     last_time := glfw.GetTime()
@@ -56,10 +62,7 @@ os_run :: proc() {
         }
     }
 
-    glfw.DestroyWindow(ctx.os.window)
-    glfw.Terminate()
-
-    destroy()
+    os_fini()
 }
 
 get_framebuffer_size :: proc() -> (width, height: u32) {

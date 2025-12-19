@@ -1,4 +1,4 @@
-package two_cubes_shaders
+package rotating_cube_shaders
 
 // Local libs
 import gpu "../../../"

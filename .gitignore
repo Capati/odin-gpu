@@ -28,9 +28,9 @@ node_modules
 /build/.shader_hash
 
 # IDE/Editor
-/.vscode
-!/.vscode/launch.json
-!/.vscode/tasks.json
+.vscode
+!.vscode/launch.json
+!.vscode/tasks.json
 *.sublime-workspace
 *.code-workspace
 .idea/

@@ -32,6 +32,7 @@ if ! "$SLANGC" "$SHADER_FILE" \
     -stage vertex \
     -target glsl \
     -profile glsl_450 \
+	-D USE_COMBINED_SAMPLER \
     -o "./GLSL/${SHADER_NAME}.vert"; then
     echo "Failed to compile vertex shader to GLSL"
     SHADER_ERROR=true
@@ -43,6 +44,7 @@ if ! "$SLANGC" "$SHADER_FILE" \
     -stage fragment \
     -target glsl \
     -profile glsl_450 \
+	-D USE_COMBINED_SAMPLER \
     -o "./GLSL/${SHADER_NAME}.frag"; then
     echo "Failed to compile fragment shader to GLSL"
     SHADER_ERROR=true

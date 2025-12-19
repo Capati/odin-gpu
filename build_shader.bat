@@ -41,6 +41,7 @@ call "!SLANGC!" "%SHADER_FILE%" ^
 	-stage vertex ^
 	-target glsl ^
 	-profile glsl_450 ^
+	-D USE_COMBINED_SAMPLER ^
 	-o "%SHADER_DIR%GLSL\%SHADER_NAME%.vert.glsl"
 if errorlevel 1 (
 	echo Failed to compile vertex shader to GLSL
@@ -53,6 +54,7 @@ call "!SLANGC!" "%SHADER_FILE%" ^
 	-stage fragment ^
 	-target glsl ^
 	-profile glsl_450 ^
+	-D USE_COMBINED_SAMPLER ^
 	-o "%SHADER_DIR%GLSL\%SHADER_NAME%.frag.glsl"
 if errorlevel 1 (
 	echo Failed to compile fragment shader to GLSL

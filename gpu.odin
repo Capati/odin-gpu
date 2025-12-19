@@ -3914,7 +3914,7 @@ create_instance :: proc(
             shader_formats = { .Wgsl }
         }
     } else when ODIN_OS == .Windows {
-        // Dx12 should be the priority, but for now we only have d3d11 impl
+        // TODO: Dx12 should be the priority
         requested_backends -= { .Dx12 }
         if .Dx12 in requested_backends {
             // d3d12_init(allocator)
@@ -3924,9 +3924,13 @@ create_instance :: proc(
             d3d11_init(allocator)
             backend = .Dx11
             shader_formats = { .Dxbc }
+        } else if .Gl in requested_backends {
+            gl_init(allocator)
+            backend = .Gl
+            shader_formats = { .Glsl }
         }
     } else when ODIN_OS == .Linux {
-        // Vulkan should be the priority, but for now we only have Gl impl
+        // TODO: Vulkan should be the priority
         requested_backends -= { .Vulkan }
         if .Vulkan in requested_backends {
             // vulkan_init(allocator)

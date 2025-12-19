@@ -3831,7 +3831,7 @@ d3d11_surface_present :: proc(surface: Surface, loc := #caller_location) {
     impl := get_impl(D3D11_Surface_Impl, surface, loc)
     sync_interval := d3d_present_mode_to_swap_interval(impl.config.present_mode)
     hr := impl.dxgi_swapchain->Present(sync_interval, {})
-    d3d12_check(hr, "Failed to present", loc)
+    d3d_check(hr, "Failed to present", loc)
 }
 
 @(require_results)

@@ -13,7 +13,7 @@
 </p>
 
 A modern graphics API wrapper for [Odin Language][], inspired by the [WebGPU][] specification. This
-library provides abstractions over Vulkan, DirectX 12, Metal, OpenGL, and WebGPU backends.
+library provides abstractions over Vulkan, DirectX 11/12, Metal, OpenGL, and WebGPU backends.
 
 Currently I'm working on [renderlink][] as a "proof of concept" for this library.
 

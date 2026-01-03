@@ -261,6 +261,11 @@ get_gpu_context :: proc() -> GPU_Context {
 destroy :: proc() {
     context = ctx.custom_ctx
 
+    // Release user context
+    if quit_proc != nil {
+        quit_proc(ctx.appstate, .Success)
+    }
+
     // Release GPU Context
     gpu.surface_capabilities_free_members(ctx.gc.caps)
     gpu.release(ctx.gc.queue)
@@ -268,11 +273,6 @@ destroy :: proc() {
     gpu.release(ctx.gc.adapter)
     gpu.release(ctx.gc.surface)
     gpu.release(ctx.gc.instance)
-
-    // Release user context
-    if quit_proc != nil {
-        quit_proc(ctx.appstate, .Success)
-    }
 }
 
 dispatch_event :: proc(event: Event) {

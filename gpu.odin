@@ -3986,8 +3986,8 @@ Proc_Instance_Create_Surface :: #type proc(
 
 Proc_Instance_Request_Adapter :: #type proc(
     instance: Instance,
-    options: Maybe(Request_Adapter_Options),
     callback_info: Request_Adapter_Callback_Info,
+    options: Maybe(Request_Adapter_Options) = nil,
     loc := #caller_location,
 )
 

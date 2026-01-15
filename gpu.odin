@@ -1211,11 +1211,9 @@ Buffer_Usage :: enum u32 {
     // Allow a buffer to be the destination buffer for a
     // `command_encoder_resolve_query_set` operation.
     Query_Resolve,
-    // Allows a buffer to be used as input for a bottom level acceleration
-    // structure build
+    // Allows a buffer to be used as input for a bottom level acceleration structure build
     Blas_Input,
-    // Allows a buffer to be used as input for a top level acceleration
-    // structure build
+    // Allows a buffer to be used as input for a top level acceleration structure build
     Tlas_Input,
 }
 

@@ -3504,7 +3504,6 @@ Device_Base :: struct {
     ref:            Ref_Count,
     allocator:      runtime.Allocator,
     adapter:        Adapter,
-    queue:          Queue,
     backend:        Backend,
     shader_formats: Shader_Formats,
     features:       Features,

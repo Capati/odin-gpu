@@ -2509,7 +2509,7 @@ Proc_Create_Instance :: #type proc(
     loc := #caller_location,
 ) -> Instance
 
-_create_instance: Proc_Create_Instance
+create_instance_impl: Proc_Create_Instance
 
 // -----------------------------------------------------------------------------
 // Adapter procedures
@@ -3968,7 +3968,7 @@ create_instance :: proc(
     // Ensure procedures pointer are valid
     check_interface_procedures()
 
-    instance := _create_instance(desc, allocator, loc)
+    instance := create_instance_impl(desc, allocator, loc)
 
     instance_impl := cast(^Instance_Base)instance
     instance_impl.backend = backend
@@ -4573,7 +4573,7 @@ Proc_Texture_Add_Ref :: #type proc(texture: Texture, loc := #caller_location)
 Proc_Texture_Release :: #type proc(texture: Texture, loc := #caller_location)
 
 @(private)
-_texture_create_view: Proc_Texture_Create_View
+texture_create_view_impl: Proc_Texture_Create_View
 
 // Creates a view of this texture.
 @(require_results)
@@ -4629,7 +4629,7 @@ texture_create_view :: proc(
         desc.usage = texture_descriptor.usage
     }
 
-    return _texture_create_view(texture, desc, loc)
+    return texture_create_view_impl(texture, desc, loc)
 }
 
 // Returns the depth or array layers of this `Texture`.

@@ -2290,7 +2290,7 @@ Bind_Group_Layout_Descriptor :: struct {
 // View of a buffer which can be used to copy to/from a texture.
 Texel_Copy_Buffer_Info :: struct {
     // The buffer to be copied to/from.
-    buffer: ^Buffer,
+    buffer: Buffer,
     // The layout of the texture data in this buffer.
     layout: Texel_Copy_Buffer_Layout,
 }

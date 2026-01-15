@@ -4117,16 +4117,13 @@ pipeline_layout_release: Proc_Pipeline_Layout_Release
 // A `Surface` represents a platform-specific surface (e.g. a window) onto which
 // rendered images may be presented. A `Surface` may be created with the
 // procedure `instance_create_surface`.
-//
-// This type is unique to the API. In the WebGPU specification,
-// [`GPUCanvasContext`](https://gpuweb.github.io/gpuweb/#canvas-context) serves
-// a similar role.
 Surface :: distinct rawptr
 
 Surface_Base :: struct {
     label:     String_Buffer_Small,
     ref:       Ref_Count,
     instance:  Instance,
+    device:    Device,
     allocator: runtime.Allocator,
     config:    Surface_Configuration,
 }

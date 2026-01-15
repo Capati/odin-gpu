@@ -1909,6 +1909,38 @@ Texture_Descriptor :: struct {
     view_formats:    []Texture_Format,
 }
 
+@(disabled = !ODIN_DEBUG)
+texture_descriptor_validade :: proc(
+    self: Texture_Descriptor,
+    device_features: Features = {},
+    loc := #caller_location,
+) {
+    // Basic validation
+    assert(self.format != .Undefined, "Invalid texture format", loc)
+    assert(self.dimension != .Undefined, "Invalid texture dimension", loc)
+    assert(self.size.width > 0, "Texture width must be greater than 0", loc)
+    assert(self.size.height > 0, "Texture height must be greater than 0", loc)
+    assert(self.size.depth_or_array_layers > 0, "Texture depth/layers must be greater than 0", loc)
+    assert(self.mip_level_count > 0, "Mip level count must be at least 1", loc)
+    assert(self.sample_count > 0, "Sample count must be at least 1", loc)
+
+    // Validate mip levels don't exceed maximum possible
+    max_mip_levels := max_mip_levels(self.size.width, self.size.height)
+    assert(self.mip_level_count <= max_mip_levels,
+           "Mip level count exceeds maximum possible for this texture size", loc)
+
+    // Format-specific feature validation
+    format_info := texture_format_guaranteed_format_features(self.format, device_features)
+    assert((self.usage & format_info.allowed_usages) == self.usage,
+           "Requested usage flags are not supported for this format on this device", loc)
+
+    // Validate multisampling constraints
+    if self.sample_count > 1 {
+        assert(self.mip_level_count == 1, "Multisampled textures must have exactly 1 mip level", loc)
+        assert(self.dimension != .D3,  "3D textures cannot be multisampled", loc)
+    }
+}
+
 // Calculates the extent at a given mip level.
 texture_descriptor_mip_level_size :: proc(self: Texture_Descriptor, level: u32) -> Extent_3D {
     if level >= self.mip_level_count {

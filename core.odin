@@ -29,18 +29,16 @@ instance_new_impl :: #force_inline proc(
     $T: typeid,
     allocator: runtime.Allocator,
     loc: runtime.Source_Code_Location,
-    init_ref := true,
-) -> ^T where intr.type_has_field(T, "allocator"),
+) -> ^T where intr.type_has_field(T, "ctx"),
+              intr.type_has_field(T, "allocator"),
               intr.type_has_field(T, "ref") {
 
-    impl := new(T, allocator)
+    impl := new(T, allocator, loc)
     assert(impl != nil, "Failed to allocate memory", loc)
 
+    impl.ctx = context
     impl.allocator = allocator
-
-    if init_ref {
-        ref_count_init(&impl.ref, loc)
-    }
+    ref_count_init(&impl.ref, loc)
 
     return impl
 }
@@ -50,24 +48,19 @@ instance_new_impl :: #force_inline proc(
 instance_new_handle :: #force_inline proc(
     $T: typeid,
     instance: Instance,
-    allocator: runtime.Allocator,
     loc: runtime.Source_Code_Location,
-    init_ref := true,
 ) -> ^T where intr.type_has_field(T, "instance"),
               intr.type_has_field(T, "allocator"),
               intr.type_has_field(T, "ref") {
     assert(instance != nil, loc = loc)
 
-    impl := new(T, allocator)
+    instance_impl := get_impl(Instance_Base, instance, loc)
+    impl := new(T, instance_impl.allocator, loc)
     assert(impl != nil, "Failed to allocate memory", loc)
 
     impl.instance = instance
-    impl.allocator = allocator
-
-    if init_ref {
-        ref_count_init(&impl.ref, loc)
-        instance_add_ref(instance, loc)
-    }
+    impl.allocator = instance_impl.allocator
+    ref_count_init(&impl.ref, loc)
 
     return impl
 }
@@ -77,24 +70,19 @@ instance_new_handle :: #force_inline proc(
 adapter_new_handle :: #force_inline proc(
     $T: typeid,
     adapter: Adapter,
-    allocator: runtime.Allocator,
     loc: runtime.Source_Code_Location,
-    init_ref := true,
 ) -> ^T where intr.type_has_field(T, "adapter"),
               intr.type_has_field(T, "allocator"),
               intr.type_has_field(T, "ref") {
     assert(adapter != nil, loc = loc)
 
-    impl := new(T, allocator)
+    adapter_impl := get_impl(Adapter_Base, adapter, loc)
+    impl := new(T, adapter_impl.allocator, loc)
     assert(impl != nil, "Failed to allocate memory", loc)
 
     impl.adapter = adapter
-    impl.allocator = allocator
-
-    if init_ref {
-        ref_count_init(&impl.ref, loc)
-        adapter_add_ref(adapter, loc)
-    }
+    impl.allocator = adapter_impl.allocator
+    ref_count_init(&impl.ref, loc)
 
     return impl
 }
@@ -104,24 +92,19 @@ adapter_new_handle :: #force_inline proc(
 command_encoder_new_handle :: #force_inline proc(
     $T: typeid,
     encoder: Command_Encoder,
-    allocator: runtime.Allocator,
     loc: runtime.Source_Code_Location,
-    init_ref := true,
 ) -> ^T where intr.type_has_field(T, "encoder"),
               intr.type_has_field(T, "allocator"),
               intr.type_has_field(T, "ref") {
     assert(encoder != nil, loc = loc)
 
-    impl := new(T, allocator)
+    encoder_impl := get_impl(Command_Encoder_Base, encoder, loc)
+    impl := new(T, encoder_impl.allocator, loc)
     assert(impl != nil, "Failed to allocate memory", loc)
 
     impl.encoder = encoder
-    impl.allocator = allocator
-
-    if init_ref {
-        ref_count_init(&impl.ref, loc)
-        command_encoder_add_ref(encoder, loc)
-    }
+    impl.allocator = encoder_impl.allocator
+    ref_count_init(&impl.ref, loc)
 
     return impl
 }
@@ -131,24 +114,23 @@ command_encoder_new_handle :: #force_inline proc(
 texture_new_handle :: #force_inline proc(
     $T: typeid,
     texture: Texture,
-    allocator: runtime.Allocator,
     loc: runtime.Source_Code_Location,
     init_ref := true,
 ) -> ^T where intr.type_has_field(T, "texture"),
+              intr.type_has_field(T, "device"),
               intr.type_has_field(T, "allocator"),
               intr.type_has_field(T, "ref") {
     assert(texture != nil, loc = loc)
 
-    impl := new(T, allocator)
+    texture_impl := get_impl(Texture_Base, texture, loc)
+    impl := new(T, texture_impl.allocator, loc)
     assert(impl != nil, "Failed to allocate memory", loc)
 
     impl.texture = texture
-    impl.allocator = allocator
-
-    if init_ref {
-        ref_count_init(&impl.ref, loc)
-        texture_add_ref(texture, loc)
-    }
+    impl.device = texture_impl.device
+    impl.allocator = texture_impl.allocator
+    ref_count_init(&impl.ref, loc)
+    texture_add_ref(texture, loc)
 
     return impl
 }
@@ -158,24 +140,19 @@ texture_new_handle :: #force_inline proc(
 device_new_handle :: #force_inline proc(
     $T: typeid,
     device: Device,
-    allocator: runtime.Allocator,
     loc: runtime.Source_Code_Location,
-    init_ref := true,
 ) -> ^T where intr.type_has_field(T, "device"),
               intr.type_has_field(T, "allocator"),
               intr.type_has_field(T, "ref") {
     assert(device != nil, loc = loc)
 
-    impl := new(T, allocator)
+    device_impl := get_impl(Device_Base, device, loc)
+    impl := new(T, device_impl.allocator, loc)
     assert(impl != nil, "Failed to allocate memory", loc)
 
     impl.device = device
-    impl.allocator = allocator
-
-    if init_ref {
-        ref_count_init(&impl.ref, loc)
-        device_add_ref(device, loc)
-    }
+    impl.allocator = device_impl.allocator
+    ref_count_init(&impl.ref, loc)
 
     return impl
 }

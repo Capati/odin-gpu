@@ -4525,7 +4525,7 @@ Texture_Base :: struct {
 
 Proc_Texture_Create_View :: #type proc(
     texture: Texture,
-    descriptor: Maybe(Texture_View_Descriptor) = nil,
+    descriptor: Texture_View_Descriptor,
     loc := #caller_location,
 ) -> Texture_View
 

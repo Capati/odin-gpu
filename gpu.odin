@@ -2525,13 +2525,15 @@ create_instance_impl: Proc_Create_Instance
 Adapter :: distinct rawptr
 
 Adapter_Base :: struct {
-    label:     String_Buffer_Small,
-    ref:       Ref_Count,
-    instance:  Instance,
-    allocator: runtime.Allocator,
-    type:      Device_Type,
-    features:  Features,
-    limits:    Limits,
+    label:          String_Buffer_Small,
+    ref:            Ref_Count,
+    instance:       Instance,
+    allocator:      runtime.Allocator,
+    backend:        Backend,
+    shader_formats: Shader_Formats,
+    type:           Device_Type,
+    features:       Features,
+    limits:         Limits,
 }
 
 Proc_Adapter_Get_Info :: #type proc(

@@ -40,7 +40,7 @@ possible, it's expected.
 | **Core API** |
 | Core API Layout | 🟡 In Progress | Basic types exist, API not yet stable |
 | **Backends** |
-| Vulkan     | 🔴 Not Started | Should be the main backend |
+| Vulkan     | 🔴 Not Started | Should be the main backend, requires 1.3 |
 | DirectX 12 | 🔴 Not Started | Windows support |
 | DirectX 11 | 🟡 In Progress | Fallback Windows support, requires 11.1 |
 | Metal      | 🔴 Not Started | Might rely on MoltenVK first |
@@ -58,8 +58,9 @@ Just copy or clone this repository to your dependencies folder.
 ├── build          # Examples output folder
 ├── examples       # Collection of examples to show usage
 ├── libs           # External dependencies
+│   ├── d3d12ma    # Memory allocator for the D3D12 backend
 │   ├── egl        # Bindings to EGL on Linux for the OpenGL backend
-│   └── d3d12ma    # Memory allocator for the D3D12 backend
+│   └── vma        # Memory allocator for the Vulkan backend
 ├── shared         # Code reused across multiple packages
 ├── utils          # Additional renderer and utility packages
 │   └── microui    # Micro UI renderer

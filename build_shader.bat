@@ -64,6 +64,7 @@ if errorlevel 1 (
 :: Compile to SPIR-V (vertex)
 call "!SLANGC!" "%SHADER_FILE%" ^
 	-entry vs_main ^
+	-fvk-use-entrypoint-name ^
 	-stage vertex ^
 	-target spirv ^
 	-o "%SHADER_DIR%SPIRV\%SHADER_NAME%.vert.spv"
@@ -75,6 +76,7 @@ if errorlevel 1 (
 :: Compile to SPIR-V (fragment)
 call "!SLANGC!" "%SHADER_FILE%" ^
 	-entry fs_main ^
+	-fvk-use-entrypoint-name ^
 	-stage fragment ^
 	-target spirv ^
 	-o "%SHADER_DIR%SPIRV\%SHADER_NAME%.frag.spv"

@@ -3844,10 +3844,15 @@ Dx12_Backend_Options :: struct {
     shader_compiler: Dx12_Compiler,
 }
 
+Vulkan_Backend_Options :: struct {
+    fp_get_instance_proc_addr: rawptr,
+}
+
 // Options that are passed to a given backend.
 Backend_Options :: struct {
-    gl:   Gl_Backend_Options,
-    dx12: Dx12_Backend_Options,
+    gl:     Gl_Backend_Options,
+    dx12:   Dx12_Backend_Options,
+    vulkan: Vulkan_Backend_Options,
 }
 
 // Options for creating an instance.
@@ -3932,6 +3937,10 @@ create_instance :: proc(
             // d3d12_init(allocator)
             // backend = .Dx12
             // shader_formats = { .Dxil, .Dxbc }
+        } else if .Vulkan in requested_backends {
+            vk_init(allocator)
+            backend = .Vulkan
+            shader_formats = { .Spirv }
         } else if .Dx11 in requested_backends {
             d3d11_init(allocator)
             backend = .Dx11
@@ -3942,24 +3951,28 @@ create_instance :: proc(
             shader_formats = { .Glsl }
         }
     } else when ODIN_OS == .Linux {
-        // TODO: Vulkan should be the priority
         requested_backends -= { .Vulkan }
         if .Vulkan in requested_backends {
-            // vulkan_init(allocator)
-            // backend = .Vulkan
-            // shader_formats = { .Spirv }
+            vk_init(allocator)
+            backend = .Vulkan
+            shader_formats = { .Spirv }
         } else if .Gl in requested_backends {
             gl_init(allocator)
             backend = .Gl
             shader_formats = { .Glsl }
         }
     } else when ODIN_OS == .Darwin {
-        // if .Metal in requested_backends {
-        //     metal_init(allocator)
-        //     backend = .Metal
-        //     shader_formats = {.Msl, .Metallib}
-        // }
-        unimplemented("Metal backend is not implemented")
+        // TODO: Metal should be the priority
+        requested_backends -= { .Metal }
+        if .Metal in requested_backends {
+            // metal_init(allocator)
+            // backend = .Metal
+            // shader_formats = {.Msl, .Metallib}
+        } else if .Vulkan in requested_backends {
+            vk_init(allocator)
+            backend = .Vulkan
+            shader_formats = { .Spirv }
+        }
     } else {
         unimplemented("Unsupported platform!")
     }

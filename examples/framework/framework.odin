@@ -3,6 +3,7 @@ package framework
 // Core
 import "base:runtime"
 import "core:log"
+import "core:slice"
 
 // Local packages
 import gpu "../../"
@@ -150,7 +151,7 @@ init :: proc(title: string, width, height: u32, allocator := context.allocator) 
         force_fallback_adapter = false,
     }
 
-    gpu.instance_request_adapter(ctx.gc.instance, adapter_options, { callback = on_adapter })
+    gpu.instance_request_adapter(ctx.gc.instance, { callback = on_adapter }, adapter_options)
 }
 
 @(private="file")
@@ -222,6 +223,11 @@ on_adapter_and_device :: proc() {
     // Get surface capabilities
     ctx.gc.caps = gpu.surface_get_capabilities(ctx.gc.surface, ctx.gc.adapter)
 
+    present_mode := gpu.Present_Mode.Fifo
+    if slice.contains(ctx.gc.caps.present_modes, gpu.Present_Mode.Mailbox) {
+        present_mode = .Mailbox
+    }
+
     // Use first available format as the preferred one and remove the srgb if any
     preferred_format := gpu.texture_format_remove_srgb_suffix(ctx.gc.caps.formats[0])
 
@@ -233,7 +239,7 @@ on_adapter_and_device :: proc() {
         format       = preferred_format,
         width        = width,
         height       = height,
-        present_mode = .Fifo,
+        present_mode = present_mode,
         alpha_mode   = .Auto,
     }
 

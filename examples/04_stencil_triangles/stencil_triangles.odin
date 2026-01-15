@@ -22,7 +22,6 @@ Application :: struct {
     mask_vertex_buffer:  gpu.Buffer,
     outer_pipeline:      gpu.Render_Pipeline,
     mask_pipeline:       gpu.Render_Pipeline,
-    stencil_buffer:      gpu.Texture,
     depth_view:          gpu.Texture_View,
     depth_texture:       app.Depth_Stencil_Texture,
     rpass:               struct {
@@ -168,7 +167,7 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
 }
 
 create_stencil_buffer :: proc(self: ^Application, width, height: u32) {
-    self.stencil_buffer = gpu.device_create_texture(
+    stencil_texture := gpu.device_create_texture(
         self.device,
         {
             label = "Stencil buffer",
@@ -184,6 +183,7 @@ create_stencil_buffer :: proc(self: ^Application, width, height: u32) {
             usage           = {.Render_Attachment},
         },
     )
+    defer gpu.release(stencil_texture)
 
     texture_view_descriptor := gpu.Texture_View_Descriptor {
         format            = STENCIL_FORMAT,
@@ -192,10 +192,10 @@ create_stencil_buffer :: proc(self: ^Application, width, height: u32) {
         mip_level_count   = 1,
         base_array_layer  = 0,
         array_layer_count = 1,
-        aspect            = .All,
+        aspect            = .Stencil_Only,
     }
 
-    self.depth_view = gpu.texture_create_view(self.stencil_buffer, texture_view_descriptor)
+    self.depth_view = gpu.texture_create_view(stencil_texture, texture_view_descriptor)
 
     self.rpass.depth = {
         view = self.depth_view,
@@ -218,7 +218,6 @@ recreate_stencil_buffer :: proc(self: ^Application, width, height: u32) {
 }
 
 destroy_stencil_buffer :: proc(self: ^Application) {
-    gpu.release(self.stencil_buffer)
     gpu.release(self.depth_view)
 }
 

@@ -69,6 +69,7 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
     texture := gpu.device_create_texture(
         self.device,
         {
+            label           = "Mandelbrot Texels",
             size            = texture_extent,
             mip_level_count = 1,
             sample_count    = 1,

@@ -508,22 +508,6 @@ BLEND_STATE_NORMAL := Blend_State {
     alpha = BLEND_COMPONENT_NORMAL,
 }
 
-// Describes the color state of a render pipeline.
-Color_Target_State :: struct {
-    // The `Texture_Format` of the image that this pipeline will render to.
-    // Must match the format of the corresponding color attachment in
-    // `command_encoder_begin_render_pass`
-    format:     Texture_Format,
-    // The blending that is used for this pipeline.
-    blend:      ^Blend_State,
-    // Mask which enables/disables writes to different color/alpha channel.
-    write_mask: Color_Writes,
-}
-
-color_target_state_from :: proc(format: Texture_Format) -> Color_Target_State {
-    return {format = format, blend = nil, write_mask = COLOR_WRITES_ALL}
-}
-
 // Primitive type the input mesh is composed of.
 Primitive_Topology :: enum {
     // Indicates no value is passed for this argument.
@@ -985,19 +969,6 @@ Vertex_Step_Mode :: enum {
     Vertex,
     // Vertex data is advanced every instance.
     Instance,
-}
-
-// Vertex inputs (attributes) to shaders.
-//
-// These are used to specify the individual attributes within a `Vertex_Buffer_Layout`.
-// See its documentation for an example.
-Vertex_Attribute :: struct {
-    // Format of the input
-    format:          Vertex_Format,
-    // Byte offset of the start of the input
-    offset:          Buffer_Address,
-    // Location for this input. Must match the location in the shader.
-    shader_location: Shader_Location,
 }
 
 // Vertex Format for a `Vertex_Attribute` (input).
@@ -5217,6 +5188,19 @@ Render_Pipeline_Base :: struct {
     device:    Device,
 }
 
+// Vertex inputs (attributes) to shaders.
+//
+// These are used to specify the individual attributes within a `Vertex_Buffer_Layout`.
+// See its documentation for an example.
+Vertex_Attribute :: struct {
+    // Format of the input
+    format:          Vertex_Format,
+    // Byte offset of the start of the input
+    offset:          Buffer_Address,
+    // Location for this input. Must match the location in the shader.
+    shader_location: Shader_Location,
+}
+
 // Describes how the vertex buffer is interpreted.
 //
 // For use in `Vertex_State`.
@@ -5234,6 +5218,22 @@ Vertex_State :: struct {
     entry_point: string,
     constants:   []Constant_Entry,
     buffers:     []Vertex_Buffer_Layout,
+}
+
+// Describes the color state of a render pipeline.
+Color_Target_State :: struct {
+    // The `Texture_Format` of the image that this pipeline will render to.
+    // Must match the format of the corresponding color attachment in
+    // `command_encoder_begin_render_pass`
+    format:     Texture_Format,
+    // The blending that is used for this pipeline.
+    blend:      ^Blend_State,
+    // Mask which enables/disables writes to different color/alpha channel.
+    write_mask: Color_Writes,
+}
+
+color_target_state_from :: proc(format: Texture_Format) -> Color_Target_State {
+    return {format = format, blend = nil, write_mask = COLOR_WRITES_ALL}
 }
 
 // Describes the fragment processing in a render pipeline.

@@ -9,7 +9,7 @@ import sa "core:container/small_array"
 
 webgpu_init :: proc(allocator := context.allocator) {
     // Global procedures
-    _create_instance                        = js_create_instance
+    create_instance_impl                    = js_create_instance
 
     // Adapter procedures
     adapter_get_info                        = js_adapter_get_info
@@ -52,7 +52,7 @@ webgpu_init :: proc(allocator := context.allocator) {
     // command_encoder_begin_compute_pass   = js_command_encoder_begin_compute_pass
     command_encoder_begin_render_pass       = js_command_encoder_begin_render_pass
     command_encoder_clear_buffer            = js_command_encoder_clear_buffer
-    command_encoder_resolve_query_set       = js_ommand_encoder_resolve_query_set
+    command_encoder_resolve_query_set       = js_command_encoder_resolve_query_set
     command_encoder_write_timestamp         = js_command_encoder_write_timestamp
     command_encoder_copy_buffer_to_buffer   = js_command_encoder_copy_buffer_to_buffer
     command_encoder_copy_buffer_to_texture  = js_command_encoder_copy_buffer_to_texture
@@ -103,7 +103,7 @@ webgpu_init :: proc(allocator := context.allocator) {
 
     // Queue procedures
     queue_submit                            = js_queue_submit
-    queue_write_buffer_impl                     = js_queue_write_buffer
+    queue_write_buffer_impl                 = js_queue_write_buffer
     queue_write_texture                     = js_queue_write_texture
     queue_get_label                         = js_queue_get_label
     queue_set_label                         = js_queue_set_label
@@ -156,7 +156,7 @@ webgpu_init :: proc(allocator := context.allocator) {
     surface_capabilities_free_members       = js_surface_capabilities_free_members
 
     // Texture procedures
-    _texture_create_view                    = js_texture_create_view
+    texture_create_view_impl                = js_texture_create_view
     texture_get_label                       = js_texture_get_label
     texture_set_label                       = js_texture_set_label
     texture_add_ref                         = js_texture_add_ref
@@ -586,8 +586,8 @@ js_instance_create_surface :: proc(
 
 js_instance_request_adapter :: proc(
     instance: Instance,
-    options: Maybe(Request_Adapter_Options),
     callback_info: Request_Adapter_Callback_Info,
+    options: Maybe(Request_Adapter_Options) = nil,
     loc := #caller_location,
 ) {
     options := options.? or_else {}
@@ -917,7 +917,7 @@ js_command_encoder_clear_buffer :: proc(
     unimplemented()
 }
 
-js_ommand_encoder_resolve_query_set :: proc(
+js_command_encoder_resolve_query_set :: proc(
     encoder: Command_Encoder,
     query_set: Query_Set,
     first_query: u32,
@@ -1636,17 +1636,13 @@ js_surface_capabilities_free_members :: proc(
 @(require_results)
 js_texture_create_view :: proc(
     texture: Texture,
-    descriptor: Maybe(Texture_View_Descriptor) = nil,
+    descriptor: Texture_View_Descriptor,
     loc := #caller_location,
 ) -> (
     texture_view: Texture_View,
 ) {
-    if desc, desc_ok := descriptor.?; desc_ok {
-        texture_view = webgpuTextureCreateView(texture, &desc)
-    } else {
-        texture_view = webgpuTextureCreateView(texture, nil)
-    }
-    return
+    desc := descriptor
+    return webgpuTextureCreateView(texture, &desc)
 }
 
 js_texture_get_depth_or_array_layers :: proc(

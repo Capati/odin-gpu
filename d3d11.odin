@@ -828,15 +828,13 @@ d3d11_adapter_request_device :: proc(
         )
     }
 
-    device_impl := adapter_new_handle(D3D11_Device_Impl, adapter, impl.allocator, loc)
+    device_impl := adapter_new_handle(D3D11_Device_Impl, adapter, loc)
 
     queue_impl := device_new_handle(
         D3D11_Queue_Impl,
         Device(device_impl),
-        impl.allocator,
-        loc,
-        init_ref = false)
-    device_impl.queue = Queue(queue_impl)
+        loc)
+    device_impl.queue = queue_impl
     device_impl.is_debug_device = impl.is_debug_device
     device_impl.backend = instance_impl.backend
     device_impl.shader_formats = instance_impl.shader_formats
@@ -854,18 +852,14 @@ d3d11_adapter_request_device :: proc(
     cmd_impl := device_new_handle(
         D3D11_Command_Encoder_Impl,
         Device(device_impl),
-        impl.allocator,
-        loc,
-        init_ref = false)
+        loc)
     command_allocator_init(&cmd_impl.cmd_allocator, allocator = impl.allocator, loc = loc)
     device_impl.encoder = cmd_impl
 
     cmdbuf_impl := command_encoder_new_handle(
         D3D11_Command_Buffer_Impl,
         Command_Encoder(cmd_impl),
-        impl.allocator,
-        loc,
-        init_ref = false)
+        loc)
     cmd_impl.cmdbuf = cmdbuf_impl
 
     invoke_callback(callback_info, .Success, Device(device_impl), "")
@@ -894,7 +888,6 @@ d3d11_adapter_release :: proc(adapter: Adapter, loc := #caller_location) {
         impl->adapter->Release()
         impl->d3d_context->Release()
         impl->device->Release()
-        d3d11_instance_release(impl.instance, loc)
         free(impl)
     }
 }
@@ -982,7 +975,6 @@ d3d11_bind_group_layout_release :: proc(
         if len(impl.entries) > 0 {
             delete(impl.entries)
         }
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -1076,7 +1068,6 @@ d3d11_bind_group_release :: proc(bind_group: Bind_Group, loc := #caller_location
 
         delete(impl.entries)
 
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -1201,7 +1192,6 @@ d3d11_buffer_release :: proc(buffer: Buffer, loc := #caller_location) {
             impl.buffer = nil
         }
 
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -1260,7 +1250,7 @@ d3d11_command_encoder_begin_render_pass :: proc(
     }
 
     // Create render pass wrapper
-    rpass_impl := command_encoder_new_handle(D3D11_Render_Pass_Impl, encoder, impl.allocator, loc)
+    rpass_impl := command_encoder_new_handle(D3D11_Render_Pass_Impl, encoder, loc)
     rpass_impl.encoding = true
 
     color0 := sa.get(cmd.color_attachments, 0)
@@ -1299,18 +1289,12 @@ d3d11_command_encoder_set_label :: proc(
     string_buffer_init(&impl.label, label)
 }
 
+@(disabled = true)
 d3d11_command_encoder_add_ref :: proc(command_encoder: Command_Encoder, loc := #caller_location) {
-    // impl := get_impl(D3D11_Command_Encoder_Impl, command_encoder, loc)
-    // ref_count_add(&impl.ref, loc)
 }
 
+@(disabled = true)
 d3d11_command_encoder_release :: proc(command_encoder: Command_Encoder, loc := #caller_location) {
-    // impl := get_impl(D3D11_Command_Encoder_Impl, command_encoder, loc)
-    // if release := ref_count_sub(&impl.ref, loc); release {
-    //     context.allocator = impl.allocator
-    //     d3d11_device_release(impl.device, loc)
-    //     free(impl)
-    // }
 }
 
 // -----------------------------------------------------------------------------
@@ -1340,18 +1324,12 @@ d3d11_command_buffer_set_label :: proc(
     string_buffer_init(&impl.label, label)
 }
 
+@(disabled = true)
 d3d11_command_buffer_add_ref :: proc(command_buffer: Command_Buffer, loc := #caller_location) {
-    // impl := get_impl(D3D11_Command_Buffer_Impl, command_buffer, loc)
-    // ref_count_add(&impl.ref, loc)
 }
 
+@(disabled = true)
 d3d11_command_buffer_release :: proc(command_buffer: Command_Buffer, loc := #caller_location) {
-    // impl := get_impl(D3D11_Command_Buffer_Impl, command_buffer, loc)
-    // if release := ref_count_sub(&impl.ref, loc); release {
-    //     context.allocator = impl.allocator
-    //     d3d11_command_encoder_release(impl.encoder, loc)
-    //     free(impl)
-    // }
 }
 
 // -----------------------------------------------------------------------------
@@ -1364,6 +1342,7 @@ D3D11_Device_Impl :: struct {
     using base:      Device_Base,
 
     // Backend
+    queue:           ^D3D11_Queue_Impl,
     d3d_device:      ^D3D11_IDevice1,
     d3d_context:     ^D3D11_IDeviceContext1,
     // d3d_device:   ^d3d11.IDevice,
@@ -1380,7 +1359,7 @@ d3d11_device_create_bind_group_layout :: proc(
     loc := #caller_location,
 ) -> Bind_Group_Layout {
     impl := get_impl(D3D11_Device_Impl, device, loc)
-    layout := device_new_handle(D3D11_Bind_Group_Layout_Impl, device, impl.allocator, loc)
+    layout := device_new_handle(D3D11_Bind_Group_Layout_Impl, device, loc)
 
     if len(descriptor.label) > 0 {
         string_buffer_init(&layout.label, descriptor.label)
@@ -1453,7 +1432,7 @@ d3d11_device_create_bind_group :: proc(
     assert(descriptor.layout != nil, "Invalid bind group layout", loc)
     layout_impl := get_impl(D3D11_Bind_Group_Layout_Impl, descriptor.layout, loc)
 
-    bind_group := device_new_handle(D3D11_Bind_Group_Impl, device, impl.allocator, loc)
+    bind_group := device_new_handle(D3D11_Bind_Group_Impl, device, loc)
     bind_group.layout = layout_impl
 
     if len(descriptor.label) > 0 {
@@ -1552,6 +1531,7 @@ d3d11_device_create_bind_group :: proc(
     return Bind_Group(bind_group)
 }
 
+@(require_results)
 d3d11_device_create_buffer :: proc(
     device: Device,
     descriptor: Buffer_Descriptor,
@@ -1569,7 +1549,7 @@ d3d11_device_create_buffer :: proc(
         )
     }
 
-    buffer_impl := device_new_handle(D3D11_Buffer_Impl, device, impl.allocator, loc)
+    buffer_impl := device_new_handle(D3D11_Buffer_Impl, device, loc)
 
     final_size := u32(max(descriptor.size, 4))
     if .Indirect in descriptor.usage {
@@ -1773,7 +1753,7 @@ d3d11_device_create_render_pipeline :: proc(
     assert(descriptor.vertex.module != nil, "Vertex shader module is required", loc)
 
     // Allocate pipeline handle
-    out := device_new_handle(D3D11_Render_Pipeline_Impl, device, impl.allocator, loc)
+    out := device_new_handle(D3D11_Render_Pipeline_Impl, device, loc)
 
     // Optional debug label
     if len(descriptor.label) > 0 {
@@ -1880,13 +1860,13 @@ d3d11_device_create_render_pipeline :: proc(
     }
 
     // Store primitive topology
-    out.primitive_topology = d3d11_primitive_topology(descriptor.primitive.topology)
+    out.primitive_topology = d3d11_conv_to_primitive_topology(descriptor.primitive.topology)
     out.strip_index_format = descriptor.primitive.strip_index_format
 
     // Initialize the rasterizer state
     rasterizer_desc := d3d11.RASTERIZER_DESC {
         FillMode              = .SOLID,
-        CullMode              = d3d11_cull_mode(descriptor.primitive.cull_mode),
+        CullMode              = d3d11_conv_to_cull_mode(descriptor.primitive.cull_mode),
         FrontCounterClockwise = descriptor.primitive.front_face == .Ccw,
         DepthClipEnable       = win32.BOOL(descriptor.primitive.unclipped_depth),
         ScissorEnable         = true,
@@ -1916,7 +1896,7 @@ d3d11_device_create_render_pipeline :: proc(
             rt := &blend_desc.RenderTarget[i]
             rt.BlendEnable = target.blend != nil
             if rt.BlendEnable {
-                rt.SrcBlend = d3d11_blend_factor(target.blend.color.src_factor)
+                rt.SrcBlend = d3d11_conv_to_blend(target.blend.color.src_factor)
                 format_components := texture_format_components(target.format)
                 if format_components < 4 && rt.SrcBlend == .DEST_ALPHA {
                     // Missing format components default to 0, except A which defaults
@@ -1924,13 +1904,13 @@ d3d11_device_create_render_pipeline :: proc(
                     // avoids reading the destination texture.
                     rt.SrcBlend = .ONE
                 }
-                rt.DestBlend = d3d11_blend_factor(target.blend.color.dst_factor)
-                rt.BlendOp = d3d11_blend_operation(target.blend.color.operation)
-                rt.SrcBlendAlpha = d3d11_blend_alpha_factor(target.blend.alpha.src_factor)
-                rt.DestBlendAlpha = d3d11_blend_alpha_factor(target.blend.alpha.dst_factor)
-                rt.BlendOpAlpha = d3d11_blend_operation(target.blend.alpha.operation)
+                rt.DestBlend = d3d11_conv_to_blend(target.blend.color.dst_factor)
+                rt.BlendOp = d3d11_conv_to_blend_op(target.blend.color.operation)
+                rt.SrcBlendAlpha = d3d11_conv_to_blend_alpha(target.blend.alpha.src_factor)
+                rt.DestBlendAlpha = d3d11_conv_to_blend_alpha(target.blend.alpha.dst_factor)
+                rt.BlendOpAlpha = d3d11_conv_to_blend_op(target.blend.alpha.operation)
             }
-            rt.RenderTargetWriteMask = d3d11_color_write_mask(target.write_mask)
+            rt.RenderTargetWriteMask = d3d11_conv_to_color_write_enable(target.write_mask)
         }
     }
 
@@ -1944,12 +1924,12 @@ d3d11_device_create_render_pipeline :: proc(
         depth_stencil_desc := d3d11.DEPTH_STENCIL_DESC {
             DepthEnable      = win32.BOOL(ds.depth_compare != .Always || ds.depth_write_enabled),
             DepthWriteMask   = ds.depth_write_enabled  ? .ALL : .ZERO,
-            DepthFunc        = d3d11_comparison_func(ds.depth_compare),
+            DepthFunc        = d3d11_conv_to_comparison_func(ds.depth_compare),
             StencilEnable    = win32.BOOL(stencil_state_is_enabled(ds.stencil)),
             StencilReadMask  = u8(ds.stencil.read_mask),
             StencilWriteMask = u8(ds.stencil.write_mask),
-            FrontFace        = d3d11_stencil_face_state(ds.stencil.front),
-            BackFace         = d3d11_stencil_face_state(ds.stencil.back),
+            FrontFace        = d3d11_conv_to_depth_stencil_op_desc(ds.stencil.front),
+            BackFace         = d3d11_conv_to_depth_stencil_op_desc(ds.stencil.back),
         }
 
         hr = impl.d3d_device->CreateDepthStencilState(&depth_stencil_desc, &out.depth_stencil_state)
@@ -1976,7 +1956,7 @@ d3d11_device_create_pipeline_layout :: proc(
 ) -> Pipeline_Layout {
     impl := get_impl(D3D11_Device_Impl, device, loc)
 
-    layout := device_new_handle(D3D11_Pipeline_Layout_Impl, device, impl.allocator, loc)
+    layout := device_new_handle(D3D11_Pipeline_Layout_Impl, device, loc)
 
     if len(descriptor.label) > 0 {
         string_buffer_init(&layout.label, descriptor.label)
@@ -2017,19 +1997,9 @@ d3d11_device_create_texture :: proc(
 ) -> Texture {
     impl := get_impl(D3D11_Device_Impl, device, loc)
 
-    // Basic validation
-    assert(descriptor.size.width > 0, "Texture width must be greater than 0", loc)
-    assert(descriptor.size.height > 0, "Texture height must be greater than 0", loc)
-    assert(descriptor.size.depth_or_array_layers > 0, "Texture depth/layers must be greater than 0", loc)
-    assert(descriptor.mip_level_count > 0, "Mip level count must be at least 1", loc)
-    assert(descriptor.sample_count > 0, "Sample count must be at least 1", loc)
+    texture_descriptor_validade(descriptor, impl.features, loc)
 
-    // Format-specific feature validation
-    format_info := texture_format_guaranteed_format_features(descriptor.format, impl.features)
-    assert((descriptor.usage & format_info.allowed_usages) == descriptor.usage,
-           "Requested usage flags are not supported for this format on this device", loc)
-
-    texture := device_new_handle(D3D11_Texture_Impl, device, impl.allocator, loc)
+    texture := device_new_handle(D3D11_Texture_Impl, device, loc)
 
     if len(descriptor.label) > 0 {
         string_buffer_init(&texture.label, descriptor.label)
@@ -2163,9 +2133,9 @@ d3d11_device_create_sampler :: proc(
 
     sampler_desc: d3d11.SAMPLER_DESC
 
-    min_filter := d3d11_filter_type(descriptor.min_filter)
-    mag_filter := d3d11_filter_type(descriptor.mag_filter)
-    mipmap_filter := d3d11_mipmap_filter_type(descriptor.mipmap_filter)
+    min_filter := d3d11_conv_to_filter_type(descriptor.min_filter)
+    mag_filter := d3d11_conv_to_filter_type(descriptor.mag_filter)
+    mipmap_filter := d3d11_conv_to_mipmap_filter_type(descriptor.mipmap_filter)
 
     // https://docs.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_sampler_desc
     sampler_desc.MaxAnisotropy = u32(clamp(descriptor.anisotropy_clamp, 1, 16))
@@ -2182,13 +2152,13 @@ d3d11_device_create_sampler :: proc(
             d3d11_encode_basic_filter(min_filter, mag_filter, mipmap_filter, reduction)
     }
 
-    sampler_desc.AddressU = d3d11_texture_address_mode(descriptor.address_mode_u)
-    sampler_desc.AddressV = d3d11_texture_address_mode(descriptor.address_mode_v)
-    sampler_desc.AddressW = d3d11_texture_address_mode(descriptor.address_mode_w)
+    sampler_desc.AddressU = d3d11_conv_to_texture_address_mode(descriptor.address_mode_u)
+    sampler_desc.AddressV = d3d11_conv_to_texture_address_mode(descriptor.address_mode_v)
+    sampler_desc.AddressW = d3d11_conv_to_texture_address_mode(descriptor.address_mode_w)
     sampler_desc.MipLODBias = 0.0
 
     if descriptor.compare != .Undefined {
-        sampler_desc.ComparisonFunc = d3d11_comparison_func(descriptor.compare)
+        sampler_desc.ComparisonFunc = d3d11_conv_to_comparison_func(descriptor.compare)
     } else {
         sampler_desc.ComparisonFunc = .NEVER
     }
@@ -2199,7 +2169,7 @@ d3d11_device_create_sampler :: proc(
     hr := impl.d3d_device->CreateSamplerState(&sampler_desc, &sampler_state)
     d3d_check(hr, "d3d_device->CreateSamplerState failed", loc)
 
-    sampler := device_new_handle(D3D11_Sampler_Impl, device, impl.allocator, loc)
+    sampler := device_new_handle(D3D11_Sampler_Impl, device, loc)
     sampler.sampler_state = sampler_state
 
     return Sampler(sampler)
@@ -2216,7 +2186,7 @@ d3d11_device_create_shader_module :: proc(
     assert(len(descriptor.code) > 0, "Shader code is empty", loc)
     assert(len(descriptor.code) >= 4, "Shader bytecode too small to be valid", loc)
 
-    shader_impl := device_new_handle(D3D11_Shader_Module_Impl, device, impl.allocator, loc)
+    shader_impl := device_new_handle(D3D11_Shader_Module_Impl, device, loc)
 
     // Store shader bytecode
     shader_impl.bytecode = make([]u8, len(descriptor.code), impl.allocator)
@@ -2272,7 +2242,7 @@ d3d11_device_get_limits :: proc(device: Device, loc := #caller_location) -> Limi
 @(require_results)
 d3d11_device_get_queue :: proc(device: Device, loc := #caller_location) -> Queue {
     impl := get_impl(D3D11_Device_Impl, device, loc)
-    return impl.queue
+    return Queue(impl.queue)
 }
 
 @(require_results)
@@ -2310,7 +2280,6 @@ d3d11_device_release :: proc(device: Device, loc := #caller_location) {
         impl.d3d_context->Release()
         impl.d3d_device->Release()
 
-        d3d11_adapter_release(impl.adapter, loc)
         free(impl)
     }
 }
@@ -2358,7 +2327,7 @@ d3d11_instance_create_surface :: proc(
         return nil
     }
 
-    surface := instance_new_handle(D3D11_Surface_Impl, instance, impl.allocator, loc)
+    surface := instance_new_handle(D3D11_Surface_Impl, instance, loc)
 
     surface.allocator = impl.allocator
     surface.hinstance = hinstance
@@ -2369,8 +2338,8 @@ d3d11_instance_create_surface :: proc(
 
 d3d11_instance_request_adapter :: proc(
     instance: Instance,
-    options: Maybe(Request_Adapter_Options),
     callback_info: Request_Adapter_Callback_Info,
+    options: Maybe(Request_Adapter_Options) = nil,
     loc := #caller_location,
 ) {
     assert(callback_info.callback != nil, "No callback provided", loc)
@@ -2533,7 +2502,7 @@ d3d11_instance_request_adapter :: proc(
     d3d_check(hr, "Failed to query ID3D11DeviceContext1", loc)
 
     // Success: create adapter handle
-    adapter_impl := instance_new_handle(D3D11_Adapter_Impl, instance, impl.allocator, loc)
+    adapter_impl := instance_new_handle(D3D11_Adapter_Impl, instance, loc)
     adapter_impl.adapter = best_adapter
     adapter_impl.device = device1
     adapter_impl.d3d_context = d3d_context1
@@ -2617,7 +2586,6 @@ d3d11_pipeline_layout_release :: proc(pipeline_layout: Pipeline_Layout, loc := #
         if len(impl.push_constants) > 0 {
             delete(impl.push_constants)
         }
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -3550,7 +3518,6 @@ d3d11_sampler_release :: proc(sampler: Sampler, loc := #caller_location) {
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
         impl.sampler_state->Release()
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -3616,7 +3583,6 @@ d3d11_shader_module_release :: proc(shader_module: Shader_Module, loc := #caller
 
         delete(impl.bytecode)
 
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -3633,7 +3599,6 @@ D3D11_Surface_Impl :: struct {
     // Backend
     hinstance:             win32.HINSTANCE,
     hwnd:                  win32.HWND,
-    device:                Device,
     dxgi_swapchain_desc:   dxgi.SWAP_CHAIN_DESC1,
     dxgi_swapchain:        ^dxgi.ISwapChain1,
     framebuffer:           ^d3d11.ITexture2D,
@@ -3876,7 +3841,6 @@ d3d11_surface_release :: proc(surface: Surface, loc := #caller_location) {
             free(impl.framebuffer_impl)
         }
         if impl.dxgi_swapchain != nil { impl.dxgi_swapchain->Release() }
-        d3d11_instance_release(impl.instance, loc)
         free(impl)
     }
 }
@@ -4250,7 +4214,6 @@ d3d11_render_pipeline_release :: proc(render_pipeline: Render_Pipeline, loc := #
             impl.layout = nil
         }
 
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -4280,7 +4243,7 @@ D3D11_Texture_Impl :: struct {
 @(require_results)
 d3d11_texture_create_view :: proc(
     texture: Texture,
-    descriptor: Maybe(Texture_View_Descriptor) = nil,
+    descriptor: Texture_View_Descriptor,
     loc := #caller_location,
 ) -> Texture_View {
     impl := get_impl(D3D11_Texture_Impl, texture, loc)
@@ -4291,20 +4254,19 @@ d3d11_texture_create_view :: proc(
         return Texture_View(surface_impl.framebuffer_view_impl)
     }
 
-    view_impl := texture_new_handle(D3D11_Texture_View_Impl, texture, impl.allocator, loc)
-    desc := descriptor.? or_else {}
+    view_impl := texture_new_handle(D3D11_Texture_View_Impl, texture, loc)
 
-    view_impl.format = desc.format
-    view_impl.dimension = desc.dimension
-    view_impl.usage = desc.usage
-    view_impl.aspect = desc.aspect
-    view_impl.base_mip_level = desc.base_mip_level
-    view_impl.mip_level_count = desc.mip_level_count
-    view_impl.base_array_layer = desc.base_array_layer
-    view_impl.array_layer_count = desc.array_layer_count
+    view_impl.format = descriptor.format
+    view_impl.dimension = descriptor.dimension
+    view_impl.usage = descriptor.usage
+    view_impl.aspect = descriptor.aspect
+    view_impl.base_mip_level = descriptor.base_mip_level
+    view_impl.mip_level_count = descriptor.mip_level_count
+    view_impl.base_array_layer = descriptor.base_array_layer
+    view_impl.array_layer_count = descriptor.array_layer_count
 
-    if len(desc.label) > 0 {
-        string_buffer_init(&view_impl.label, desc.label)
+    if len(descriptor.label) > 0 {
+        string_buffer_init(&view_impl.label, descriptor.label)
     }
 
     // Get device for view creation
@@ -4396,7 +4358,6 @@ d3d11_texture_release :: proc(texture: Texture, loc := #caller_location) {
             impl.texture3d = nil
         }
 
-        d3d11_device_release(impl.device, loc)
         free(impl)
     }
 }

@@ -1,7 +1,7 @@
 {
     "folders": [
         {
-            "path": "."
+            "path": ".",
         }
     ],
     "build_systems": [
@@ -19,22 +19,22 @@
                             "build.bat",
                             "examples\\01_clear_screen",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/01_clear_screen",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/01_clear_screen",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "02 - Triangle",
@@ -45,22 +45,22 @@
                             "build.bat",
                             "examples\\02_triangle",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/02_triangle",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/02_triangle",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "03 - Square",
@@ -71,22 +71,22 @@
                             "build.bat",
                             "examples\\03_square",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/03_square",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/03_square",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "04 - Stencil Triangles",
@@ -97,22 +97,22 @@
                             "build.bat",
                             "examples\\04_stencil_triangles",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/04_stencil_triangles",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/04_stencil_triangles",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "05 - Cube",
@@ -123,22 +123,22 @@
                             "build.bat",
                             "examples\\05_cube",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/05_cube",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/05_cube",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "06 - Rotating Cube",
@@ -149,22 +149,22 @@
                             "build.bat",
                             "examples\\06_rotating_cube",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/06_rotating_cube",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/06_rotating_cube",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "07 - Two Cubes",
@@ -175,22 +175,22 @@
                             "build.bat",
                             "examples\\07_two_cubes",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/07_two_cubes",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/07_two_cubes",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "08 - Cube Textured",
@@ -201,22 +201,22 @@
                             "build.bat",
                             "examples\\08_cube_textured",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/08_cube_textured",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/08_cube_textured",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 },
                 {
                     "name": "Microui",
@@ -227,32 +227,32 @@
                             "build.bat",
                             "examples\\microui",
                             "run"
-                        ]
+                        ],
                     },
                     "linux": {
                         "cmd": [
                             "./build.sh",
                             "examples/microui",
                             "run"
-                        ]
+                        ],
                     },
                     "osx": {
                         "cmd": [
                             "./build.sh",
                             "examples/microui",
                             "run"
-                        ]
-                    }
+                        ],
+                    },
                 }
-            ]
+            ],
         }
     ],
     "settings": {
         "auto_complete": false,
         "LSP": {
             "odin": {
-                "enabled": true
-            }
-        }
-    }
+                "enabled": true,
+            },
+        },
+    },
 }

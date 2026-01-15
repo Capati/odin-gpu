@@ -18,6 +18,7 @@ import "libs/egl" // vendor version is incomplete
 // Global procedures
 // -----------------------------------------------------------------------------
 
+
 GL_Instance_Impl :: struct {
     using base:           Instance_Base,
     egl_display:          egl.Display,
@@ -116,15 +117,16 @@ gl_linux_create_instance :: proc(
     }
 
     // Create instance
-    impl := _gl_instance_new_impl(allocator, loc)
-    impl.ctx = context
-    impl.flags = desc.flags
-    impl.egl_display = display
-    impl.egl_major = major
-    impl.egl_minor = minor
+    impl := instance_new_impl(GL_Instance_Impl, allocator, loc)
+
+    impl.ctx             = context
+    impl.flags           = desc.flags
+    impl.egl_display     = display
+    impl.egl_major       = major
+    impl.egl_minor       = minor
     impl.extensions_view = extensions_str
-    impl.extensions = extensions
-    impl.egl_context = egl_context
+    impl.extensions      = extensions
+    impl.egl_context     = egl_context
 
     return Instance(impl)
 }
@@ -137,7 +139,7 @@ gl_linux_instance_create_surface :: proc(
 ) -> (
     ret: Surface,
 ) {
-    impl := gl_instance_get_impl(instance, loc)
+    impl := get_impl(GL_Instance_Impl, instance, loc)
 
     create_egl_surface :: proc(
         display: egl.Display,
@@ -248,12 +250,13 @@ gl_linux_instance_create_surface :: proc(
     }
 
     // Choose EGL config and create surface
-    egl_config, egl_surface := create_egl_surface(
+    egl_config, egl_surface, egl_surface_ok := create_egl_surface(
         impl.egl_display,
         native_window,
         use_srgb = false,
         use_msaa = false,
-    ) or_return
+    )
+    assert(egl_surface_ok, "Failed to create EGL surface", loc)
 
     // Bind the context to the actual window surface
     if !egl.MakeCurrent(impl.egl_display, egl_surface, egl_surface, impl.egl_context) {
@@ -265,7 +268,8 @@ gl_linux_instance_create_surface :: proc(
         return
     }
 
-    surface := gl_surface_new_impl(instance, impl.allocator, loc)
+    surface := instance_new_handle(GL_Surface_Impl, instance, loc)
+
     surface.native_window = native_window
     surface.egl_config = egl_config
     surface.egl_surface = egl_surface
@@ -275,12 +279,12 @@ gl_linux_instance_create_surface :: proc(
 
 gl_linux_instance_request_adapter :: proc(
     instance: Instance,
-    options: Maybe(Request_Adapter_Options),
     callback_info: Request_Adapter_Callback_Info,
+    options: Maybe(Request_Adapter_Options) = nil,
     loc := #caller_location,
 ) {
     assert(callback_info.callback != nil, "No callback provided for adapter request", loc)
-    impl := gl_instance_get_impl(instance, loc)
+    // impl := get_impl(GL_Instance_Impl, instance, loc)
 
     // opts := options.? or_else {}
 
@@ -304,7 +308,8 @@ gl_linux_instance_request_adapter :: proc(
     renderer := gl.GetString(gl.RENDERER)
     version := gl.GetString(gl.VERSION)
 
-    adapter_impl := _gl_adapter_new_impl(instance, impl.allocator, loc)
+    adapter_impl := instance_new_handle(GL_Adapter_Impl, instance, loc)
+
     adapter_impl.vendor = vendor
     adapter_impl.renderer = renderer
     adapter_impl.version = version
@@ -318,7 +323,7 @@ gl_linux_instance_request_adapter :: proc(
 
 gl_linux_instance_release :: proc(instance: Instance, loc := #caller_location) {
     assert(instance != nil, "Attempted to release nil instance", loc)
-    impl := gl_instance_get_impl(instance, loc)
+    impl := get_impl(GL_Instance_Impl, instance, loc)
 
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
@@ -340,6 +345,7 @@ gl_linux_instance_release :: proc(instance: Instance, loc := #caller_location) {
 // Adapter procedures
 // -----------------------------------------------------------------------------
 
+
 GL_Adapter_Impl :: struct {
     // Base
     label:     String_Buffer_Small,
@@ -355,18 +361,18 @@ GL_Adapter_Impl :: struct {
 
 gl_linux_adapter_release :: proc(adapter: Adapter, loc := #caller_location) {
     assert(adapter != nil, "Attempted to release nil adapter", loc)
-    impl := _gl_adapter_get_impl(adapter, loc)
+    impl := get_impl(GL_Adapter_Impl, adapter, loc)
 
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
-        gl_linux_instance_release(impl.instance, loc)
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Surface
+// Surface procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Surface_Impl :: struct {
     // Base
@@ -374,7 +380,10 @@ GL_Surface_Impl :: struct {
     ref:                 Ref_Count,
     instance:            Instance,
     allocator:           runtime.Allocator,
+    device:              Device,
     config:              Surface_Configuration,
+
+    // Backend
     pixel_format:        i32,
     back_buffer_count:   u32,
     textures:            sa.Small_Array(GL_MAX_BACK_BUFFERS, ^GL_Texture_Impl),
@@ -398,8 +407,10 @@ gl_linux_surface_get_capabilities :: proc(
 ) {
     assert(surface != nil, "Invalid surface", loc)
     assert(adapter != nil, "Invalid adapter", loc)
-    impl := _gl_surface_get_impl(surface, loc)
-    instance_impl := gl_instance_get_impl(impl.instance, loc)
+
+    impl := get_impl(GL_Surface_Impl, adapter, loc)
+    instance_impl := get_impl(GL_Instance_Impl, impl.instance, loc)
+
     context.allocator = allocator
 
     // Query EGL config attributes
@@ -471,7 +482,7 @@ gl_linux_surface_get_capabilities :: proc(
 }
 
 gl_linux_surface_present :: proc(impl: ^GL_Surface_Impl, loc := #caller_location) {
-    instance_impl := gl_instance_get_impl(impl.instance, loc)
+    instance_impl := get_impl(GL_Instance_Impl, impl.instance, loc)
 
     // Swap buffers
     ok := bool(egl.SwapBuffers(instance_impl.egl_display, impl.egl_surface))
@@ -494,11 +505,11 @@ gl_linux_surface_present :: proc(impl: ^GL_Surface_Impl, loc := #caller_location
 
 gl_linux_surface_release :: proc(surface: Surface, loc := #caller_location) {
     assert(surface != nil, "Attempted to release nil surface", loc)
-    impl := _gl_surface_get_impl(surface, loc)
+    impl := get_impl(GL_Surface_Impl, surface, loc)
 
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
-        instance_impl := gl_instance_get_impl(impl.instance, loc)
+        instance_impl := get_impl(GL_Instance_Impl, impl.instance, loc)
 
         gl_surface_cleanup_resources(impl, loc)
 
@@ -515,7 +526,10 @@ gl_linux_surface_release :: proc(surface: Surface, loc := #caller_location) {
             egl.DestroySurface(instance_impl.egl_display, impl.egl_surface)
         }
 
-        gl_linux_instance_release(impl.instance, loc)
+        if impl.device != nil {
+            gl_device_release(impl.device, loc)
+        }
+
         free(impl)
     }
 }

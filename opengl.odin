@@ -1,13 +1,12 @@
 #+build windows, linux
-#+private
 package gpu
 
 // Core
 import "base:runtime"
 import "core:log"
+import "core:slice"
 import "core:strings"
 import "core:sync"
-import "core:slice"
 import sa "core:container/small_array"
 import intr "base:intrinsics"
 
@@ -18,7 +17,7 @@ gl_init :: proc(allocator := context.allocator) {
     // Set platform specific procedures
     when ODIN_OS == .Windows {
         // Global procedures
-        _create_instance         = gl_win32_create_instance
+        create_instance_impl     = gl_win32_create_instance
 
         // Adapter procedures
         adapter_release          = gl_win32_adapter_release
@@ -33,7 +32,7 @@ gl_init :: proc(allocator := context.allocator) {
         surface_release          = gl_win32_surface_release
     } else  when ODIN_OS == .Linux  {
         // Global procedures
-        _create_instance         = gl_linux_create_instance
+        create_instance_impl     = gl_linux_create_instance
 
         // Adapter procedures
         adapter_release          = gl_linux_adapter_release
@@ -51,64 +50,62 @@ gl_init :: proc(allocator := context.allocator) {
     }
 
     // Adapter procedures
-    adapter_get_info                        = gl_adapter_get_info
-    adapter_info_free_members               = gl_adapter_info_free_members
-    adapter_get_features                    = gl_adapter_get_features
-    adapter_get_limits                      = gl_adapter_get_limits
-    adapter_has_feature                     = gl_adapter_has_feature
-    adapter_request_device                  = gl_adapter_request_device
-    adapter_get_texture_format_capabilities = gl_adapter_get_texture_format_capabilities
-    adapter_get_label                       = gl_adapter_get_label
-    adapter_set_label                       = gl_adapter_set_label
-    adapter_add_ref                         = gl_adapter_add_ref
+    adapter_get_info                          = gl_adapter_get_info
+    adapter_info_free_members                 = gl_adapter_info_free_members
+    adapter_get_features                      = gl_adapter_get_features
+    adapter_get_limits                        = gl_adapter_get_limits
+    adapter_has_feature                       = gl_adapter_has_feature
+    adapter_request_device                    = gl_adapter_request_device
+    adapter_get_texture_format_capabilities   = gl_adapter_get_texture_format_capabilities
+    adapter_get_label                         = gl_adapter_get_label
+    adapter_set_label                         = gl_adapter_set_label
+    adapter_add_ref                           = gl_adapter_add_ref
 
     // Bind Group procedures
-    bind_group_get_label                    = gl_bind_group_get_label
-    bind_group_set_label                    = gl_bind_group_set_label
-    bind_group_add_ref                      = gl_bind_group_add_ref
-    bind_group_release                      = gl_bind_group_release
+    bind_group_get_label                      = gl_bind_group_get_label
+    bind_group_set_label                      = gl_bind_group_set_label
+    bind_group_add_ref                        = gl_bind_group_add_ref
+    bind_group_release                        = gl_bind_group_release
 
     // Bind Group Layout procedures
-    bind_group_layout_get_label             = gl_bind_group_layout_get_label
-    bind_group_layout_set_label             = gl_bind_group_layout_set_label
-    bind_group_layout_add_ref               = gl_bind_group_layout_add_ref
-    bind_group_layout_release               = gl_bind_group_layout_release
+    bind_group_layout_get_label               = gl_bind_group_layout_get_label
+    bind_group_layout_set_label               = gl_bind_group_layout_set_label
+    bind_group_layout_add_ref                 = gl_bind_group_layout_add_ref
+    bind_group_layout_release                 = gl_bind_group_layout_release
 
     // Buffer procedures
-    buffer_destroy                          = gl_buffer_destroy
-    // buffer_get_const_mapped_range           = gl_buffer_get_const_mapped_range
-    // buffer_get_mapped_range                 = gl_buffer_get_mapped_range
-    buffer_get_map_state                    = gl_buffer_get_map_state
-    buffer_get_size                         = gl_buffer_get_size
-    buffer_get_usage                        = gl_buffer_get_usage
-    buffer_map_async                        = gl_buffer_map_async
-    buffer_unmap                            = gl_buffer_unmap
-    buffer_get_label                        = gl_buffer_get_label
-    buffer_set_label                        = gl_buffer_set_label
-    buffer_add_ref                          = gl_buffer_add_ref
-    buffer_release                          = gl_buffer_release
+    buffer_destroy                            = gl_buffer_destroy
+    buffer_get_map_state                      = gl_buffer_get_map_state
+    buffer_get_size                           = gl_buffer_get_size
+    buffer_get_usage                          = gl_buffer_get_usage
+    buffer_map_async                          = gl_buffer_map_async
+    buffer_unmap                              = gl_buffer_unmap
+    buffer_get_label                          = gl_buffer_get_label
+    buffer_set_label                          = gl_buffer_set_label
+    buffer_add_ref                            = gl_buffer_add_ref
+    buffer_release                            = gl_buffer_release
 
     // Command Buffer procedures
-    command_buffer_get_label                = gl_command_buffer_get_label
-    command_buffer_set_label                = gl_command_buffer_set_label
-    command_buffer_add_ref                  = gl_command_buffer_add_ref
-    command_buffer_release                  = gl_command_buffer_release
+    command_buffer_get_label                  = gl_command_buffer_get_label
+    command_buffer_set_label                  = gl_command_buffer_set_label
+    command_buffer_add_ref                    = gl_command_buffer_add_ref
+    command_buffer_release                    = gl_command_buffer_release
 
     // Command Encoder procedures
-    command_encoder_begin_compute_pass      = gl_command_encoder_begin_compute_pass
-    command_encoder_begin_render_pass       = gl_command_encoder_begin_render_pass
-    command_encoder_clear_buffer            = gl_command_encoder_clear_buffer
-    command_encoder_resolve_query_set       = gl_ommand_encoder_resolve_query_set
-    command_encoder_write_timestamp         = gl_command_encoder_write_timestamp
-    command_encoder_copy_buffer_to_buffer   = gl_command_encoder_copy_buffer_to_buffer
-    command_encoder_copy_buffer_to_texture  = gl_command_encoder_copy_buffer_to_texture
-    command_encoder_copy_texture_to_buffer  = gl_command_encoder_copy_texture_to_buffer
-    command_encoder_copy_texture_to_texture = gl_command_encoder_copy_texture_to_texture
-    command_encoder_finish                  = gl_command_encoder_finish
-    command_encoder_get_label               = gl_command_encoder_get_label
-    command_encoder_set_label               = gl_command_encoder_set_label
-    command_encoder_add_ref                 = gl_command_encoder_add_ref
-    command_encoder_release                 = gl_command_encoder_release
+    command_encoder_begin_compute_pass        = gl_command_encoder_begin_compute_pass
+    command_encoder_begin_render_pass         = gl_command_encoder_begin_render_pass
+    command_encoder_clear_buffer              = gl_command_encoder_clear_buffer
+    command_encoder_resolve_query_set         = gl_ommand_encoder_resolve_query_set
+    command_encoder_write_timestamp           = gl_command_encoder_write_timestamp
+    command_encoder_copy_buffer_to_buffer     = gl_command_encoder_copy_buffer_to_buffer
+    command_encoder_copy_buffer_to_texture    = gl_command_encoder_copy_buffer_to_texture
+    command_encoder_copy_texture_to_buffer    = gl_command_encoder_copy_texture_to_buffer
+    command_encoder_copy_texture_to_texture   = gl_command_encoder_copy_texture_to_texture
+    command_encoder_finish                    = gl_command_encoder_finish
+    command_encoder_get_label                 = gl_command_encoder_get_label
+    command_encoder_set_label                 = gl_command_encoder_set_label
+    command_encoder_add_ref                   = gl_command_encoder_add_ref
+    command_encoder_release                   = gl_command_encoder_release
 
     // Compute Pass procedures
     compute_pass_dispatch_workgroups          = gl_compute_pass_dispatch_workgroups
@@ -125,130 +122,130 @@ gl_init :: proc(allocator := context.allocator) {
     compute_pass_release                      = gl_compute_pass_release
 
     // Compute Pipeline procedures
-    compute_pipeline_get_bind_group_layout = gl_compute_pipeline_get_bind_group_layout
-    compute_pipeline_get_label             = gl_compute_pipeline_get_label
-    compute_pipeline_set_label             = gl_compute_pipeline_set_label
-    compute_pipeline_add_ref               = gl_compute_pipeline_add_ref
-    compute_pipeline_release               = gl_compute_pipeline_release
+    compute_pipeline_get_bind_group_layout    = gl_compute_pipeline_get_bind_group_layout
+    compute_pipeline_get_label                = gl_compute_pipeline_get_label
+    compute_pipeline_set_label                = gl_compute_pipeline_set_label
+    compute_pipeline_add_ref                  = gl_compute_pipeline_add_ref
+    compute_pipeline_release                  = gl_compute_pipeline_release
 
     // Device procedures
-    device_create_bind_group                = gl_device_create_bind_group
-    device_create_bind_group_layout         = gl_device_create_bind_group_layout
-    device_create_buffer                    = gl_device_create_buffer
-    device_get_queue                        = gl_device_get_queue
-    device_create_texture                   = gl_device_create_texture
-    device_create_sampler                   = gl_device_create_sampler
-    device_create_command_encoder           = gl_device_create_command_encoder
-    device_create_pipeline_layout           = gl_device_create_pipeline_layout
-    device_create_shader_module             = gl_device_create_shader_module
-    device_create_render_pipeline           = gl_device_create_render_pipeline
-    device_get_features                     = gl_device_get_features
-    device_get_limits                       = gl_device_get_limits
-    device_get_label                        = gl_device_get_label
-    device_set_label                        = gl_device_set_label
-    device_add_ref                          = gl_device_add_ref
-    device_release                          = gl_device_release
+    device_create_bind_group                  = gl_device_create_bind_group
+    device_create_bind_group_layout           = gl_device_create_bind_group_layout
+    device_create_buffer                      = gl_device_create_buffer
+    device_get_queue                          = gl_device_get_queue
+    device_create_texture                     = gl_device_create_texture
+    device_create_sampler                     = gl_device_create_sampler
+    device_create_command_encoder             = gl_device_create_command_encoder
+    device_create_pipeline_layout             = gl_device_create_pipeline_layout
+    device_create_shader_module               = gl_device_create_shader_module
+    device_create_render_pipeline             = gl_device_create_render_pipeline
+    device_get_features                       = gl_device_get_features
+    device_get_limits                         = gl_device_get_limits
+    device_get_label                          = gl_device_get_label
+    device_set_label                          = gl_device_set_label
+    device_add_ref                            = gl_device_add_ref
+    device_release                            = gl_device_release
 
     // Instance procedures
-    instance_enumarate_adapters             = gl_instance_enumarate_adapters
-    instance_get_label                      = gl_instance_get_label
-    instance_set_label                      = gl_instance_set_label
-    instance_add_ref                        = gl_instance_add_ref
+    instance_enumarate_adapters               = gl_instance_enumarate_adapters
+    instance_get_label                        = gl_instance_get_label
+    instance_set_label                        = gl_instance_set_label
+    instance_add_ref                          = gl_instance_add_ref
 
     // Pipeline Layout procedures
-    pipeline_layout_get_label               = gl_pipeline_layout_get_label
-    pipeline_layout_set_label               = gl_pipeline_layout_set_label
-    pipeline_layout_add_ref                 = gl_pipeline_layout_add_ref
-    pipeline_layout_release                 = gl_pipeline_layout_release
+    pipeline_layout_get_label                 = gl_pipeline_layout_get_label
+    pipeline_layout_set_label                 = gl_pipeline_layout_set_label
+    pipeline_layout_add_ref                   = gl_pipeline_layout_add_ref
+    pipeline_layout_release                   = gl_pipeline_layout_release
 
     // Surface procedures
-    surface_capabilities_free_members       = gl_surface_capabilities_free_members
-    surface_configure                       = gl_surface_configure
-    surface_get_current_texture             = gl_surface_get_current_texture
-    surface_present                         = gl_surface_present
-    surface_get_label                       = gl_surface_get_label
-    surface_set_label                       = gl_surface_set_label
-    surface_add_ref                         = gl_surface_add_ref
+    surface_capabilities_free_members         = gl_surface_capabilities_free_members
+    surface_configure                         = gl_surface_configure
+    surface_get_current_texture               = gl_surface_get_current_texture
+    surface_present                           = gl_surface_present
+    surface_get_label                         = gl_surface_get_label
+    surface_set_label                         = gl_surface_set_label
+    surface_add_ref                           = gl_surface_add_ref
 
     // Queue procedures
-    queue_submit                            = gl_queue_submit
-    queue_write_buffer_impl                     = gl_queue_write_buffer
-    queue_write_texture                     = gl_queue_write_texture
-    queue_get_label                         = gl_queue_get_label
-    queue_set_label                         = gl_queue_set_label
-    queue_add_ref                           = gl_queue_add_ref
-    queue_release                           = gl_queue_release
+    queue_submit                              = gl_queue_submit
+    queue_write_buffer_impl                   = gl_queue_write_buffer
+    queue_write_texture                       = gl_queue_write_texture
+    queue_get_label                           = gl_queue_get_label
+    queue_set_label                           = gl_queue_set_label
+    queue_add_ref                             = gl_queue_add_ref
+    queue_release                             = gl_queue_release
 
     // Sampler procedures
-    sampler_get_label                       = gl_sampler_get_label
-    sampler_set_label                       = gl_sampler_set_label
-    sampler_add_ref                         = gl_sampler_add_ref
-    sampler_release                         = gl_sampler_release
+    sampler_get_label                         = gl_sampler_get_label
+    sampler_set_label                         = gl_sampler_set_label
+    sampler_add_ref                           = gl_sampler_add_ref
+    sampler_release                           = gl_sampler_release
 
     // Texture procedures
-    _texture_create_view                     = gl_texture_create_view
-    texture_get_usage                       = gl_texture_get_usage
-    texture_get_dimension                   = gl_texture_get_dimension
-    texture_get_size                        = gl_texture_get_size
-    texture_get_width                       = gl_texture_get_width
-    texture_get_height                      = gl_texture_get_height
-    texture_get_format                      = gl_texture_get_format
-    texture_get_mip_level_count             = gl_texture_get_mip_level_count
-    texture_get_sample_count                = gl_texture_get_sample_count
-    texture_get_descriptor                  = gl_texture_get_descriptor
-    texture_get_label                       = gl_texture_get_label
-    texture_set_label                       = gl_texture_set_label
-    texture_add_ref                         = gl_texture_add_ref
-    texture_release                         = gl_texture_release
+    texture_create_view_impl                  = gl_texture_create_view
+    texture_get_usage                         = gl_texture_get_usage
+    texture_get_dimension                     = gl_texture_get_dimension
+    texture_get_size                          = gl_texture_get_size
+    texture_get_width                         = gl_texture_get_width
+    texture_get_height                        = gl_texture_get_height
+    texture_get_format                        = gl_texture_get_format
+    texture_get_mip_level_count               = gl_texture_get_mip_level_count
+    texture_get_sample_count                  = gl_texture_get_sample_count
+    texture_get_descriptor                    = gl_texture_get_descriptor
+    texture_get_label                         = gl_texture_get_label
+    texture_set_label                         = gl_texture_set_label
+    texture_add_ref                           = gl_texture_add_ref
+    texture_release                           = gl_texture_release
 
     // Texture View procedures
-    texture_view_get_label                  = gl_texture_view_get_label
-    texture_view_set_label                  = gl_texture_view_set_label
-    texture_view_add_ref                    = gl_texture_view_add_ref
-    texture_view_release                    = gl_texture_view_release
+    texture_view_get_label                    = gl_texture_view_get_label
+    texture_view_set_label                    = gl_texture_view_set_label
+    texture_view_add_ref                      = gl_texture_view_add_ref
+    texture_view_release                      = gl_texture_view_release
 
     // Render Pass procedures
-    render_pass_begin_occlusion_query       = gl_render_pass_begin_occlusion_query
-    render_pass_set_scissor_rect            = gl_render_pass_set_scissor_rect
-    render_pass_set_viewport                = gl_render_pass_set_viewport
-    render_pass_set_stencil_reference       = gl_render_pass_set_stencil_reference
-    render_pass_draw                        = gl_render_pass_draw
-    render_pass_draw_indexed                = gl_render_pass_draw_indexed
-    render_pass_draw_indexed_indirect       = gl_render_pass_draw_indexed_indirect
-    render_pass_draw_indirect               = gl_render_pass_draw_indirect
-    render_pass_end_occlusion_query         = gl_render_pass_end_occlusion_query
-    render_pass_execute_bundles             = gl_render_pass_execute_bundles
-    render_pass_insert_debug_marker         = gl_render_pass_insert_debug_marker
-    render_pass_pop_debug_group             = gl_render_pass_pop_debug_group
-    render_pass_push_debug_group            = gl_render_pass_push_debug_group
-    render_pass_set_bind_group              = gl_render_pass_set_bind_group
-    render_pass_set_pipeline                = gl_render_pass_set_pipeline
-    render_pass_set_vertex_buffer           = gl_render_pass_set_vertex_buffer
-    render_pass_set_index_buffer            = gl_render_pass_set_index_buffer
-    render_pass_end                         = gl_render_pass_end
-    render_pass_get_label                   = gl_render_pass_get_label
-    render_pass_set_label                   = gl_render_pass_set_label
-    render_pass_add_ref                     = gl_render_pass_add_ref
-    render_pass_release                     = gl_render_pass_release
+    render_pass_begin_occlusion_query         = gl_render_pass_begin_occlusion_query
+    render_pass_set_scissor_rect              = gl_render_pass_set_scissor_rect
+    render_pass_set_viewport                  = gl_render_pass_set_viewport
+    render_pass_set_stencil_reference         = gl_render_pass_set_stencil_reference
+    render_pass_draw                          = gl_render_pass_draw
+    render_pass_draw_indexed                  = gl_render_pass_draw_indexed
+    render_pass_draw_indexed_indirect         = gl_render_pass_draw_indexed_indirect
+    render_pass_draw_indirect                 = gl_render_pass_draw_indirect
+    render_pass_end_occlusion_query           = gl_render_pass_end_occlusion_query
+    render_pass_execute_bundles               = gl_render_pass_execute_bundles
+    render_pass_insert_debug_marker           = gl_render_pass_insert_debug_marker
+    render_pass_pop_debug_group               = gl_render_pass_pop_debug_group
+    render_pass_push_debug_group              = gl_render_pass_push_debug_group
+    render_pass_set_bind_group                = gl_render_pass_set_bind_group
+    render_pass_set_pipeline                  = gl_render_pass_set_pipeline
+    render_pass_set_vertex_buffer             = gl_render_pass_set_vertex_buffer
+    render_pass_set_index_buffer              = gl_render_pass_set_index_buffer
+    render_pass_end                           = gl_render_pass_end
+    render_pass_get_label                     = gl_render_pass_get_label
+    render_pass_set_label                     = gl_render_pass_set_label
+    render_pass_add_ref                       = gl_render_pass_add_ref
+    render_pass_release                       = gl_render_pass_release
 
      // Render Bundle procedures
-    render_bundle_get_label                 = gl_render_bundle_get_label
-    render_bundle_set_label                 = gl_render_bundle_set_label
-    render_bundle_add_ref                   = gl_render_bundle_add_ref
-    render_bundle_release                   = gl_render_bundle_release
+    render_bundle_get_label                   = gl_render_bundle_get_label
+    render_bundle_set_label                   = gl_render_bundle_set_label
+    render_bundle_add_ref                     = gl_render_bundle_add_ref
+    render_bundle_release                     = gl_render_bundle_release
 
     // Shader Module procedures
-    shader_module_get_label                 = gl_shader_module_get_label
-    shader_module_set_label                 = gl_shader_module_set_label
-    shader_module_add_ref                   = gl_shader_module_add_ref
-    shader_module_release                   = gl_shader_module_release
+    shader_module_get_label                   = gl_shader_module_get_label
+    shader_module_set_label                   = gl_shader_module_set_label
+    shader_module_add_ref                     = gl_shader_module_add_ref
+    shader_module_release                     = gl_shader_module_release
 
     // Render Pipeline procedures
-    render_pipeline_get_bind_group_layout   = gl_render_pipeline_get_bind_group_layout
-    render_pipeline_get_label               = gl_render_pipeline_get_label
-    render_pipeline_set_label               = gl_render_pipeline_set_label
-    render_pipeline_add_ref                 = gl_render_pipeline_add_ref
-    render_pipeline_release                 = gl_render_pipeline_release
+    render_pipeline_get_bind_group_layout     = gl_render_pipeline_get_bind_group_layout
+    render_pipeline_get_label                 = gl_render_pipeline_get_label
+    render_pipeline_set_label                 = gl_render_pipeline_set_label
+    render_pipeline_add_ref                   = gl_render_pipeline_add_ref
+    render_pipeline_release                   = gl_render_pipeline_release
 }
 
 // -----------------------------------------------------------------------------
@@ -258,8 +255,9 @@ gl_init :: proc(allocator := context.allocator) {
 // Note: Platform specific
 
 // -----------------------------------------------------------------------------
-// Adapter
+// Adapter procedures
 // -----------------------------------------------------------------------------
+
 
 @(require_results)
 gl_adapter_get_features :: proc(
@@ -777,21 +775,20 @@ gl_adapter_request_device :: proc(
         gl.DebugMessageCallback(gl_message_callback, instance_impl)
     }
 
-    device_impl := adapter_new_handle(GL_Device_Impl, adapter, impl.allocator, loc)
-    queue_impl := device_new_handle(
-        GL_Queue_Impl, Device(device_impl), impl.allocator, loc, init_ref = false)
-    device_impl.queue = Queue(queue_impl)
+    device_impl := adapter_new_handle(GL_Device_Impl, adapter, loc)
+    queue_impl := device_new_handle(GL_Queue_Impl, Device(device_impl), loc)
+    device_impl.queue = queue_impl
     device_impl.backend = instance_impl.backend
     device_impl.shader_formats = instance_impl.shader_formats
 
     // Initialize base command allocator
-    cmd_impl := device_new_handle(
-        GL_Command_Encoder_Impl, Device(device_impl), impl.allocator, loc, init_ref = false)
+    cmd_impl := device_new_handle(GL_Command_Encoder_Impl, Device(device_impl), loc)
+    gl_adapter_add_ref(adapter, loc)
+
     command_allocator_init(&cmd_impl.cmd_allocator, allocator = impl.allocator, loc = loc)
     device_impl.encoder = cmd_impl
 
-    cmdbuf_impl := command_encoder_new_handle(
-        GL_Command_Buffer_Impl, Command_Encoder(cmd_impl), impl.allocator, loc, init_ref = false)
+    cmdbuf_impl := command_encoder_new_handle(GL_Command_Buffer_Impl, Command_Encoder(cmd_impl), loc)
     cmd_impl.cmdbuf = cmdbuf_impl
 
     // Check if polygon offset clamp is supported
@@ -832,8 +829,9 @@ gl_adapter_add_ref :: proc(adapter: Adapter, loc := #caller_location) {
 }
 
 // -----------------------------------------------------------------------------
-// Bind Group
+// Bind Group procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Bind_Group_Entry :: struct {
     binding:  u32,
@@ -911,17 +909,16 @@ gl_bind_group_release :: proc(bind_group: Bind_Group, loc := #caller_location) {
                 }
             }
         }
-
         delete(impl.entries)
 
-        gl_device_release(impl.device, loc)
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Bind Group Layout
+// Bind Group Layout procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Bind_Group_Layout_Impl :: struct {
     using base: Bind_Group_Layout_Base,
@@ -1004,19 +1001,22 @@ gl_bind_group_layout_release :: proc(
     loc := #caller_location,
 ) {
     impl := get_impl(GL_Bind_Group_Layout_Impl, bind_group_layout, loc)
+
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
+
         if len(impl.entries) > 0 {
             delete(impl.entries)
         }
-        gl_device_release(impl.device, loc)
+
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Buffer
+// Buffer procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Buffer_Impl :: struct {
     using base:     Buffer_Base,
@@ -1191,17 +1191,18 @@ gl_buffer_release :: proc(buffer: Buffer, loc := #caller_location)  {
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
         gl_buffer_destroy(buffer, loc)
-        gl_device_release(impl.device, loc)
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Device
+// Device procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Device_Impl :: struct {
     using base:           Device_Base,
+    queue:                ^GL_Queue_Impl,
     encoder:              ^GL_Command_Encoder_Impl,
     polygon_offset_clamp: bool,
     pending_maps:         Pool(GL_Pending_Map_Request),
@@ -1216,7 +1217,7 @@ gl_device_create_bind_group_layout :: proc(
     loc := #caller_location,
 ) -> Bind_Group_Layout {
     impl := get_impl(GL_Device_Impl, device, loc)
-    layout := device_new_handle(GL_Bind_Group_Layout_Impl, device, impl.allocator, loc)
+    layout := device_new_handle(GL_Bind_Group_Layout_Impl, device, loc)
 
     // Convert entries to GL-specific format
     if len(descriptor.entries) > 0 {
@@ -1302,7 +1303,7 @@ gl_device_create_bind_group :: proc(
     layout_impl := get_impl(GL_Bind_Group_Layout_Impl, descriptor.layout, loc)
 
     // Allocate new bind group
-    bind_group := device_new_handle(GL_Bind_Group_Impl, device, impl.allocator, loc)
+    bind_group := device_new_handle(GL_Bind_Group_Impl, device, loc)
 
     if len(descriptor.label) > 0 {
         string_buffer_init(&bind_group.label, descriptor.label)
@@ -1402,7 +1403,7 @@ gl_device_create_buffer :: proc(
     descriptor: Buffer_Descriptor,
     loc := #caller_location,
 ) -> Buffer {
-    impl := get_impl(GL_Device_Impl, device, loc)
+    // impl := get_impl(GL_Device_Impl, device, loc)
 
     // Validate descriptor
     assert(descriptor.size > 0, "Buffer size must be greater than 0", loc)
@@ -1423,7 +1424,7 @@ gl_device_create_buffer :: proc(
     storage_flags := gl_get_buffer_storage_flags(descriptor.usage, descriptor.mapped_at_creation)
     gl.NamedBufferStorage(handle, int(allocated_size), nil, storage_flags)
 
-    buffer_impl := device_new_handle(GL_Buffer_Impl, device, impl.allocator, loc)
+    buffer_impl := device_new_handle(GL_Buffer_Impl, device, loc)
 
     buffer_impl.handle             = handle
     buffer_impl.allocated_size     = allocated_size
@@ -1459,7 +1460,7 @@ gl_device_create_buffer :: proc(
 @(require_results)
 gl_device_get_queue :: proc(device: Device, loc := #caller_location) -> Queue {
     impl := get_impl(GL_Device_Impl, device, loc)
-    return impl.queue
+    return Queue(impl.queue)
 }
 
 gl_device_create_texture :: proc(
@@ -1475,8 +1476,8 @@ gl_device_create_texture :: proc(
     assert(descriptor.mip_level_count > 0, "Mip level count must be at least 1", loc)
     assert(descriptor.sample_count > 0, "Sample count must be at least 1", loc)
 
-    impl := get_impl(GL_Device_Impl, device, loc)
-    texture := device_new_handle(GL_Texture_Impl, device, impl.allocator, loc)
+    // impl := get_impl(GL_Device_Impl, device, loc)
+    texture := device_new_handle(GL_Texture_Impl, device, loc)
 
     // Store descriptor info
     texture.size = descriptor.size
@@ -1631,7 +1632,7 @@ gl_device_create_sampler :: proc(
     descriptor: Sampler_Descriptor,
     loc := #caller_location,
 ) -> Sampler {
-    impl := get_impl(GL_Device_Impl, device, loc)
+    // impl := get_impl(GL_Device_Impl, device, loc)
 
     sampler_id: u32
     gl.CreateSamplers(1, &sampler_id)
@@ -1680,7 +1681,7 @@ gl_device_create_sampler :: proc(
         gl.SamplerParameterfv(sampler_id, gl.TEXTURE_BORDER_COLOR, &border_color[0])
     }
 
-    sampler := device_new_handle(GL_Sampler_Impl, device, impl.allocator, loc)
+    sampler := device_new_handle(GL_Sampler_Impl, device, loc)
     sampler.handle = sampler_id
 
     return Sampler(sampler)
@@ -1693,8 +1694,6 @@ gl_device_create_command_encoder :: proc(
     loc := #caller_location,
 ) -> Command_Encoder {
     impl := get_impl(GL_Device_Impl, device, loc)
-    ref_count_init(&impl.encoder.ref, loc)
-    gl_device_add_ref(device)
     impl.encoder.encoding = true
     return Command_Encoder(impl.encoder)
 }
@@ -1707,7 +1706,7 @@ gl_device_create_pipeline_layout :: proc(
 ) -> Pipeline_Layout {
     impl := get_impl(GL_Device_Impl, device, loc)
 
-    layout := device_new_handle(GL_Pipeline_Layout_Impl, device, impl.allocator, loc)
+    layout := device_new_handle(GL_Pipeline_Layout_Impl, device, loc)
 
     if len(descriptor.label) > 0 {
         string_buffer_init(&layout.label, descriptor.label)
@@ -1821,7 +1820,7 @@ gl_device_create_shader_module :: proc(
 
     assert(success != 0, "Invalid shader", loc)
 
-    shader_module := device_new_handle(GL_Shader_Module_Impl, device, impl.allocator, loc)
+    shader_module := device_new_handle(GL_Shader_Module_Impl, device, loc)
     shader_module.handle = handle
 
     // Set label
@@ -1840,9 +1839,9 @@ gl_device_create_render_pipeline :: proc(
     descriptor: Render_Pipeline_Descriptor,
     loc := #caller_location,
 ) -> Render_Pipeline {
-    device_impl := get_impl(GL_Device_Impl, device, loc)
+    // device_impl := get_impl(GL_Device_Impl, device, loc)
 
-    impl := device_new_handle(GL_Render_Pipeline_Impl, device, device_impl.allocator, loc)
+    impl := device_new_handle(GL_Render_Pipeline_Impl, device, loc)
 
     assert(descriptor.vertex.module != nil, "Invalid vertex shader module", loc)
     vertex_shader_impl := get_impl(GL_Shader_Module_Impl, descriptor.vertex.module, loc)
@@ -2102,6 +2101,7 @@ gl_device_add_ref :: proc(device: Device, loc := #caller_location) {
 
 gl_device_release :: proc(device: Device, loc := #caller_location) {
     impl := get_impl(GL_Device_Impl, device, loc)
+
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
 
@@ -2127,13 +2127,15 @@ gl_device_release :: proc(device: Device, loc := #caller_location) {
             queue_impl := get_impl(GL_Queue_Impl, impl.queue, loc)
             free(queue_impl, queue_impl.allocator)
         }
+
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Instance
+// Instance procedures
 // -----------------------------------------------------------------------------
+
 
 gl_instance_enumarate_adapters :: proc(
     instance: Instance,
@@ -2163,14 +2165,14 @@ gl_instance_enumarate_adapters :: proc(
         userdata1 = &adapter_res,
     }
 
-    instance_request_adapter(instance, nil, adapter_callback_info)
+    instance_request_adapter(instance, adapter_callback_info, nil)
     if (adapter_res.status != .Success) {
         return {}
     }
 
     // We always use one adapter in OpenGL
     adpaters := make([]^GL_Adapter_Impl, 1, allocator)
-    adapter_impl := instance_new_handle(GL_Adapter_Impl, instance, allocator, loc)
+    adapter_impl := instance_new_handle(GL_Adapter_Impl, instance, loc)
 
     // Get features and limits
     adapter_impl.features = gl_adapter_get_features(Adapter(adapter_impl), loc)
@@ -2198,8 +2200,9 @@ gl_instance_add_ref :: proc(instance: Instance, loc := #caller_location) {
 }
 
 // -----------------------------------------------------------------------------
-// Pipeline Layout
+// Pipeline Layout procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Pipeline_Layout_Impl :: struct {
     using base:     Pipeline_Layout_Base,
@@ -2242,14 +2245,14 @@ gl_pipeline_layout_release :: proc(pipeline_layout: Pipeline_Layout, loc := #cal
         if len(impl.push_constants) > 0 {
             delete(impl.push_constants)
         }
-        gl_device_release(impl.device, loc)
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Surface
+// Surface procedures
 // -----------------------------------------------------------------------------
+
 
 gl_surface_capabilities_free_members :: proc(
     caps: Surface_Capabilities,
@@ -2293,6 +2296,7 @@ gl_surface_configure :: proc(
     impl := get_impl(GL_Surface_Impl, surface, loc)
 
     impl.back_buffer_count = config.present_mode == .Mailbox ? 3 : 2
+    impl.device = device
     impl.config = config
     impl.current_frame_index = 0
 
@@ -2302,13 +2306,14 @@ gl_surface_configure :: proc(
     } else {
         // Otherwise, create initial resources
         for _ in 0 ..< impl.back_buffer_count {
-            texture_impl := device_new_handle(GL_Texture_Impl, device, impl.allocator, loc)
+            texture_impl := device_new_handle(GL_Texture_Impl, device, loc)
             sa.push_back(&impl.textures, texture_impl)
 
-            view_impl := texture_new_handle(
-                GL_Texture_View_Impl, Texture(texture_impl), impl.allocator, loc)
+            view_impl := texture_new_handle(GL_Texture_View_Impl, Texture(texture_impl), loc)
             sa.push_back(&impl.views, view_impl)
         }
+
+        gl_device_add_ref(device, loc)
     }
 
     for i in 0 ..< int(impl.back_buffer_count) {
@@ -2461,6 +2466,7 @@ gl_surface_add_ref :: proc(surface: Surface, loc := #caller_location) {
 // -----------------------------------------------------------------------------
 // Queue procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Queue_Impl :: struct {
     using base: Queue_Base,
@@ -3232,12 +3238,14 @@ gl_queue_add_ref :: proc(queue: Queue, loc := #caller_location) {
     ref_count_add(&impl.ref, loc)
 }
 
+@(disabled = true)
 gl_queue_release :: proc(queue: Queue, loc := #caller_location) {
 }
 
 // -----------------------------------------------------------------------------
 // Sampler procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Sampler_Impl :: struct {
     // Base
@@ -3270,7 +3278,6 @@ gl_sampler_release :: proc(sampler: Sampler, loc := #caller_location) {
     impl := get_impl(GL_Sampler_Impl, sampler, loc)
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
-        gl_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -3322,7 +3329,7 @@ gl_command_encoder_begin_render_pass :: proc(
     }
 
     // Create render pass wrapper
-    rpass_impl := command_encoder_new_handle(GL_Render_Pass_Impl, encoder, impl.allocator, loc)
+    rpass_impl := command_encoder_new_handle(GL_Render_Pass_Impl, encoder, loc)
     rpass_impl.encoding = true
 
     color0 := sa.get(cmd.color_attachments, 0)
@@ -3413,8 +3420,6 @@ gl_command_encoder_finish :: proc(
 ) -> Command_Buffer {
     impl := get_impl(GL_Command_Encoder_Impl, encoder, loc)
     impl.encoding = false
-    ref_count_init(&impl.cmdbuf.ref, loc)
-    gl_command_encoder_add_ref(encoder, loc)
     return Command_Buffer(impl.cmdbuf)
 }
 
@@ -3444,9 +3449,9 @@ gl_command_encoder_add_ref :: proc(encoder: Command_Encoder, loc := #caller_loca
 gl_command_encoder_release :: proc(encoder: Command_Encoder, loc := #caller_location) {
     impl := get_impl(GL_Command_Encoder_Impl, encoder, loc)
     assert(impl.encoding == false, "Command encoder still encoding", loc)
-    if release := ref_count_sub(&impl.ref, loc); release {
-        gl_device_release(impl.device, loc)
-    }
+    // if release := ref_count_sub(&impl.ref, loc); release {
+    //     gl_device_release(impl.device, loc)
+    // }
 }
 
 // -----------------------------------------------------------------------------
@@ -3576,8 +3581,9 @@ gl_compute_pipeline_release :: proc(
 }
 
 // -----------------------------------------------------------------------------
-// Texture
+// Texture procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Texture_Impl :: struct {
     // Base
@@ -3603,7 +3609,7 @@ GL_Texture_Impl :: struct {
 @(require_results)
 gl_texture_create_view :: proc(
     texture: Texture,
-    descriptor: Maybe(Texture_View_Descriptor) = nil,
+    descriptor: Texture_View_Descriptor,
     loc := #caller_location,
 ) -> Texture_View {
     impl := get_impl(GL_Texture_Impl, texture, loc)
@@ -3616,21 +3622,19 @@ gl_texture_create_view :: proc(
         gl_texture_view_add_ref(Texture_View(view_impl), loc)
         return Texture_View(view_impl)
     } else {
-        view_impl := texture_new_handle(GL_Texture_View_Impl, texture, impl.allocator, loc)
+        view_impl := texture_new_handle(GL_Texture_View_Impl, texture, loc)
 
-        desc := descriptor.?
+        view_impl.format = descriptor.format
+        view_impl.dimension = descriptor.dimension
+        view_impl.usage = descriptor.usage
+        view_impl.aspect = descriptor.aspect
+        view_impl.base_mip_level = descriptor.base_mip_level
+        view_impl.mip_level_count = descriptor.mip_level_count
+        view_impl.base_array_layer = descriptor.base_array_layer
+        view_impl.array_layer_count = descriptor.array_layer_count
 
-        view_impl.format = desc.format
-        view_impl.dimension = desc.dimension
-        view_impl.usage = desc.usage
-        view_impl.aspect = desc.aspect
-        view_impl.base_mip_level = desc.base_mip_level
-        view_impl.mip_level_count = desc.mip_level_count
-        view_impl.base_array_layer = desc.base_array_layer
-        view_impl.array_layer_count = desc.array_layer_count
-
-        if len(desc.label) > 0 {
-            string_buffer_init(&view_impl.label, desc.label)
+        if len(descriptor.label) > 0 {
+            string_buffer_init(&view_impl.label, descriptor.label)
         }
 
         return Texture_View(view_impl)
@@ -3727,7 +3731,6 @@ gl_texture_release :: proc(texture: Texture, loc := #caller_location) {
     impl := get_impl(GL_Texture_Impl, texture, loc)
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
-        gl_device_release(impl.device, loc)
         if !impl.is_swapchain {
             free(impl)
         }
@@ -3735,8 +3738,9 @@ gl_texture_release :: proc(texture: Texture, loc := #caller_location) {
 }
 
 // -----------------------------------------------------------------------------
-// Texture View
+// Texture View procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Texture_View_Impl :: struct {
     // Base
@@ -3791,8 +3795,9 @@ gl_texture_view_release :: proc(texture_view: Texture_View, loc := #caller_locat
 }
 
 // -----------------------------------------------------------------------------
-// Render Pass Encoder
+// Render Pass procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Render_Pass_Impl :: struct {
     // Base
@@ -4099,7 +4104,6 @@ gl_render_pass_release :: proc(render_pass: Render_Pass, loc := #caller_location
     assert(impl.encoding == false, "Render pass encoder still recording", loc)
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
-        gl_command_encoder_release(impl.encoder, loc)
         free(impl)
     }
 }
@@ -4140,15 +4144,16 @@ gl_command_buffer_add_ref :: proc(command_buffer: Command_Buffer, loc := #caller
 }
 
 gl_command_buffer_release :: proc(command_buffer: Command_Buffer, loc := #caller_location) {
-    impl := get_impl(GL_Command_Buffer_Impl, command_buffer, loc)
-    if release := ref_count_sub(&impl.ref, loc); release {
-        gl_command_encoder_release(impl.encoder, loc)
-    }
+    // impl := get_impl(GL_Command_Buffer_Impl, command_buffer, loc)
+    // if release := ref_count_sub(&impl.ref, loc); release {
+    //     gl_command_encoder_release(impl.encoder, loc)
+    // }
 }
 
 // -----------------------------------------------------------------------------
-// Render Bundle
+// Render Bundle procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Render_Bundle_Impl :: struct {
     // Base
@@ -4188,14 +4193,14 @@ gl_render_bundle_release :: proc(render_bundle: Render_Bundle, loc := #caller_lo
     impl := get_impl(GL_Render_Bundle_Impl, render_bundle, loc)
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
-        gl_device_release(impl.device, loc)
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Shader Module
+// Shader Module procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Shader_Module_Impl :: struct {
     // Base
@@ -4235,14 +4240,14 @@ gl_shader_module_release :: proc(shader_module: Shader_Module, loc := #caller_lo
     impl := get_impl(GL_Shader_Module_Impl, shader_module, loc)
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
-        gl_device_release(impl.device, loc)
         free(impl)
     }
 }
 
 // -----------------------------------------------------------------------------
-// Render Pipeline
+// Render Pipeline procedures
 // -----------------------------------------------------------------------------
+
 
 GL_Vertex_Attribute :: struct {
     is_int:      bool,
@@ -4382,7 +4387,6 @@ gl_render_pipeline_release :: proc(render_pipeline: Render_Pipeline, loc := #cal
         delete(impl.buffer_attributes)
         delete(impl.color_targets)
 
-        gl_device_release(impl.device, loc)
         free(impl)
     }
 }
@@ -4513,7 +4517,7 @@ gl_message_callback :: proc "c" (
             type_str,
             severity_str,
         )
-        // runtime.debug_trap()
+        runtime.debug_trap()
     } else {
         log.debugf(
             "[%d]: %s\n" + "   %s, " + "%s, " + "%s",

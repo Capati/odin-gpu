@@ -4,7 +4,6 @@ package gpu
 // Vendor
 import gl "vendor:OpenGL"
 
-// Helper struct for vertex format info
 Vertex_Format_Info :: struct {
     components:  i32,
     type:        u32,
@@ -12,7 +11,7 @@ Vertex_Format_Info :: struct {
     is_integer:  bool,
 }
 
-gl_get_vertex_format_info :: proc(format: Vertex_Format) -> Vertex_Format_Info {
+gl_get_vertex_format_info :: #force_inline proc "contextless" (format: Vertex_Format) -> Vertex_Format_Info {
     #partial switch format {
     case .Uint8x2:   return {2, gl.UNSIGNED_BYTE, false, true}
     case .Uint8x4:   return {4, gl.UNSIGNED_BYTE, false, true}
@@ -44,32 +43,34 @@ gl_get_vertex_format_info :: proc(format: Vertex_Format) -> Vertex_Format_Info {
     case .Sint32x2:  return {2, gl.INT, false, true}
     case .Sint32x3:  return {3, gl.INT, false, true}
     case .Sint32x4:  return {4, gl.INT, false, true}
-    case:            return {4, gl.FLOAT, false, false}
+    case:
+        return {4, gl.FLOAT, false, false}
     }
 }
 
-gl_get_primitive_mode :: proc(topology: Primitive_Topology) -> u32 {
+gl_get_primitive_mode :: #force_inline proc "contextless" (topology: Primitive_Topology) -> u32 {
     #partial switch topology {
     case .Point_List:     return gl.POINTS
     case .Line_List:      return gl.LINES
     case .Line_Strip:     return gl.LINE_STRIP
     case .Triangle_List:  return gl.TRIANGLES
     case .Triangle_Strip: return gl.TRIANGLE_STRIP
-    case:                 return gl.TRIANGLES
+    case:
+        return gl.TRIANGLES
     }
 }
 
-gl_get_front_face :: proc(face: Front_Face) -> u32 {
+gl_get_front_face :: #force_inline proc "contextless" (face: Front_Face) -> u32 {
     // Note that we invert winding direction in OpenGL. Because Y axis is up in
     // OpenGL, which is different from WebGPU and other backends (Y axis is down).
     return face == .Ccw ? gl.CCW : gl.CW
 }
 
-gl_get_cull_enabled :: proc(mode: Face) -> bool {
+gl_get_cull_enabled :: #force_inline proc "contextless" (mode: Face) -> bool {
     return mode != .Undefined && mode != .None
 }
 
-gl_get_cull_face :: proc(mode: Face) -> u32 {
+gl_get_cull_face :: #force_inline proc "contextless" (mode: Face) -> u32 {
     #partial switch mode {
     case .Front: return gl.FRONT
     case .Back:  return gl.BACK
@@ -77,15 +78,15 @@ gl_get_cull_face :: proc(mode: Face) -> u32 {
     unreachable()
 }
 
-gl_depth_test_enabled :: proc(ds: ^Depth_Stencil_State) -> bool {
+gl_depth_test_enabled :: #force_inline proc "contextless" (ds: ^Depth_Stencil_State) -> bool {
     return ds.depth_compare != .Always || ds.depth_write_enabled
 }
 
-gl_stencil_test_enabled :: proc(ds: ^Depth_Stencil_State) -> bool {
+gl_stencil_test_enabled :: #force_inline proc "contextless" (ds: ^Depth_Stencil_State) -> bool {
     return ds.stencil.front != {} || ds.stencil.back != {}
 }
 
-gl_get_compare_func :: proc(func: Compare_Function) -> u32 {
+gl_get_compare_func :: #force_inline proc "contextless" (func: Compare_Function) -> u32 {
     #partial switch func {
     case .Never:         return gl.NEVER
     case .Less:          return gl.LESS
@@ -99,7 +100,7 @@ gl_get_compare_func :: proc(func: Compare_Function) -> u32 {
     }
 }
 
-gl_get_stencil_op :: proc(op: Stencil_Operation) -> u32 {
+gl_get_stencil_op :: #force_inline proc "contextless" (op: Stencil_Operation) -> u32 {
     #partial switch op {
     case .Keep:               return gl.KEEP
     case .Zero:               return gl.ZERO
@@ -113,7 +114,7 @@ gl_get_stencil_op :: proc(op: Stencil_Operation) -> u32 {
     }
 }
 
-gl_get_blend_factor :: proc(factor: Blend_Factor, is_color: bool) -> u32 {
+gl_get_blend_factor :: #force_inline proc "contextless" (factor: Blend_Factor, is_color: bool) -> u32 {
     #partial switch factor {
     case .Zero:                      return gl.ZERO
     case .One:                       return gl.ONE
@@ -132,7 +133,7 @@ gl_get_blend_factor :: proc(factor: Blend_Factor, is_color: bool) -> u32 {
     }
 }
 
-gl_get_blend_op :: proc(op: Blend_Operation) -> u32 {
+gl_get_blend_op :: #force_inline proc "contextless" (op: Blend_Operation) -> u32 {
     #partial switch op {
     case .Add:              return gl.FUNC_ADD
     case .Subtract:         return gl.FUNC_SUBTRACT
@@ -455,7 +456,7 @@ GL_FORMAT_TABLE := [Texture_Format]GL_Format {
 // }
 
 // Query if format supports color rendering.
-gl_is_format_renderable :: proc(internal_format: u32) -> bool {
+gl_is_format_renderable :: #force_inline proc "contextless" (internal_format: u32) -> bool {
     color_renderable: i32
     gl.GetInternalformativ(
         gl.TEXTURE_2D,
@@ -467,7 +468,10 @@ gl_is_format_renderable :: proc(internal_format: u32) -> bool {
     return bool(color_renderable)
 }
 
-gl_get_buffer_storage_flags :: proc(usage: Buffer_Usages, mapped_at_creation: bool) -> u32 {
+gl_get_buffer_storage_flags :: #force_inline proc "contextless" (
+    usage: Buffer_Usages,
+    mapped_at_creation: bool,
+) -> u32 {
     flags: u32 = 0
 
     // Map access flags
@@ -499,7 +503,7 @@ gl_get_buffer_storage_flags :: proc(usage: Buffer_Usages, mapped_at_creation: bo
     return flags
 }
 
-gl_texture_view_dimension_to_target :: proc(dimension: Texture_View_Dimension) -> u32 {
+gl_texture_view_dimension_to_target :: #force_inline proc "contextless" (dimension: Texture_View_Dimension) -> u32 {
     switch dimension {
     case .D1:         return gl.TEXTURE_1D
     case .D2:         return gl.TEXTURE_2D
@@ -513,7 +517,7 @@ gl_texture_view_dimension_to_target :: proc(dimension: Texture_View_Dimension) -
     return gl.TEXTURE_2D
 }
 
-gl_texture_dimension_to_target :: proc(
+gl_texture_dimension_to_target :: #force_inline proc "contextless" (
     dimension: Texture_Dimension,
     sample_count: u32,
     layers: u32,
@@ -536,7 +540,7 @@ gl_texture_dimension_to_target :: proc(
     }
 }
 
-gl_get_min_filter :: proc(min: Filter_Mode, mipmap: Mipmap_Filter_Mode) -> i32 {
+gl_get_min_filter :: #force_inline proc "contextless" (min: Filter_Mode, mipmap: Mipmap_Filter_Mode) -> i32 {
     #partial switch min {
     case .Nearest:
         #partial switch mipmap {
@@ -552,7 +556,7 @@ gl_get_min_filter :: proc(min: Filter_Mode, mipmap: Mipmap_Filter_Mode) -> i32 {
     return gl.NEAREST
 }
 
-gl_get_mag_filter :: proc(mag: Filter_Mode) -> i32 {
+gl_get_mag_filter :: #force_inline proc "contextless" (mag: Filter_Mode) -> i32 {
     #partial switch mag {
     case .Nearest: return gl.NEAREST
     case .Linear:  return gl.LINEAR
@@ -560,7 +564,7 @@ gl_get_mag_filter :: proc(mag: Filter_Mode) -> i32 {
     return gl.NEAREST
 }
 
-gl_get_address_mode :: proc(mode: Address_Mode) -> i32 {
+gl_get_address_mode :: #force_inline proc "contextless" (mode: Address_Mode) -> i32 {
     #partial switch mode {
     case .Clamp_To_Edge:   return gl.CLAMP_TO_EDGE
     case .Repeat:          return gl.REPEAT
@@ -570,7 +574,7 @@ gl_get_address_mode :: proc(mode: Address_Mode) -> i32 {
     return gl.CLAMP_TO_EDGE
 }
 
-gl_get_compare_function :: proc(func: Compare_Function) -> i32 {
+gl_get_compare_function :: #force_inline proc "contextless" (func: Compare_Function) -> i32 {
     switch func {
     case .Never:          return gl.NEVER
     case .Less:           return gl.LESS
@@ -585,7 +589,7 @@ gl_get_compare_function :: proc(func: Compare_Function) -> i32 {
     return gl.NEVER
 }
 
-gl_get_border_color :: proc(color: Sampler_Border_Color) -> [4]f32 {
+gl_get_border_color :: #force_inline proc "contextless" (color: Sampler_Border_Color) -> [4]f32 {
     #partial switch color {
     case .Transparent_Black: return {0, 0, 0, 0}
     case .Opaque_Black:      return {0, 0, 0, 1}

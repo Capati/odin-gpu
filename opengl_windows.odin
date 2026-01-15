@@ -315,7 +315,8 @@ gl_win32_instance_create_surface :: proc(
         return nil
     }
 
-    surface := instance_new_handle(GL_Surface_Impl, instance, impl.allocator, loc)
+    surface := instance_new_handle(GL_Surface_Impl, instance, loc)
+
     surface.hinstance = hinstance
     surface.hwnd = hwnd
     surface.hdc = hdc
@@ -326,8 +327,8 @@ gl_win32_instance_create_surface :: proc(
 
 gl_win32_instance_request_adapter :: proc(
     instance: Instance,
-    options: Maybe(Request_Adapter_Options),
     callback_info: Request_Adapter_Callback_Info,
+    options: Maybe(Request_Adapter_Options) = nil,
     loc := #caller_location,
 ) {
     assert(callback_info.callback != nil, "No callback provided for adapter request", loc)
@@ -434,7 +435,8 @@ gl_win32_instance_request_adapter :: proc(
     renderer := gl.GetString(gl.RENDERER)
     version := gl.GetString(gl.VERSION)
 
-    adapter_impl := instance_new_handle(GL_Adapter_Impl, instance, impl.allocator, loc)
+    adapter_impl := instance_new_handle(GL_Adapter_Impl, instance, loc)
+
     adapter_impl.hwnd = hwnd
     adapter_impl.hdc = hdc
     adapter_impl.hglrc = hglrc
@@ -484,6 +486,7 @@ GL_Surface_Impl :: struct {
     ref:                 Ref_Count,
     instance:            Instance,
     allocator:           runtime.Allocator,
+    device:              Device,
     config:              Surface_Configuration,
 
     // Backend
@@ -598,16 +601,22 @@ gl_win32_surface_release :: proc(surface: Surface, loc := #caller_location) {
 
     if release := ref_count_sub(&impl.ref, loc); release {
         context.allocator = impl.allocator
+
         gl_surface_cleanup_resources(impl, loc)
+
         for i in 0 ..< int(impl.back_buffer_count) {
             view_impl := sa.get(impl.views, i)
             gl_texture_release(view_impl.texture, loc)
-            texture_impl := sa.get(impl.textures, i)
-            gl_device_release(texture_impl.device, loc)
             free(view_impl)
+
+            texture_impl := sa.get(impl.textures, i)
             free(texture_impl)
         }
-        gl_win32_instance_release(impl.instance, loc)
+
+        if impl.device != nil {
+            gl_device_release(impl.device, loc)
+        }
+
         free(impl)
     }
 }
@@ -651,7 +660,6 @@ gl_win32_adapter_release :: proc(adapter: Adapter, loc := #caller_location) {
             win32.wglDeleteContext(impl.hglrc)
         }
 
-        gl_win32_instance_release(impl.instance, loc)
         free(impl)
     }
 }

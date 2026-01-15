@@ -2875,7 +2875,7 @@ Buffer_Map_State :: enum {
     Mapped_For_Read_Write,
     Mapped_At_Creation,
     Host_Mapped_Persistent,
-    Shared_Memory_NoAccess,
+    Shared_Memory_No_Access,
     Destroyed,
 }
 

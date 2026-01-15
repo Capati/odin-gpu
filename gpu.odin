@@ -685,15 +685,15 @@ Stencil_State :: struct {
 }
 
 // Returns `true` if the stencil test is enabled.
-stencil_state_is_enabled :: proc(self: Stencil_State) -> bool {
-    return self.back.compare != .Always ||
-           self.back.fail_op != .Keep ||
-           self.back.depth_fail_op != .Keep ||
-           self.back.pass_op != .Keep ||
-           self.front.compare != .Always ||
-           self.front.fail_op != .Keep ||
-           self.front.depth_fail_op != .Keep ||
-           self.front.pass_op != .Keep
+stencil_state_is_enabled :: #force_inline proc "contextless" (self: Stencil_State) -> b32 {
+    return (self.front.compare != .Always ||
+            self.front.fail_op != .Keep ||
+            self.front.depth_fail_op != .Keep ||
+            self.front.pass_op != .Keep ||
+            self.back.compare != .Always ||
+            self.back.fail_op != .Keep ||
+            self.back.depth_fail_op != .Keep ||
+            self.back.pass_op != .Keep)
 }
 
 // Returns true if the state doesn't mutate the target values.

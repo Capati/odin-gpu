@@ -165,7 +165,7 @@ Format_Aspect :: enum {
 
 TEXTURE_ASPECTS_DEPTH_STENCIL :: Format_Aspects{ .Depth, .Stencil }
 
-format_aspects_from :: proc(format: Texture_Format) -> Format_Aspects {
+format_aspects_from :: proc "contextless" (format: Texture_Format) -> Format_Aspects {
     #partial switch format {
     case .Stencil8: return { .Stencil }
     case .Depth16_Unorm,. Depth32_Float, .Depth24_Plus: return { .Depth }
@@ -216,7 +216,7 @@ Texture_Format_Feature_Flag :: enum {
 // Sample count supported by a given texture format.
 //
 // returns `true` if `count` is a supported sample count.
-texture_format_feature_flags_sample_count_supported :: proc(
+texture_format_feature_flags_sample_count_supported :: proc "contextless" (
     self: Texture_Format_Feature_Flags,
     count: u32,
 ) -> bool {
@@ -291,7 +291,7 @@ Astc_Channel :: enum {
 TEXTURE_FORMAT_MAX_TARGET_PIXEL_BYTE_COST :: 16
 
 // Returns the aspect-specific format of the original format
-texture_format_aspect_specific_format :: proc(
+texture_format_aspect_specific_format :: proc "contextless" (
     self: Texture_Format,
     aspect: Texture_Aspect,
 ) -> Maybe(Texture_Format) {
@@ -341,7 +341,7 @@ texture_format_aspect_specific_format :: proc(
 
 // Returns `true` if `format` is a depth or stencil component of the given
 // combined depth-stencil format
-texture_format_is_depth_stencil_component :: proc(
+texture_format_is_depth_stencil_component :: proc "contextless" (
     format, combined_format: Texture_Format,
 ) -> bool {
     return(
@@ -355,7 +355,7 @@ texture_format_is_depth_stencil_component :: proc(
 // Check if the format is a depth and/or stencil format.
 //
 // Returns `true` for ANY format that has depth OR stencil.
-texture_format_is_depth_stencil_format :: proc(format: Texture_Format) -> bool {
+texture_format_is_depth_stencil_format :: proc "contextless" (format: Texture_Format) -> bool {
     #partial switch format {
     case .Stencil8,
          .Depth16_Unorm,
@@ -369,7 +369,7 @@ texture_format_is_depth_stencil_format :: proc(format: Texture_Format) -> bool {
 }
 
 // Returns `true` if the format is a combined depth-stencil format
-texture_format_is_combined_depth_stencil_format :: proc(self: Texture_Format) -> bool {
+texture_format_is_combined_depth_stencil_format :: proc "contextless" (self: Texture_Format) -> bool {
     #partial switch self {
     case .Depth24_Plus_Stencil8, .Depth32_Float_Stencil8: return true
     }
@@ -377,12 +377,12 @@ texture_format_is_combined_depth_stencil_format :: proc(self: Texture_Format) ->
 }
 
 // Returns `true` if the format is a multi-planar format.
-texture_format_is_multi_planar_format :: proc(format: Texture_Format) -> bool {
+texture_format_is_multi_planar_format :: proc "contextless" (format: Texture_Format) -> bool {
     return texture_format_planes(format) > 1
 }
 
 // Returns the number of planes a multi-planar format has.
-texture_format_planes :: proc(format: Texture_Format) -> u32 {
+texture_format_planes :: proc "contextless" (format: Texture_Format) -> u32 {
     #partial switch format {
     case .NV12: return 2
     case .P010: return 2
@@ -391,12 +391,12 @@ texture_format_planes :: proc(format: Texture_Format) -> u32 {
 }
 
 // Returns `true` if the format has a color aspect.
-texture_format_has_color_aspect :: proc(format: Texture_Format) -> bool {
+texture_format_has_color_aspect :: proc "contextless" (format: Texture_Format) -> bool {
     return !texture_format_is_depth_stencil_format(format)
 }
 
 // Returns `true` if the format has a depth aspect.
-texture_format_has_depth_aspect :: proc(format: Texture_Format) -> bool {
+texture_format_has_depth_aspect :: proc "contextless" (format: Texture_Format) -> bool {
     #partial switch format {
     case .Depth16_Unorm, .Depth24_Plus, .Depth32_Float,
          .Depth24_Plus_Stencil8, .Depth32_Float_Stencil8:
@@ -406,7 +406,7 @@ texture_format_has_depth_aspect :: proc(format: Texture_Format) -> bool {
 }
 
  // Returns `true` if the format has a stencil aspect.
-texture_format_has_stencil_aspect :: proc(self: Texture_Format) -> bool {
+texture_format_has_stencil_aspect :: proc "contextless" (self: Texture_Format) -> bool {
     #partial switch self {
     case .Stencil8, .Depth24_Plus_Stencil8, .Depth32_Float_Stencil8:
         return true
@@ -415,7 +415,7 @@ texture_format_has_stencil_aspect :: proc(self: Texture_Format) -> bool {
 }
 
 // Returns the size multiple requirement for a texture using this format.
-texture_format_size_multiple_requirement :: proc(format: Texture_Format) -> (u32, u32) {
+texture_format_size_multiple_requirement :: proc "contextless" (format: Texture_Format) -> (u32, u32) {
     #partial switch format {
     case .NV12: return 2, 2
     case .P010: return 2, 2
@@ -426,7 +426,7 @@ texture_format_size_multiple_requirement :: proc(format: Texture_Format) -> (u32
 // Returns the dimension of a [block](https://gpuweb.github.io/gpuweb/#texel-block) of texels.
 //
 // Uncompressed formats have a block dimension of `(1, 1)`.
-texture_format_block_dimensions :: proc(format: Texture_Format) -> (u32, u32) {
+texture_format_block_dimensions :: proc "contextless" (format: Texture_Format) -> (u32, u32) {
     switch format {
     case .R8_Unorm,
          .R8_Snorm,
@@ -574,24 +574,24 @@ texture_format_block_dimensions :: proc(format: Texture_Format) -> (u32, u32) {
 }
 
 // Returns `true` for compressed formats.
-texture_format_is_compressed :: proc(format: Texture_Format) -> bool {
+texture_format_is_compressed :: proc "contextless" (format: Texture_Format) -> bool {
     a, b := texture_format_block_dimensions(format)
     return a != 1 && b != 1
 }
 
 // Returns `true` for BCn compressed formats.
-texture_format_is_bcn :: proc(format: Texture_Format) -> bool {
+texture_format_is_bcn :: proc "contextless" (format: Texture_Format) -> bool {
     return texture_format_required_features(format) == { .Texture_Compression_Bc }
 }
 
 // Returns `true` for Astc compressed formats.
-texture_format_is_astc :: proc(format: Texture_Format) -> bool {
+texture_format_is_astc :: proc "contextless" (format: Texture_Format) -> bool {
     required_features := texture_format_required_features(format)
     return required_features & { .Texture_Compression_Astc, .Texture_Compression_Astc_Hdr } != {}
 }
 
 // Returns the required features (if any) in order to use the texture.
-texture_format_required_features :: proc(self: Texture_Format) -> Features {
+texture_format_required_features :: proc "contextless" (self: Texture_Format) -> Features {
     switch self {
     case .R8_Unorm,
          .R8_Snorm,
@@ -741,7 +741,7 @@ texture_format_required_features :: proc(self: Texture_Format) -> Features {
 //
 // Additional features are available if
 // `Features{.Texture_Adapter_Specific_Format_Features}` is enabled.
-texture_format_guaranteed_format_features :: proc(
+texture_format_guaranteed_format_features :: proc "contextless" (
     format: Texture_Format,
     device_features: Features,
 ) -> (tff: Texture_Format_Features) {
@@ -899,7 +899,7 @@ texture_format_guaranteed_format_features :: proc(
 //
 // Returns `nil` only if this is a combined depth-stencil format or a multi-planar
 // format and `Texture_Aspect.All` or no `aspect` was provided.
-texture_format_sample_type :: proc(
+texture_format_sample_type :: proc "contextless" (
     format: Texture_Format,
     aspect: Texture_Aspect,
     device_features: Maybe(Features),
@@ -1059,7 +1059,7 @@ texture_format_sample_type :: proc(
     return .Undefined
 }
 
-texture_format_block_copy_size :: proc(
+texture_format_block_copy_size :: proc "contextless" (
     format: Texture_Format,
     aspect: Maybe(Texture_Aspect) = nil,
 ) -> u32 {
@@ -1203,14 +1203,14 @@ texture_format_block_copy_size :: proc(
 }
 
 // Returns the number of components this format has.
-texture_format_components :: proc(format: Texture_Format) -> u8 {
+texture_format_components :: proc "contextless" (format: Texture_Format) -> u8 {
     return texture_format_components_with_aspect(format, .All)
 }
 
 // Returns the number of components this format has taking into account the `aspect`.
 //
 // The `aspect` is only relevant for combined depth-stencil formats and multi-planar formats.
-texture_format_components_with_aspect :: proc(
+texture_format_components_with_aspect :: proc "contextless" (
     format: Texture_Format,
     aspect: Texture_Aspect = .All,
 ) -> u8 {
@@ -1353,7 +1353,7 @@ Texture_Format_Block_Info :: struct {
 }
 
 // Get block byte size, width and height from the given format and aspect.
-texture_format_block_info :: proc(
+texture_format_block_info :: proc "contextless" (
     format: Texture_Format,
     aspect: Maybe(Texture_Aspect),
 ) -> Texture_Format_Block_Info {
@@ -1363,7 +1363,7 @@ texture_format_block_info :: proc(
 }
 
  // Strips the `Srgb` suffix from the given texture format.
-texture_format_remove_srgb_suffix :: proc(format: Texture_Format) -> Texture_Format {
+texture_format_remove_srgb_suffix :: proc "contextless" (format: Texture_Format) -> Texture_Format {
     #partial switch format {
     case .Rgba8_Unorm_Srgb:       return .Rgba8_Unorm
     case .Bgra8_Unorm_Srgb:       return .Bgra8_Unorm
@@ -1393,7 +1393,7 @@ texture_format_remove_srgb_suffix :: proc(format: Texture_Format) -> Texture_For
 }
 
  // Adds an `Srgb` suffix to the given texture format, if the format supports it.
-texture_format_add_srgb_suffix :: proc(format: Texture_Format) -> Texture_Format {
+texture_format_add_srgb_suffix :: proc "contextless" (format: Texture_Format) -> Texture_Format {
     #partial switch format {
     case .Rgba8_Unorm:       return .Rgba8_Unorm_Srgb
     case .Bgra8_Unorm:       return .Bgra8_Unorm_Srgb
@@ -1423,7 +1423,7 @@ texture_format_add_srgb_suffix :: proc(format: Texture_Format) -> Texture_Format
 }
 
  // Returns `true` for srgb formats.
-texture_format_is_srgb :: proc(format: Texture_Format) -> bool {
+texture_format_is_srgb :: proc "contextless" (format: Texture_Format) -> bool {
     return format != texture_format_remove_srgb_suffix(format)
 }
 
@@ -1441,7 +1441,7 @@ texture_format_is_srgb :: proc(format: Texture_Format) -> bool {
 //     return 0
 // }
 
-texture_format_aspects :: proc(format: Texture_Format) -> Format_Aspects {
+texture_format_aspects :: proc "contextless" (format: Texture_Format) -> Format_Aspects {
     #partial switch format {
     case .Stencil8:
         return {.Stencil}
@@ -1456,7 +1456,7 @@ texture_format_aspects :: proc(format: Texture_Format) -> Format_Aspects {
     }
 }
 
-surface_get_format_priority :: proc(format: Texture_Format) -> int {
+surface_get_format_priority :: proc "contextless" (format: Texture_Format) -> int {
     #partial switch format {
     // Optimal sRGB formats for display (BGRA preferred over RGBA)
     case .Bgra8_Unorm_Srgb: return 6

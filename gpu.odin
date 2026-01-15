@@ -4777,6 +4777,15 @@ texture_view_release: Proc_Texture_View_Release
 // `draw*()` procedure is called.
 Render_Pass :: distinct rawptr
 
+Render_Pass_Base :: struct {
+    label:     String_Buffer_Small,
+    ref:       Ref_Count,
+    device:    Device,
+    encoder:   Command_Encoder,
+    allocator: runtime.Allocator,
+    encoding:  bool,
+}
+
 // Describes a color attachment to a `RenderPass`.
 //
 // For use with `Render_Pass_Descriptor`.

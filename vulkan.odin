@@ -73,6 +73,8 @@ vk_init :: proc(allocator := context.allocator) {
     command_encoder_release           = vk_command_encoder_release
 
     // Device procedures
+    device_get_features               = vk_device_get_features
+    device_get_limits                 = vk_device_get_limits
     device_create_bind_group          = vk_device_create_bind_group
     device_create_bind_group_layout   = vk_device_create_bind_group_layout
     device_create_buffer              = vk_device_create_buffer
@@ -1749,6 +1751,16 @@ Vulkan_Device_Impl :: struct {
 
     // Vulkan Memory Allocator
     vma_allocator:                  vma.Allocator,
+}
+
+vk_device_get_features :: proc(device: Device, loc := #caller_location) -> (features: Features) {
+    impl := get_impl(Vulkan_Device_Impl, device, loc)
+    return impl.features
+}
+
+vk_device_get_limits :: proc(device: Device, loc := #caller_location) -> (limits: Limits) {
+    impl := get_impl(Vulkan_Device_Impl, device, loc)
+    return impl.limits
 }
 
 @(require_results)

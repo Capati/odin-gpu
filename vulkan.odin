@@ -3509,22 +3509,32 @@ vk_render_pass_set_index_buffer :: proc(
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
     buffer_impl := get_impl(Vulkan_Buffer_Impl, buffer, loc)
     device_impl := get_impl(Vulkan_Device_Impl, buffer_impl.device, loc)
-
     vk_deletion_queue_push(&impl.resources, buffer_impl)
+
+    vk_offset := vk.DeviceSize(offset)
+    vk_size: vk.DeviceSize
+
+    if size == WHOLE_SIZE {
+        vk_size = buffer_impl.vk_device_size - vk_offset
+    } else {
+        vk_size = vk.DeviceSize(size)
+        assert(vk_offset + vk_size <= buffer_impl.vk_device_size,
+               "Index buffer offset + size exceeds buffer capacity", loc)
+    }
 
     if device_impl.has_KHR_maintenance5 {
         vk.CmdBindIndexBuffer2KHR(
             impl.vk_cmd_buf,
             buffer_impl.vk_buffer,
-            vk.DeviceSize(offset),
-            vk.DeviceSize(size) if size != WHOLE_SIZE else buffer_impl.vk_device_size,
+            vk_offset,
+            vk_size,
             vk_conv_to_index_type(format),
         )
     } else {
         vk.CmdBindIndexBuffer(
             impl.vk_cmd_buf,
             buffer_impl.vk_buffer,
-            vk.DeviceSize(offset),
+            vk_offset,
             vk_conv_to_index_type(format),
         )
     }
@@ -3581,11 +3591,18 @@ vk_render_pass_set_vertex_buffer :: proc(
     assert(buffer != nil, "Invalid vertex buffer", loc)
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
     buffer_impl := get_impl(Vulkan_Buffer_Impl, buffer, loc)
-
     vk_deletion_queue_push(&impl.resources, buffer_impl)
 
     vk_offset := vk.DeviceSize(offset)
-    vk_size := vk.DeviceSize(size) if size != WHOLE_SIZE else buffer_impl.vk_device_size
+    vk_size: vk.DeviceSize
+
+    if size == WHOLE_SIZE {
+        vk_size = buffer_impl.vk_device_size - vk_offset
+    } else {
+        vk_size = vk.DeviceSize(size)
+        assert(vk_offset + vk_size <= buffer_impl.vk_device_size,
+               "Vertex buffer offset + size exceeds buffer capacity", loc)
+    }
 
     vk.CmdBindVertexBuffers2(
         impl.vk_cmd_buf, slot, 1, &buffer_impl.vk_buffer, &vk_offset, &vk_size, nil)

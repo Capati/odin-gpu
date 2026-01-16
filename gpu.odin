@@ -3951,7 +3951,6 @@ create_instance :: proc(
             shader_formats = { .Glsl }
         }
     } else when ODIN_OS == .Linux {
-        requested_backends -= { .Vulkan }
         if .Vulkan in requested_backends {
             vk_init(allocator)
             backend = .Vulkan

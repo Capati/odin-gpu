@@ -1,37 +1,33 @@
 package vma
 
-when ODIN_OS == .Linux || ODIN_OS == .Darwin {
-	@(require, extra_linker_flags="-lstdc++") foreign import stdcpp "system:c++"
-}
-
 when ODIN_OS == .Windows {
-	when ODIN_ARCH == .amd64 {
-		@(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt")
-		foreign import _lib_ "vma_windows_x86_64.lib"
-	} else when ODIN_ARCH == .arm64 {
-		@(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt")
-		foreign import _lib_ "vma_windows_ARM64.lib"
-	} else {
-		#panic("Unsupported architecture for VMA library on Windows")
-	}
+    when ODIN_ARCH == .amd64 {
+        @(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt")
+        foreign import _lib_ "vma_windows_x86_64.lib"
+    } else when ODIN_ARCH == .arm64 {
+        @(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt")
+        foreign import _lib_ "vma_windows_ARM64.lib"
+    } else {
+        #panic("Unsupported architecture for VMA library on Windows")
+    }
 } else when ODIN_OS == .Darwin {
-	when ODIN_ARCH == .amd64 {
-		foreign import _lib_ "libvma_macosx_x86_64.a"
-	} else when ODIN_ARCH == .arm64 {
-		foreign import _lib_ "libvma_macosx_ARM64.a"
-	} else {
-		#panic("Unsupported architecture for VMA library on MacOSX")
-	}
+    when ODIN_ARCH == .amd64 {
+        foreign import _lib_ { "libvma_macosx_x86_64.a", "system:stdc++" }
+    } else when ODIN_ARCH == .arm64 {
+        foreign import _lib_ { "libvma_macosx_x86_64.a", "system:stdc++" }
+    } else {
+        #panic("Unsupported architecture for VMA library on MacOSX")
+    }
 } else when ODIN_OS == .Linux {
-	when ODIN_ARCH == .amd64 {
-		foreign import _lib_ "libvma_linux_x86_64.a"
-	} else when ODIN_ARCH == .arm64 {
-		foreign import _lib_ "libvma_linux_ARM64.a"
-	} else {
-		#panic("Unsupported architecture for VMA library on Linux")
-	}
+    when ODIN_ARCH == .amd64 {
+        foreign import _lib_ { "libvma_linux_x86_64.a", "system:stdc++" }
+    } else when ODIN_ARCH == .arm64 {
+        foreign import _lib_ { "libvma_linux_x86_64.a", "system:stdc++" }
+    } else {
+        #panic("Unsupported architecture for VMA library on Linux")
+    }
 } else {
-	foreign import _lib_ "system:libvma"
+    foreign import _lib_ "system:libvma"
 }
 
 // Vendor

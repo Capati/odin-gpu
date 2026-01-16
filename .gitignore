@@ -31,8 +31,8 @@ libs/vma/build
 
 !/libs/d3d12ma/d3d12ma.lib
 !/libs/vma/vma_windows_x86_64.lib
-!/libs/vma/vma_linux_x86_64.a
-!/libs/vma/vma_macos_x86_64.a
+!/libs/vma/libvma_linux_x86_64.a
+!/libs/vma/libvma_macosx_x86_64.a
 
 # IDE/Editor
 .vscode

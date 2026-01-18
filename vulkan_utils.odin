@@ -335,7 +335,7 @@ vk_texture_transition_layout :: proc(
         srcAccessMask       = src.access,
         dstStageMask        = dst.stage,
         dstAccessMask       = dst.access,
-        oldLayout           = texture.vk_image_layout,
+        oldLayout           = old_image_layout,
         newLayout           = new_image_layout,
         srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
         dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,

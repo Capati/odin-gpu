@@ -669,7 +669,9 @@ vk_deletion_queue_push :: proc(self: ^Vulkan_Deletion_Queue, resource: Vulkan_Re
     case ^Vulkan_Render_Pipeline_Impl:
         vk_render_pipeline_add_ref(Render_Pipeline(res), loc)
     case ^Vulkan_Texture_Impl:
-        vk_texture_add_ref(Texture(res), loc)
+        if !res.is_swapchain_image {
+            vk_texture_add_ref(Texture(res), loc)
+        }
     }
     append(&self.resources, resource)
 }

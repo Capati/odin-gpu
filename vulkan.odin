@@ -159,12 +159,20 @@ vk_init :: proc(allocator := context.allocator) {
     surface_release                   = vk_surface_release
 
     // Texture procedures
-    texture_create_view_impl          = vk_texture_create_view
-    texture_get_descriptor            = vk_texture_get_descriptor
-    texture_get_label                 = vk_texture_get_label
-    texture_set_label                 = vk_texture_set_label
-    texture_add_ref                   = vk_texture_add_ref
-    texture_release                   = vk_texture_release
+    texture_create_view_impl                = vk_texture_create_view
+    texture_get_descriptor                  = vk_texture_get_descriptor
+    texture_get_dimension                   = vk_texture_get_dimension
+    texture_get_format                      = vk_texture_get_format
+    texture_get_height                      = vk_texture_get_height
+    texture_get_mip_level_count             = vk_texture_get_mip_level_count
+    texture_get_sample_count                = vk_texture_get_sample_count
+    texture_get_size                        = vk_texture_get_size
+    texture_get_usage                       = vk_texture_get_usage
+    texture_get_width                       = vk_texture_get_width
+    texture_get_label                       = vk_texture_get_label
+    texture_set_label                       = vk_texture_set_label
+    texture_add_ref                         = vk_texture_add_ref
+    texture_release                         = vk_texture_release
 
     // Texture View procedures
     texture_view_get_label            = vk_texture_view_get_label
@@ -4549,6 +4557,57 @@ vk_texture_get_descriptor :: proc(
     desc.sample_count = impl.sample_count
     // view_formats
     return desc
+}
+
+@(require_results)
+vk_texture_get_dimension :: proc(
+    texture: Texture,
+    loc := #caller_location,
+) -> Texture_Dimension {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.dimension
+}
+
+@(require_results)
+vk_texture_get_format :: proc(texture: Texture, loc := #caller_location) -> Texture_Format {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.format
+}
+
+@(require_results)
+vk_texture_get_height :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.size.height
+}
+
+@(require_results)
+vk_texture_get_mip_level_count :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.mip_level_count
+}
+
+@(require_results)
+vk_texture_get_sample_count :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.sample_count
+}
+
+@(require_results)
+vk_texture_get_size :: proc(texture: Texture, loc := #caller_location) -> Extent_3D {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.size
+}
+
+@(require_results)
+vk_texture_get_usage :: proc(texture: Texture, loc := #caller_location) -> Texture_Usages {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.usage
+}
+
+@(require_results)
+vk_texture_get_width :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    return impl.size.width
 }
 
 @(require_results)

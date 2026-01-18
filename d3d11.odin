@@ -450,6 +450,14 @@ d3d11_init :: proc(allocator := context.allocator) {
     // Texture procedures
     texture_create_view_impl          = d3d11_texture_create_view
     texture_get_descriptor            = d3d11_texture_get_descriptor
+    texture_get_dimension             = d3d11_texture_get_dimension
+    texture_get_format                = d3d11_texture_get_format
+    texture_get_height                = d3d11_texture_get_height
+    texture_get_mip_level_count       = d3d11_texture_get_mip_level_count
+    texture_get_sample_count          = d3d11_texture_get_sample_count
+    texture_get_size                  = d3d11_texture_get_size
+    texture_get_usage                 = d3d11_texture_get_usage
+    texture_get_width                 = d3d11_texture_get_width
     texture_get_label                 = d3d11_texture_get_label
     texture_set_label                 = d3d11_texture_set_label
     texture_add_ref                   = d3d11_texture_add_ref
@@ -4311,6 +4319,57 @@ d3d11_texture_get_descriptor :: proc(
     desc.sample_count = impl.sample_count
     // view_formats
     return desc
+}
+
+@(require_results)
+d3d11_texture_get_dimension :: proc(
+    texture: Texture,
+    loc := #caller_location,
+) -> Texture_Dimension {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.dimension
+}
+
+@(require_results)
+d3d11_texture_get_format :: proc(texture: Texture, loc := #caller_location) -> Texture_Format {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.format
+}
+
+@(require_results)
+d3d11_texture_get_height :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.size.height
+}
+
+@(require_results)
+d3d11_texture_get_mip_level_count :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.mip_level_count
+}
+
+@(require_results)
+d3d11_texture_get_sample_count :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.sample_count
+}
+
+@(require_results)
+d3d11_texture_get_size :: proc(texture: Texture, loc := #caller_location) -> Extent_3D {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.size
+}
+
+@(require_results)
+d3d11_texture_get_usage :: proc(texture: Texture, loc := #caller_location) -> Texture_Usages {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.usage
+}
+
+@(require_results)
+d3d11_texture_get_width :: proc(texture: Texture, loc := #caller_location) -> u32 {
+    impl := get_impl(D3D11_Texture_Impl, texture, loc)
+    return impl.size.width
 }
 
 @(require_results)

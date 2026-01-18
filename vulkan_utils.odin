@@ -203,7 +203,7 @@ vk_command_encoder_purge :: proc(self: ^Vulkan_Command_Encoder_Impl, loc := #cal
         result := vk.WaitForFences(self.vk_device, 1, &buf.vk_fence, true, 0)
 
         if result == .SUCCESS {
-            vk_deletion_queue_flush(&buf.resources)
+            vk_deletion_queue_flush(&buf.resources, loc)
             vk_check(vk.ResetCommandBuffer(buf.vk_cmd_buf, {}))
             vk_check(vk.ResetFences(self.vk_device, 1, &buf.vk_fence))
             buf.vk_cmd_buf = nil

@@ -2719,7 +2719,7 @@ vk_device_release :: proc(device: Device, loc := #caller_location) {
 
         vk.DeviceWaitIdle(impl.vk_device)
 
-        vk_command_encoder_wait_all(&impl.encoder)
+        vk_command_encoder_wait_all(&impl.encoder, loc)
 
         for &buf in impl.encoder.buffers {
             vk_deletion_queue_destroy(&buf.resources)
@@ -4439,7 +4439,7 @@ vk_surface_release :: proc(surface: Surface, loc := #caller_location) {
         }
 
         if impl.device != nil {
-            vk_device_release(impl.device)
+            vk_device_release(impl.device, loc)
         }
 
         free(impl)

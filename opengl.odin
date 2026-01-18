@@ -2328,6 +2328,7 @@ gl_surface_configure :: proc(
         texture_impl.mip_level_count = 1
         texture_impl.sample_count    = 1
         texture_impl.is_swapchain    = true
+        texture_impl.gl_target       = gl.TEXTURE_2D
 
         // Create the actual OpenGL texture
         gl.CreateTextures(gl.TEXTURE_2D, 1, &texture_impl.handle)

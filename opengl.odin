@@ -3406,9 +3406,9 @@ gl_command_encoder_copy_texture_to_buffer :: proc(
 
 gl_command_encoder_copy_texture_to_texture :: proc(
     encoder: Command_Encoder,
-    source: ^Texel_Copy_Texture_Info,
-    destination: ^Texel_Copy_Texture_Info,
-    copy_size: ^Extent_3D,
+    source: Texel_Copy_Texture_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
     loc := #caller_location,
 ) {
     unimplemented()

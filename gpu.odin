@@ -3208,9 +3208,9 @@ Proc_Command_Encoder_Copy_Texture_To_Buffer :: #type proc(
 
 Proc_Command_Encoder_Copy_Texture_To_Texture :: #type proc(
     encoder: Command_Encoder,
-    source: ^Texel_Copy_Texture_Info,
-    destination: ^Texel_Copy_Texture_Info,
-    copy_size: ^Extent_3D,
+    source: Texel_Copy_Texture_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
     loc := #caller_location,
 )
 

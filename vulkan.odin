@@ -2649,10 +2649,6 @@ vk_device_create_texture :: proc(
     vk_check(vma.create_image(
         impl.vma_allocator, image_create_info, vma_alloc_info, &vk_image, &vma_allocation, nil))
 
-    if len(descriptor.label) > 0 {
-        vk_set_debug_object_name(impl.vk_device, .IMAGE, vk_image, descriptor.label, loc)
-    }
-
     texture := device_new_handle(Vulkan_Texture_Impl, device, loc)
 
     // Set base fields
@@ -2686,6 +2682,10 @@ vk_device_create_texture :: proc(
     texture.vk_image_view_storage = {}
     texture.is_swapchain_image    = false
     texture.surface               = {}
+
+    if len(descriptor.label) > 0 {
+        vk_texture_set_label(Texture(texture), descriptor.label, loc)
+    }
 
     return Texture(texture)
 }
@@ -4618,7 +4618,9 @@ vk_texture_get_label :: proc(texture: Texture, loc := #caller_location) -> strin
 
 vk_texture_set_label :: proc(texture: Texture, label: string, loc := #caller_location) {
     impl := get_impl(Vulkan_Texture_Impl, texture, loc)
+    device_impl := get_impl(Vulkan_Device_Impl, impl.device, loc)
     string_buffer_init(&impl.label, label)
+    vk_set_debug_object_name(device_impl.vk_device, .IMAGE, impl.vk_image, label, loc)
 }
 
 vk_texture_add_ref :: proc(texture: Texture, loc := #caller_location) {

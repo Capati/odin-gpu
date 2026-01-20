@@ -971,6 +971,8 @@ vk_adapter_request_device :: proc(
         buf.device = Device(device)
         buf.vk_device = device.vk_device
 
+        command_allocator_init(&buf.cmd_allocator, device.allocator)
+
         vk_deletion_queue_init(&buf.resources, device.vk_device, device.heap_alloc)
 
         // Name the synchronization objects for debugging
@@ -1282,6 +1284,9 @@ Vulkan_Command_Buffer_Impl :: struct {
     is_encoding:               bool,
     is_rendering:              bool,
 
+    // Command allocator
+    cmd_allocator:             Command_Allocator,
+
     // State
     color_attachments:         sa.Small_Array(MAX_COLOR_ATTACHMENTS, Render_Pass_Color_Attachment),
     resources:                 Vulkan_Deletion_Queue,
@@ -1355,223 +1360,32 @@ vk_command_encoder_begin_render_pass :: proc(
     assert(impl.is_rendering == false, "Already rendering", loc)
     impl.is_rendering = true
 
+    assert(len(descriptor.color_attachments) > 0, "No color attachments", loc)
     assert(len(descriptor.color_attachments) <= MAX_COLOR_ATTACHMENTS,
         "Too many color attachments", loc)
 
-    // Framebuffer dimensions from first valid attachment
-    fb_width, fb_height: u32
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Begin_Render_Pass)
 
-    color_attachments: sa.Small_Array(MAX_COLOR_ATTACHMENTS, vk.RenderingAttachmentInfo)
-    sa.clear(&impl.color_attachments)
+    cmd.render_pass = Render_Pass(impl)
 
-    for &attachment in descriptor.color_attachments {
-        assert(attachment.view != nil, "Invalid color attachment view", loc)
-
-        sa.push_back(&impl.color_attachments, attachment)
-
-        color_tex_view := get_impl(Vulkan_Texture_View_Impl, attachment.view, loc)
-        color_tex := get_impl(Vulkan_Texture_Impl, color_tex_view.texture, loc)
-
-        // Retain user owned texture for command buffer lifetime
-        if color_tex.is_owning_vk_image {
-            vk_deletion_queue_push(&impl.resources, color_tex)
-        }
-
-        if fb_width == 0 {
-            fb_width = color_tex.vk_extent.width
-            fb_height = color_tex.vk_extent.height
-        } else {
-            assert(color_tex.vk_extent.width == fb_width && color_tex.vk_extent.height == fb_height,
-               "All color attachments must have matching dimensions", loc)
-        }
-
-        // Transition main color attachment
-        vk_transition_to_color_attachment(impl, color_tex, loc)
-
-        has_resolve := attachment.resolve_target != nil
-        resolve_tex: ^Vulkan_Texture_Impl
-        samples := color_tex.vk_samples
-
-        if has_resolve {
-            resolve_tex_view := get_impl(Vulkan_Texture_View_Impl, attachment.resolve_target, loc)
-            resolve_tex = get_impl(Vulkan_Texture_Impl, resolve_tex_view.texture, loc)
-
-            assert(resolve_tex.vk_extent.width == fb_width &&
-                   resolve_tex.vk_extent.height == fb_height,
-               "Resolve target must match framebuffer dimensions", loc)
-            assert(resolve_tex.vk_samples == {._1}, "Resolve target must be single-sampled", loc)
-
-            vk_transition_to_color_attachment(impl, resolve_tex, loc)
-            vk_deletion_queue_push(&impl.resources, resolve_tex)
-        }
-
-        clear_value_f32 := [4]f32{
-            f32(attachment.ops.clear_value.x),
-            f32(attachment.ops.clear_value.y),
-            f32(attachment.ops.clear_value.z),
-            f32(attachment.ops.clear_value.w),
-        }
-
-        sa.push_back(&color_attachments, vk.RenderingAttachmentInfo{
-            sType              = .RENDERING_ATTACHMENT_INFO,
-            imageView          = color_tex.vk_image_view,
-            imageLayout        = .COLOR_ATTACHMENT_OPTIMAL,
-            resolveMode        = has_resolve && samples != {._1} ? { .AVERAGE } : {},
-            resolveImageView   = has_resolve ? resolve_tex.vk_image_view : {},
-            resolveImageLayout = has_resolve ? .COLOR_ATTACHMENT_OPTIMAL : .UNDEFINED,
-            loadOp             = vk_conv_to_attachment_load_op(attachment.ops.load),
-            storeOp            = vk_conv_to_attachment_store_op(attachment.ops.store),
-            clearValue         = { color = { float32 = clear_value_f32 } },
-        })
+    // Copy color attachments
+    sa.resize(&cmd.color_attachments, len(descriptor.color_attachments))
+    for color_att, i in descriptor.color_attachments {
+        sa.set(&cmd.color_attachments, i, color_att)
     }
 
-    // Depth-stencil attachment
-    has_depth: bool
-    has_stencil: bool
-    vk_depth_attachment: vk.RenderingAttachmentInfo
-    vk_stencil_attachment: vk.RenderingAttachmentInfo
-
+    // Copy depth stencil attachment if present
     if descriptor.depth_stencil_attachment != nil {
-        assert(descriptor.depth_stencil_attachment.view != nil, "Invalid depth attachment view", loc)
-
-        depth_stencil := descriptor.depth_stencil_attachment
-        view_impl := get_impl(Vulkan_Texture_View_Impl, depth_stencil.view, loc)
-        texture_impl := get_impl(Vulkan_Texture_Impl, view_impl.texture, loc)
-
-        // Retain texture
-        vk_deletion_queue_push(&impl.resources, texture_impl)
-
-        // Determine/validate dimensions
-        if fb_width == 0 {
-            fb_width = texture_impl.vk_extent.width
-            fb_height = texture_impl.vk_extent.height
-        } else {
-            assert(texture_impl.vk_extent.width == fb_width &&
-                   texture_impl.vk_extent.height == fb_height,
-               "Depth/stencil attachment must match framebuffer dimensions", loc)
-        }
-
-        has_depth = texture_format_has_depth_aspect(view_impl.format)
-        has_stencil = texture_format_has_stencil_aspect(view_impl.format)
-
-        aspect_mask: vk.ImageAspectFlags
-        if has_depth   { aspect_mask += {.DEPTH}   }
-        if has_stencil { aspect_mask += {.STENCIL} }
-
-        subresource_range := vk.ImageSubresourceRange{
-            aspectMask     = aspect_mask,
-            baseMipLevel   = 0,
-            levelCount     = texture_impl.mip_level_count,
-            baseArrayLayer = 0,
-            layerCount     = texture_impl.array_layer_count,
-        }
-
-        vk_texture_transition_layout(
-            texture_impl,
-            impl.vk_cmd_buf,
-            .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            subresource_range,
-        )
-
-        // Full depth-stencil clear value
-        depth_clear_val := has_depth   ? depth_stencil.depth_ops.clear_value   : 0.0
-        stencil_clear_val := has_stencil ? depth_stencil.stencil_ops.clear_value : 0
-        full_ds_clear := vk.ClearDepthStencilValue{
-            depth   = depth_clear_val,
-            stencil = stencil_clear_val,
-        }
-        ds_clear_value := vk.ClearValue{ depthStencil = full_ds_clear }
-
-        if has_depth {
-            depth_load : vk.AttachmentLoadOp = depth_stencil.depth_ops.read_only \
-                ? .LOAD : vk_conv_to_attachment_load_op(depth_stencil.depth_ops.load)
-            depth_store : vk.AttachmentStoreOp = depth_stencil.depth_ops.read_only \
-                ? .DONT_CARE : vk_conv_to_attachment_store_op(depth_stencil.depth_ops.store)
-
-            vk_depth_attachment = vk.RenderingAttachmentInfo{
-                sType       = .RENDERING_ATTACHMENT_INFO,
-                imageView   = view_impl.vk_image_view,
-                imageLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                loadOp      = depth_load,
-                storeOp     = depth_store,
-                clearValue  = ds_clear_value,
-            }
-        }
-
-        // Stencil aspect
-        if has_stencil {
-            stencil_load : vk.AttachmentLoadOp = depth_stencil.stencil_ops.read_only \
-                ? .LOAD      : vk_conv_to_attachment_load_op(depth_stencil.stencil_ops.load)
-            stencil_store : vk.AttachmentStoreOp = depth_stencil.stencil_ops.read_only \
-                ? .DONT_CARE : vk_conv_to_attachment_store_op(depth_stencil.stencil_ops.store)
-
-            vk_stencil_attachment = vk.RenderingAttachmentInfo{
-                sType       = .RENDERING_ATTACHMENT_INFO,
-                imageView   = view_impl.vk_image_view,
-                imageLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                loadOp      = stencil_load,
-                storeOp     = stencil_store,
-                clearValue  = ds_clear_value,
-            }
-        }
+        cmd.depth_stencil_attachment = descriptor.depth_stencil_attachment^
     }
 
-    assert(fb_width > 0 && fb_height > 0,
-        "Invalid framebuffer dimensions, no valid attachments provided", loc)
+    color0 := sa.get(cmd.color_attachments, 0)
+    view_impl := get_impl(GL_Texture_View_Impl, color0.view, loc)
+    texture_impl := get_impl(GL_Texture_Impl, view_impl.texture, loc)
+    cmd.width = texture_impl.size.width
+    cmd.height = texture_impl.size.height
 
-    scissor := vk.Rect2D{
-        offset = {0, 0},
-        extent = {fb_width, fb_height},
-    }
-
-    rendering_info := vk.RenderingInfo{
-        sType                = .RENDERING_INFO,
-        renderArea           = scissor,
-        layerCount           = 1,
-        viewMask             = 0,
-        colorAttachmentCount = u32(sa.len(color_attachments)),
-        pColorAttachments    = raw_data(sa.slice(&color_attachments)),
-        pDepthAttachment     = has_depth   ? &vk_depth_attachment   : nil,
-        pStencilAttachment   = has_stencil ? &vk_stencil_attachment : nil,
-    }
-
-    vk.CmdBeginRendering(impl.vk_cmd_buf, &rendering_info)
-
-    render_pass := Render_Pass(command_encoder)
-
-    // Default viewport/scissor
-    vk_render_pass_set_viewport(
-        render_pass = render_pass,
-        x           = 0.0,
-        y           = 0.0,
-        width       = f32(fb_width),
-        height      = f32(fb_height),
-        min_depth   = 0.0,
-        max_depth   = 1.0,
-    )
-
-    vk_render_pass_set_scissor_rect(
-        render_pass = render_pass,
-        x           = 0,
-        y           = 0,
-        width       = fb_width,
-        height      = fb_height,
-    )
-
-    // Improved dynamic state defaults
-    depth_store_op := has_depth ? vk_depth_attachment.storeOp : .DONT_CARE
-
-    vk.CmdSetDepthTestEnable(impl.vk_cmd_buf, b32(has_depth))
-    vk.CmdSetDepthWriteEnable(impl.vk_cmd_buf, b32(has_depth && depth_store_op == .STORE))
-    vk.CmdSetDepthCompareOp(impl.vk_cmd_buf, .LESS)
-    vk.CmdSetDepthBiasEnable(impl.vk_cmd_buf, false)
-
-    if has_stencil {
-        vk.CmdSetStencilTestEnable(impl.vk_cmd_buf, true)
-    }
-    vk.CmdSetStencilReference(impl.vk_cmd_buf, {.FRONT, .BACK}, 0)
-
-    return render_pass
+    return cmd.render_pass
 }
 
 vk_command_encoder_copy_buffer_to_buffer :: proc(
@@ -1584,25 +1398,14 @@ vk_command_encoder_copy_buffer_to_buffer :: proc(
     loc := #caller_location,
 ) {
     impl := get_impl(Vulkan_Command_Buffer_Impl, encoder, loc)
-    src_impl := get_impl(Vulkan_Buffer_Impl, source, loc)
-    dst_impl := get_impl(Vulkan_Buffer_Impl, destination, loc)
 
-    copy_region := vk.BufferCopy{
-        srcOffset = vk.DeviceSize(source_offset),
-        dstOffset = vk.DeviceSize(destination_offset),
-        size = vk.DeviceSize(size),
-    }
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Copy_Buffer_To_Buffer, loc)
 
-    vk.CmdCopyBuffer(
-        impl.vk_cmd_buf,
-        src_impl.vk_buffer,
-        dst_impl.vk_buffer,
-        1,
-        &copy_region,
-    )
-
-    vk_deletion_queue_push(&impl.resources, src_impl)
-    vk_deletion_queue_push(&impl.resources, dst_impl)
+    cmd.source = source
+    cmd.source_offset = source_offset
+    cmd.destination = destination
+    cmd.destination_offset = destination_offset
+    cmd.size = size
 }
 
 vk_command_encoder_copy_buffer_to_texture :: proc(
@@ -1617,84 +1420,12 @@ vk_command_encoder_copy_buffer_to_texture :: proc(
     assert(destination.texture != nil, "Invalid destination texture", loc)
 
     impl := get_impl(Vulkan_Command_Buffer_Impl, encoder, loc)
-    buffer_impl := get_impl(Vulkan_Buffer_Impl, source.buffer, loc)
-    texture_impl := get_impl(Vulkan_Texture_Impl, destination.texture, loc)
 
-    // Calculate the mip level dimensions
-    mip_level := destination.mip_level
-    mip_width := max(1, texture_impl.vk_extent.width >> mip_level)
-    mip_height := max(1, texture_impl.vk_extent.height >> mip_level)
-    // mip_depth := max(1, texture_impl.vk_extent.depth >> mip_level)
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Copy_Buffer_To_Texture, loc)
 
-    // Validate copy region
-    assert(destination.origin.x + copy_size.width <= mip_width,
-        "Copy width exceeds texture dimensions", loc)
-    assert(destination.origin.y + copy_size.height <= mip_height,
-        "Copy height exceeds texture dimensions", loc)
-
-    // Determine aspect flags
-    aspect_flags := vk_conv_to_image_aspect_flags(destination.aspect, texture_impl.format)
-
-    // Define subresource range for the copy
-    subresource_range := vk.ImageSubresourceRange{
-        aspectMask     = aspect_flags,
-        baseMipLevel   = destination.mip_level,
-        levelCount     = 1,
-        baseArrayLayer = destination.origin.z,
-        layerCount     = copy_size.depth_or_array_layers,
-    }
-
-    // Transition to TRANSFER_DST_OPTIMAL
-    vk_texture_transition_layout(
-        texture_impl,
-        impl.vk_cmd_buf,
-        .TRANSFER_DST_OPTIMAL,
-        subresource_range,
-    )
-
-    // Set up the buffer image copy region
-    region := vk.BufferImageCopy{
-        bufferOffset = vk.DeviceSize(source.layout.offset),
-        bufferRowLength = source.layout.bytes_per_row / texture_format_block_copy_size(texture_impl.format),
-        bufferImageHeight = source.layout.rows_per_image,
-        imageSubresource = vk.ImageSubresourceLayers{
-            aspectMask = vk_conv_to_image_aspect_flags(destination.aspect, texture_impl.format),
-            mipLevel = destination.mip_level,
-            baseArrayLayer = destination.origin.z,
-            layerCount = copy_size.depth_or_array_layers,
-        },
-        imageOffset = vk.Offset3D{
-            x = i32(destination.origin.x),
-            y = i32(destination.origin.y),
-            z = i32(destination.origin.z),
-        },
-        imageExtent = vk.Extent3D{
-            width = copy_size.width,
-            height = copy_size.height,
-            depth = copy_size.depth_or_array_layers,
-        },
-    }
-
-    // Copy buffer to image
-    vk.CmdCopyBufferToImage(
-        impl.vk_cmd_buf,
-        buffer_impl.vk_buffer,
-        texture_impl.vk_image,
-        .TRANSFER_DST_OPTIMAL,
-        1,
-        &region,
-    )
-
-    // Transition to SHADER_READ_ONLY_OPTIMAL for shader usage
-    vk_texture_transition_layout(
-        texture_impl,
-        impl.vk_cmd_buf,
-        .SHADER_READ_ONLY_OPTIMAL,
-        subresource_range,
-    )
-
-    vk_deletion_queue_push(&impl.resources, buffer_impl)
-    vk_deletion_queue_push(&impl.resources, texture_impl)
+    cmd.source = source
+    cmd.destination = destination
+    cmd.copy_size = copy_size
 }
 
 vk_command_encoder_copy_texture_to_texture :: proc(
@@ -1706,91 +1437,11 @@ vk_command_encoder_copy_texture_to_texture :: proc(
 ) {
     impl := get_impl(Vulkan_Command_Buffer_Impl, command_encoder, loc)
 
-    source_impl := get_impl(Vulkan_Texture_Impl, source.texture, loc)
-    destination_impl := get_impl(Vulkan_Texture_Impl, destination.texture, loc)
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Copy_Texture_To_Texture, loc)
 
-    source_subresource_range := vk.ImageSubresourceRange{
-        aspectMask     = vk_conv_to_image_aspect_flags(source.aspect, source_impl.format),
-        baseMipLevel   = source.mip_level,
-        baseArrayLayer = source.origin.z,
-        layerCount     = 1,
-        levelCount     = 1,
-    }
-
-    vk_texture_transition_layout(
-        source_impl,
-        impl.vk_cmd_buf,
-        .TRANSFER_SRC_OPTIMAL,
-        source_subresource_range,
-    )
-
-    destination_subresource_range := vk.ImageSubresourceRange{
-        aspectMask     = vk_conv_to_image_aspect_flags(destination.aspect, destination_impl.format),
-        baseMipLevel   = destination.mip_level,
-        baseArrayLayer = destination.origin.z,
-        layerCount     = 1,
-        levelCount     = 1,
-    }
-
-    vk_texture_transition_layout(
-        destination_impl,
-        impl.vk_cmd_buf,
-        .TRANSFER_DST_OPTIMAL,
-        destination_subresource_range,
-    )
-
-    region := vk.ImageBlit {
-        srcSubresource = {
-            aspectMask = source_subresource_range.aspectMask,
-            mipLevel = source.mip_level,
-            baseArrayLayer = destination.origin.z,
-            layerCount = 1,
-        },
-        srcOffsets = {
-            { i32(source.origin.x), i32(source.origin.y), i32(source.origin.z) },
-            {
-                i32(source.origin.x + copy_size.width),
-                i32(source.origin.y + copy_size.height),
-                i32(source.origin.z + copy_size.depth_or_array_layers),
-            },
-        },
-        dstSubresource = {
-            aspectMask = destination_subresource_range.aspectMask,
-            mipLevel = destination.mip_level,
-            baseArrayLayer = destination.origin.z,
-            layerCount = 1,
-        },
-        dstOffsets = {
-            { i32(destination.origin.x), i32(destination.origin.y), i32(destination.origin.z) },
-            {
-                i32(destination.origin.x + copy_size.width),
-                i32(destination.origin.y + copy_size.height),
-                i32(destination.origin.z + copy_size.depth_or_array_layers),
-            },
-        },
-    }
-
-    vk.CmdBlitImage(
-        commandBuffer  = impl.vk_cmd_buf,
-        srcImage       = source_impl.vk_image,
-        srcImageLayout = .TRANSFER_SRC_OPTIMAL,
-        dstImage       = destination_impl.vk_image,
-        dstImageLayout = .TRANSFER_DST_OPTIMAL,
-        regionCount    = 1,
-        pRegions       = &region,
-        filter         = .NEAREST,
-    )
-
-    // Transition to SHADER_READ_ONLY_OPTIMAL for shader usage
-    vk_texture_transition_layout(
-        destination_impl,
-        impl.vk_cmd_buf,
-        .SHADER_READ_ONLY_OPTIMAL,
-        destination_subresource_range,
-    )
-
-    vk_deletion_queue_push(&impl.resources, source_impl)
-    vk_deletion_queue_push(&impl.resources, destination_impl)
+    cmd.source = source
+    cmd.destination = destination
+    cmd.copy_size = copy_size
 }
 
 vk_command_encoder_finish :: proc(
@@ -1798,11 +1449,16 @@ vk_command_encoder_finish :: proc(
     loc := #caller_location,
 ) -> Command_Buffer {
     impl := get_impl(Vulkan_Command_Buffer_Impl, command_encoder, loc)
+
     assert(impl.is_encoding, "Attempt to finish a command encoder that is not encoding", loc)
     assert(impl.is_rendering == false, "Attempt to finish a command encoder that is rendering", loc)
-    vk_check(vk.EndCommandBuffer(impl.vk_cmd_buf))
+
     impl.is_encoding = false
-    return Command_Buffer(impl)
+
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Finish, loc)
+    cmd.cmd_buf = Command_Buffer(impl)
+
+    return cmd.cmd_buf
 }
 
 @(require_results)
@@ -2822,6 +2478,7 @@ vk_device_release :: proc(device: Device, loc := #caller_location) {
             vk_deletion_queue_destroy(&buf.resources)
             vk.DestroyFence(impl.vk_device, buf.vk_fence, nil)
             vk.DestroySemaphore(impl.vk_device, buf.vk_semaphore, nil)
+            command_allocator_destroy(&buf.cmd_allocator)
         }
         vk.DestroyCommandPool(impl.vk_device, impl.encoder.vk_command_pool, nil)
 
@@ -3219,13 +2876,15 @@ vk_queue_submit :: proc(queue: Queue, commands: []Command_Buffer, loc := #caller
         return
     }
 
-    // Process each command buffer
+    // Submit each command buffer
     for cmd in sa.slice(&pending_commands) {
         cmd_buf_impl := get_impl(Vulkan_Command_Buffer_Impl, cmd, loc)
 
         assert(cmd_buf_impl != nil, "Command buffer is invalid", loc)
         assert(cmd_buf_impl.is_encoding == false, "Command buffer is still encoding", loc)
         assert(cmd_buf_impl.vk_cmd_buf != nil, "Command buffer is invalid", loc)
+
+        vk_record_commands(cmd_buf_impl)
 
         // Build wait semaphores (max 2: user wait + last submit)
         wait_semaphores: sa.Small_Array(2, vk.SemaphoreSubmitInfo)
@@ -3514,13 +3173,15 @@ vk_render_pass_draw :: proc(
     loc := #caller_location,
 ) {
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
-    vk.CmdDraw(
-        impl.vk_cmd_buf,
-        vertices.end - vertices.start,
-        instances.end - instances.start,
-        vertices.start,
-        instances.start,
-    )
+
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Render_Pass_Draw)
+
+    cmd.render_pass = Render_Pass(impl)
+    cmd.pipeline = Render_Pipeline(impl.current_pipeline_graphics)
+    cmd.vertex_count = vertices.end - vertices.start
+    cmd.instance_count = instances.end - instances.start
+    cmd.first_vertex = vertices.start
+    cmd.first_instance = instances.start
 }
 
 vk_render_pass_draw_indexed :: proc(
@@ -3531,14 +3192,15 @@ vk_render_pass_draw_indexed :: proc(
     loc := #caller_location,
 ) {
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
-    vk.CmdDrawIndexed(
-        impl.vk_cmd_buf,
-        indices.end - indices.start,
-        instances.end - instances.start,
-        indices.start,
-        base_vertex,
-        instances.start,
-    )
+
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Render_Pass_Draw_Indexed)
+
+    cmd.render_pass = Render_Pass(render_pass)
+    cmd.index_count = indices.end - indices.start
+    cmd.instance_count = instances.end - instances.start
+    cmd.first_index = indices.start
+    cmd.vertex_offset = base_vertex
+    cmd.first_instance = instances.start
 }
 
 vk_render_pass_end :: proc(render_pass: Render_Pass, loc := #caller_location) {
@@ -3546,30 +3208,9 @@ vk_render_pass_end :: proc(render_pass: Render_Pass, loc := #caller_location) {
     assert(impl.is_rendering, "Attempt to finish render pass that is not rendering", loc)
 
     impl.is_rendering = false
-    vk.CmdEndRendering(impl.vk_cmd_buf)
 
-    // Transition swapchain images to PRESENT_SRC_KHR
-    color_attachments := sa.slice(&impl.color_attachments)
-    for attachment in color_attachments {
-        texture_view := get_impl(Vulkan_Texture_View_Impl, attachment.view, loc)
-        texture := get_impl(Vulkan_Texture_Impl, texture_view.texture, loc)
-        if texture.is_swapchain_image {
-            subresource_range := vk.ImageSubresourceRange{
-                aspectMask     = {.COLOR},
-                baseMipLevel   = 0,
-                levelCount     = 1,
-                baseArrayLayer = 0,
-                layerCount     = 1,
-            }
-
-            vk_texture_transition_layout(
-                texture,
-                impl.vk_cmd_buf,
-                .PRESENT_SRC_KHR,
-                subresource_range,
-            )
-        }
-    }
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Render_Pass_End, loc)
+    cmd.render_pass = Render_Pass(impl)
 }
 
 vk_render_pass_set_bind_group :: proc(
@@ -3585,21 +3226,16 @@ vk_render_pass_set_bind_group :: proc(
     // Check if we have a bound pipeline first
     assert(impl.current_pipeline_graphics != nil, "No render pipeline bound", loc)
 
-    group_impl := get_impl(Vulkan_Bind_Group_Impl, group, loc)
-
-    // Bind the descriptor set
-    vk.CmdBindDescriptorSets(
-        impl.vk_cmd_buf,
-        .GRAPHICS,
-        impl.current_pipeline_graphics.pipeline_layout.vk_pipeline_layout,
-        group_index,
-        1,
-        &group_impl.vk_descriptor_set,
-        u32(len(dynamic_offsets)),
-        raw_data(dynamic_offsets) if len(dynamic_offsets) > 0 else nil,
-    )
-
-    vk_deletion_queue_push(&impl.resources, group_impl)
+    cmd := command_allocator_allocate(
+        &impl.cmd_allocator, Command_Render_Pass_Set_Bind_Group)
+    cmd.render_pass = Render_Pass(impl)
+    cmd.group_index = group_index
+    cmd.group = group
+    if len(dynamic_offsets) > 0 {
+        cmd.dynamic_offsets =
+            make([]u32, len(dynamic_offsets), impl.cmd_allocator.allocator)
+        copy(cmd.dynamic_offsets, dynamic_offsets)
+    }
 }
 
 vk_render_pass_set_index_buffer :: proc(
@@ -3611,38 +3247,17 @@ vk_render_pass_set_index_buffer :: proc(
     loc := #caller_location,
 ) {
     assert(buffer != nil, "Invalid index buffer", loc)
+    assert(format != .Undefined, "Invalid index format", loc)
+
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
-    buffer_impl := get_impl(Vulkan_Buffer_Impl, buffer, loc)
-    device_impl := get_impl(Vulkan_Device_Impl, buffer_impl.device, loc)
-    vk_deletion_queue_push(&impl.resources, buffer_impl)
 
-    vk_offset := vk.DeviceSize(offset)
-    vk_size: vk.DeviceSize
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Render_Pass_Set_Index_Buffer)
 
-    if size == WHOLE_SIZE {
-        vk_size = buffer_impl.vk_device_size - vk_offset
-    } else {
-        vk_size = vk.DeviceSize(size)
-        assert(vk_offset + vk_size <= buffer_impl.vk_device_size,
-               "Index buffer offset + size exceeds buffer capacity", loc)
-    }
-
-    if device_impl.has_KHR_maintenance5 {
-        vk.CmdBindIndexBuffer2KHR(
-            impl.vk_cmd_buf,
-            buffer_impl.vk_buffer,
-            vk_offset,
-            vk_size,
-            vk_conv_to_index_type(format),
-        )
-    } else {
-        vk.CmdBindIndexBuffer(
-            impl.vk_cmd_buf,
-            buffer_impl.vk_buffer,
-            vk_offset,
-            vk_conv_to_index_type(format),
-        )
-    }
+    cmd.render_pass = Render_Pass(render_pass)
+    cmd.buffer = buffer
+    cmd.format = format
+    cmd.offset = offset
+    cmd.size = size
 }
 
 vk_render_pass_set_pipeline :: proc(
@@ -3653,14 +3268,13 @@ vk_render_pass_set_pipeline :: proc(
     assert(pipeline != nil, "Invalid render pipeline", loc)
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
     pipeline_impl := get_impl(Vulkan_Render_Pipeline_Impl, pipeline, loc)
-
     impl.current_pipeline_graphics = pipeline_impl
-    vk_deletion_queue_push(&impl.resources, pipeline_impl)
-
-    vk.CmdBindPipeline(impl.vk_cmd_buf, .GRAPHICS, pipeline_impl.vk_pipeline)
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Render_Pass_Set_Render_Pipeline)
+    cmd.render_pass = Render_Pass(impl)
+    cmd.pipeline = pipeline
 }
 
-vk_render_pass_set_scissor_rect :: proc(
+vk_render_pass_set_scissor_rect_impl :: proc(
     render_pass: Render_Pass,
     x: u32,
     y: u32,
@@ -3676,13 +3290,29 @@ vk_render_pass_set_scissor_rect :: proc(
     vk.CmdSetScissor(impl.vk_cmd_buf, 0, 1, &scissor)
 }
 
+vk_render_pass_set_scissor_rect :: proc(
+    render_pass: Render_Pass,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    loc := #caller_location,
+) {
+    vk_render_pass_set_scissor_rect_impl(render_pass, x, y, width, height, loc)
+}
+
 vk_render_pass_set_stencil_reference :: proc(
     render_pass: Render_Pass,
     reference: u32,
     loc := #caller_location,
 ) {
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
-    vk.CmdSetStencilReference(impl.vk_cmd_buf, { .FRONT, .BACK }, reference)
+
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Render_Pass_Set_Stencil_Reference)
+
+    cmd.render_pass = Render_Pass(impl)
+    cmd.pipeline = Render_Pipeline(impl.current_pipeline_graphics)
+    cmd.reference = reference
 }
 
 vk_render_pass_set_vertex_buffer :: proc(
@@ -3695,25 +3325,19 @@ vk_render_pass_set_vertex_buffer :: proc(
 ) {
     assert(buffer != nil, "Invalid vertex buffer", loc)
     impl := get_impl(Vulkan_Command_Buffer_Impl, render_pass, loc)
-    buffer_impl := get_impl(Vulkan_Buffer_Impl, buffer, loc)
-    vk_deletion_queue_push(&impl.resources, buffer_impl)
 
-    vk_offset := vk.DeviceSize(offset)
-    vk_size: vk.DeviceSize
+     cmd := command_allocator_allocate(
+        &impl.cmd_allocator, Command_Render_Pass_Set_Vertex_Buffer)
 
-    if size == WHOLE_SIZE {
-        vk_size = buffer_impl.vk_device_size - vk_offset
-    } else {
-        vk_size = vk.DeviceSize(size)
-        assert(vk_offset + vk_size <= buffer_impl.vk_device_size,
-               "Vertex buffer offset + size exceeds buffer capacity", loc)
-    }
-
-    vk.CmdBindVertexBuffers2(
-        impl.vk_cmd_buf, slot, 1, &buffer_impl.vk_buffer, &vk_offset, &vk_size, nil)
+    cmd.render_pass = render_pass
+    cmd.pipeline = Render_Pipeline(impl.current_pipeline_graphics)
+    cmd.slot = slot
+    cmd.buffer = buffer
+    cmd.offset = offset
+    cmd.size = size
 }
 
-vk_render_pass_set_viewport :: proc(
+vk_render_pass_set_viewport_impl :: proc(
     render_pass: Render_Pass,
     x: f32,
     y: f32,
@@ -3734,6 +3358,19 @@ vk_render_pass_set_viewport :: proc(
         maxDepth = max_depth,
     }
     vk.CmdSetViewport(impl.vk_cmd_buf, 0, 1, &vp)
+}
+
+vk_render_pass_set_viewport :: proc(
+    render_pass: Render_Pass,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    min_depth: f32,
+    max_depth: f32,
+    loc := #caller_location,
+) {
+    vk_render_pass_set_viewport_impl(render_pass, x, y, width, height, min_depth, max_depth, loc)
 }
 
 @(require_results)

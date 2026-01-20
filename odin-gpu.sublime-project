@@ -14,25 +14,17 @@
                     "name": "01 - Clear Screen",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\01_clear_screen",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\01_clear_screen", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/01_clear_screen",
-                            "run"
+                            "./build.sh", "examples/01_clear_screen", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/01_clear_screen",
-                            "run"
+                            "./build.sh", "examples/01_clear_screen", "run"
                         ],
                     },
                 },
@@ -40,25 +32,17 @@
                     "name": "02 - Triangle",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\02_triangle",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\02_triangle", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/02_triangle",
-                            "run"
+                            "./build.sh", "examples/02_triangle", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/02_triangle",
-                            "run"
+                            "./build.sh", "examples/02_triangle", "run"
                         ],
                     },
                 },
@@ -66,25 +50,17 @@
                     "name": "03 - Square",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\03_square",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\03_square", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/03_square",
-                            "run"
+                            "./build.sh", "examples/03_square", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/03_square",
-                            "run"
+                            "./build.sh", "examples/03_square", "run"
                         ],
                     },
                 },
@@ -92,25 +68,17 @@
                     "name": "04 - Stencil Triangles",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\04_stencil_triangles",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\04_stencil_triangles", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/04_stencil_triangles",
-                            "run"
+                            "./build.sh", "examples/04_stencil_triangles", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/04_stencil_triangles",
-                            "run"
+                            "./build.sh", "examples/04_stencil_triangles", "run"
                         ],
                     },
                 },
@@ -118,25 +86,17 @@
                     "name": "05 - Cube",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\05_cube",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\05_cube", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/05_cube",
-                            "run"
+                            "./build.sh", "examples/05_cube", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/05_cube",
-                            "run"
+                            "./build.sh", "examples/05_cube", "run"
                         ],
                     },
                 },
@@ -144,25 +104,17 @@
                     "name": "06 - Rotating Cube",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\06_rotating_cube",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\06_rotating_cube", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/06_rotating_cube",
-                            "run"
+                            "./build.sh", "examples/06_rotating_cube", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/06_rotating_cube",
-                            "run"
+                            "./build.sh", "examples/06_rotating_cube", "run"
                         ],
                     },
                 },
@@ -170,25 +122,17 @@
                     "name": "07 - Two Cubes",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\07_two_cubes",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\07_two_cubes", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/07_two_cubes",
-                            "run"
+                            "./build.sh", "examples/07_two_cubes", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/07_two_cubes",
-                            "run"
+                            "./build.sh", "examples/07_two_cubes", "run"
                         ],
                     },
                 },
@@ -196,25 +140,35 @@
                     "name": "08 - Cube Textured",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\08_cube_textured",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\08_cube_textured", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/08_cube_textured",
-                            "run"
+                            "./build.sh", "examples/08_cube_textured", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/08_cube_textured",
-                            "run"
+                            "./build.sh", "examples/08_cube_textured", "run"
+                        ],
+                    },
+                },
+                {
+                    "name": "09 - Fractal Cube",
+                    "windows": {
+                        "cmd": [
+                            "cmd", "/c", "build.bat", "examples\\09_fractal_cube", "run"
+                        ],
+                    },
+                    "linux": {
+                        "cmd": [
+                            "./build.sh", "examples/09_fractal_cube", "run"
+                        ],
+                    },
+                    "osx": {
+                        "cmd": [
+                            "./build.sh", "examples/09_fractal_cube", "run"
                         ],
                     },
                 },
@@ -222,25 +176,17 @@
                     "name": "Microui",
                     "windows": {
                         "cmd": [
-                            "cmd",
-                            "/c",
-                            "build.bat",
-                            "examples\\microui",
-                            "run"
+                            "cmd", "/c", "build.bat", "examples\\microui", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/microui",
-                            "run"
+                            "./build.sh", "examples/microui", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh",
-                            "examples/microui",
-                            "run"
+                            "./build.sh", "examples/microui", "run"
                         ],
                     },
                 }

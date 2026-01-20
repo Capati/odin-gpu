@@ -235,7 +235,7 @@ on_adapter_and_device :: proc() {
 
     // Create final surface configuration
     ctx.gc.config = gpu.Surface_Configuration {
-        usage        = { .Render_Attachment },
+        usage        = { .Render_Attachment, .Copy_Src, .Copy_Dst },
         format       = preferred_format,
         width        = width,
         height       = height,

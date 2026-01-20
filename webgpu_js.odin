@@ -7,6 +7,30 @@ import "base:runtime"
 import "core:log"
 import sa "core:container/small_array"
 
+g_context: runtime.Context
+
+@(init)
+gpu_init_allocator :: proc "contextless" () {
+    if g_context.allocator.procedure == nil {
+        g_context = runtime.default_context()
+    }
+}
+
+@(export)
+gpu_alloc :: proc "contextless" (size: i32) -> [^]byte {
+    context = g_context
+    bytes, err := runtime.mem_alloc(int(size), 16)
+    assert(err == nil, "gpu_alloc failed")
+    return raw_data(bytes)
+}
+
+@(export)
+gpu_free :: proc "contextless" (ptr: rawptr) {
+    context = g_context
+    err := free(ptr)
+    assert(err == nil, "gpu_free failed")
+}
+
 webgpu_init :: proc(allocator := context.allocator) {
     // Global procedures
     create_instance_impl                    = js_create_instance
@@ -255,7 +279,7 @@ WebGPU_Pipeline_Layout_Descriptor :: struct {
 
 foreign import "webgpu"
 
-@(default_calling_convention="contextless")
+@(default_calling_convention="c")
 foreign webgpu {
     // Global procedures
     webgpuCreateInstance :: proc(descriptor: ^Instance_Descriptor) -> Instance ---

@@ -9,6 +9,8 @@ package gpu
 // supports the feature. If the adapter does not support the feature, requesting
 // a device with it enabled will panic.
 Features :: bit_set[Feature; u128]
+
+// List of possible features a backend can support.
 Feature :: enum i32 {
     // Webgpu
     Depth_Clip_Control,
@@ -86,4 +88,5 @@ Feature :: enum i32 {
     Experimental_Passthrough_Shaders,
 }
 
+// Total number of possible features a backend can support.
 MAX_FEATURES :: len(Feature)

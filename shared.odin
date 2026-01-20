@@ -3,6 +3,7 @@ package gpu
 // Local libs
 import "shared"
 
+// Range
 Range                      :: shared.Range
 Range_Iterator             :: shared.Range_Iterator
 range_init                 :: shared.range_init
@@ -12,10 +13,12 @@ range_contains             :: shared.range_contains
 range_create_iterator      :: shared.range_create_iterator
 range_iterator_next        :: shared.range_iterator_next
 
+// Math
 align                      :: shared.align
 align_size                 :: shared.align_size
 is_aligned                 :: shared.is_aligned
 
+// Pool
 Handle                     :: shared.Handle
 Internal_Handle            :: shared.Internal_Handle
 Pool_Entry                 :: shared.Pool_Entry
@@ -40,6 +43,7 @@ pool_is_empty              :: shared.pool_is_empty
 pool_clear                 :: shared.pool_clear
 pool_destroy               :: shared.pool_destroy
 
+// String buffer
 String_Buffer_Small        :: shared.String_Buffer_Small
 string_buffer_init         :: shared.string_buffer_init
 string_buffer_append       :: shared.string_buffer_append
@@ -53,5 +57,6 @@ string_buffer_get_string   :: shared.string_buffer_get_string
 string_buffer_get_cstring  :: shared.string_buffer_get_cstring
 string_buffer_clone_string :: shared.string_buffer_clone_string
 
+// To bytes
 to_bytes                   :: shared.to_bytes
 to_bytes_contextless       :: shared.to_bytes_contextless

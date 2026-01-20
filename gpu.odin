@@ -2327,6 +2327,26 @@ Image_Subresource_Range :: struct {
     array_layer_count: u32,
 }
 
+subresource_range_get_affected_by_copy :: proc(
+    copy: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
+    loc := #caller_location,
+) -> Image_Subresource_Range {
+    texture := get_impl(Texture_Base, copy.texture, loc)
+    #partial switch texture.dimension {
+    case .D1:
+        assert(copy.origin.z == 0 && copy_size.depth_or_array_layers == 1, loc = loc)
+        assert(copy.mip_level == 0, loc = loc)
+        return { copy.aspect, 0, 1, 0, 1 }
+    case .D2:
+        return { copy.aspect, copy.mip_level, 1, copy.origin.z, copy_size.depth_or_array_layers }
+    case .D3:
+        return { copy.aspect, copy.mip_level, 1, 0, 1 }
+    case:
+        unreachable()
+    }
+}
+
 // Color variation to use when sampler addressing mode is `Address_Mode.Clamp_To_Border`.
 Sampler_Border_Color :: enum {
     // Indicates no value is passed for this argument.

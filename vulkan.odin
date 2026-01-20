@@ -586,8 +586,8 @@ vk_adapter_get_limits_impl :: proc(impl: ^Vulkan_Adapter_Impl) -> (ret: Limits) 
     ret.max_texture_array_layers = limits.maxImageArrayLayers
 
     // Descriptor/Binding limits
-    ret.max_bind_groups = min(limits.maxBoundDescriptorSets, 4)
-    ret.max_bind_groups_plus_vertex_buffers = min(
+    ret.max_bind_groups = max(limits.maxBoundDescriptorSets, 4)
+    ret.max_bind_groups_plus_vertex_buffers = max(
         limits.maxBoundDescriptorSets + limits.maxVertexInputBindings, 24)
     ret.max_bindings_per_bind_group = 1000
 

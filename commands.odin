@@ -97,6 +97,30 @@ Command_Render_Pass_End :: struct {
     render_pass: Render_Pass,
 }
 
+Command_Copy_Buffer_To_Buffer :: struct {
+    source:             Buffer,
+    source_offset:      u64,
+    destination:        Buffer,
+    destination_offset: u64,
+    size:               u64,
+}
+
+Command_Copy_Buffer_To_Texture :: struct {
+    source:      Texel_Copy_Buffer_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size:   Extent_3D,
+}
+
+Command_Copy_Texture_To_Texture :: struct {
+    source:      Texel_Copy_Texture_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size:   Extent_3D,
+}
+
+Command_Finish :: struct {
+    cmd_buf: Command_Buffer,
+}
+
 // All possible command types.
 Command :: union #no_nil {
     Command_Begin_Render_Pass,
@@ -109,7 +133,11 @@ Command :: union #no_nil {
     Command_Render_Pass_Set_Stencil_Reference,
     Command_Render_Pass_Draw,
     Command_Render_Pass_Draw_Indexed,
+    Command_Copy_Buffer_To_Buffer,
+    Command_Copy_Buffer_To_Texture,
+    Command_Copy_Texture_To_Texture,
     Command_Render_Pass_End,
+    Command_Finish,
 }
 
 Command_Allocator :: struct {

@@ -16,28 +16,6 @@ Feature_Level :: enum {
     Compatibility,
 }
 
-Request_Adapter_Status :: enum {
-    Success,
-    Instance_Dropped,
-    Unavailable,
-    Error,
-    Unknown,
-}
-
-Request_Adapter_Callback :: #type proc "c" (
-    status: Request_Adapter_Status,
-    adapter: Adapter,
-    message: string,
-    userdata1: rawptr,
-    userdata2: rawptr,
-)
-
-Request_Adapter_Callback_Info :: struct {
-    callback:  Request_Adapter_Callback,
-    userdata1: rawptr,
-    userdata2: rawptr,
-}
-
 Request_Device_Status :: enum {
     Success,
     Instance_Dropped,

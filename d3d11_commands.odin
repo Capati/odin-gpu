@@ -113,6 +113,82 @@ d3d11_execute_copy_texture_to_texture :: proc(
     cmd: ^Command_Copy_Texture_To_Texture,
     loc := #caller_location,
 ) {
+    src := get_impl(D3D11_Texture_Impl, cmd.source.texture, loc)
+    dst := get_impl(D3D11_Texture_Impl, cmd.destination.texture, loc)
+
+    device_impl := get_impl(D3D11_Device_Impl, src.device, loc)
+    d3d_context := device_impl.d3d_context
+
+    // Get the appropriate resource pointers based on texture dimension
+    src_resource: ^d3d11.IResource
+    #partial switch src.dimension {
+    case .D1: src_resource = cast(^d3d11.IResource)src.texture1d
+    case .D2: src_resource = cast(^d3d11.IResource)src.texture2d
+    case .D3: src_resource = cast(^d3d11.IResource)src.texture3d
+    case:
+        panic("Invalid texture dimension", loc)
+    }
+    assert(src_resource != nil, loc = loc)
+
+    dst_resource: ^d3d11.IResource
+    #partial switch dst.dimension {
+    case .D1: dst_resource = cast(^d3d11.IResource)dst.texture1d
+    case .D2: dst_resource = cast(^d3d11.IResource)dst.texture2d
+    case .D3: dst_resource = cast(^d3d11.IResource)dst.texture3d
+    case:
+        panic("Invalid texture dimension", loc)
+    }
+    assert(dst_resource != nil, loc = loc)
+
+    src_subresources := subresource_range_get_affected_by_copy(cmd.source, cmd.copy_size)
+    dst_subresources := subresource_range_get_affected_by_copy(cmd.destination, cmd.copy_size)
+
+    // Set up the source box
+    src_box := d3d11.BOX {
+        left   = cmd.source.origin.x,
+        right  = cmd.source.origin.x + cmd.copy_size.width,
+        top    = cmd.source.origin.y,
+        bottom = cmd.source.origin.y + cmd.copy_size.height,
+    }
+
+    #partial switch src.dimension {
+    case .D1, .D2:
+        src_box.front = 0
+        src_box.back = 1
+    case .D3:
+        src_box.front = cmd.source.origin.z
+        src_box.back = cmd.source.origin.z + cmd.copy_size.depth_or_array_layers
+    case:
+        unreachable()
+    }
+
+    for layer in 0 ..< src_subresources.array_layer_count {
+        src_subresource_index := texture_get_subresource_index(
+            src,
+            cmd.source.mip_level,
+            src_subresources.base_array_layer + layer,
+            src_subresources.aspect,
+        )
+
+        dst_subresource_index := texture_get_subresource_index(
+            dst,
+            cmd.destination.mip_level,
+            dst_subresources.base_array_layer + layer,
+            dst_subresources.aspect,
+        )
+
+        // Perform the copy
+        d3d_context->CopySubresourceRegion(
+            pDstResource   = dst_resource,
+            DstSubresource = dst_subresource_index,
+            DstX           = cmd.destination.origin.x,
+            DstY           = cmd.destination.origin.y,
+            DstZ           = dst.dimension == .D3 ? cmd.destination.origin.z : 0,
+            pSrcResource   = src_resource,
+            SrcSubresource = src_subresource_index,
+            pSrcBox        = &src_box,
+        )
+    }
 }
 
 d3d11_execute_render_pass_draw :: proc(

@@ -313,161 +313,162 @@ D3D11_IDeviceContext1_VTable :: struct {
 
 d3d11_init :: proc(allocator := context.allocator) {
     // Global procedures
-    create_instance_impl              = d3d11_create_instance
+    create_instance_impl                    = d3d11_create_instance
 
     // Adapter procedures
-    adapter_get_info                  = d3d11_adapter_get_info
-    adapter_info_free_members         = d3d11_adapter_info_free_members
-    adapter_request_device            = d3d11_adapter_request_device
-    adapter_get_features              = d3d11_adapter_get_features
-    adapter_get_label                 = d3d11_adapter_get_label
-    adapter_set_label                 = d3d11_adapter_set_label
-    adapter_add_ref                   = d3d11_adapter_add_ref
-    adapter_release                   = d3d11_adapter_release
+    adapter_get_info                        = d3d11_adapter_get_info
+    adapter_info_free_members               = d3d11_adapter_info_free_members
+    adapter_request_device                  = d3d11_adapter_request_device
+    adapter_get_features                    = d3d11_adapter_get_features
+    adapter_get_label                       = d3d11_adapter_get_label
+    adapter_set_label                       = d3d11_adapter_set_label
+    adapter_add_ref                         = d3d11_adapter_add_ref
+    adapter_release                         = d3d11_adapter_release
 
     // Bind Group Layout procedures
-    bind_group_layout_get_label       = d3d11_bind_group_layout_get_label
-    bind_group_layout_set_label       = d3d11_bind_group_layout_set_label
-    bind_group_layout_add_ref         = d3d11_bind_group_layout_add_ref
-    bind_group_layout_release         = d3d11_bind_group_layout_release
+    bind_group_layout_get_label             = d3d11_bind_group_layout_get_label
+    bind_group_layout_set_label             = d3d11_bind_group_layout_set_label
+    bind_group_layout_add_ref               = d3d11_bind_group_layout_add_ref
+    bind_group_layout_release               = d3d11_bind_group_layout_release
 
     // Bind Group procedures
-    bind_group_get_label              = d3d11_bind_group_get_label
-    bind_group_set_label              = d3d11_bind_group_set_label
-    bind_group_add_ref                = d3d11_bind_group_add_ref
-    bind_group_release                = d3d11_bind_group_release
+    bind_group_get_label                    = d3d11_bind_group_get_label
+    bind_group_set_label                    = d3d11_bind_group_set_label
+    bind_group_add_ref                      = d3d11_bind_group_add_ref
+    bind_group_release                      = d3d11_bind_group_release
 
     // Buffer procedures
-    buffer_unmap                      = d3d11_buffer_unmap
-    buffer_get_map_state              = d3d11_buffer_get_map_state
-    buffer_get_size                   = d3d11_buffer_get_size
-    buffer_get_usage                  = d3d11_buffer_get_usage
-    buffer_get_label                  = d3d11_buffer_get_label
-    buffer_set_label                  = d3d11_buffer_set_label
-    buffer_add_ref                    = d3d11_buffer_add_ref
-    buffer_release                    = d3d11_buffer_release
+    buffer_unmap                            = d3d11_buffer_unmap
+    buffer_get_map_state                    = d3d11_buffer_get_map_state
+    buffer_get_size                         = d3d11_buffer_get_size
+    buffer_get_usage                        = d3d11_buffer_get_usage
+    buffer_get_label                        = d3d11_buffer_get_label
+    buffer_set_label                        = d3d11_buffer_set_label
+    buffer_add_ref                          = d3d11_buffer_add_ref
+    buffer_release                          = d3d11_buffer_release
 
     // Command Buffer procedures
-    command_buffer_get_label          = d3d11_command_buffer_get_label
-    command_buffer_set_label          = d3d11_command_buffer_set_label
-    command_buffer_add_ref            = d3d11_command_buffer_add_ref
-    command_buffer_release            = d3d11_command_buffer_release
+    command_buffer_get_label                = d3d11_command_buffer_get_label
+    command_buffer_set_label                = d3d11_command_buffer_set_label
+    command_buffer_add_ref                  = d3d11_command_buffer_add_ref
+    command_buffer_release                  = d3d11_command_buffer_release
 
     // Command Encoder procedures
-    command_encoder_begin_render_pass = d3d11_command_encoder_begin_render_pass
-    command_encoder_finish            = d3d11_command_encoder_finish
-    command_encoder_get_label         = d3d11_command_encoder_get_label
-    command_encoder_set_label         = d3d11_command_encoder_set_label
-    command_encoder_add_ref           = d3d11_command_encoder_add_ref
-    command_encoder_release           = d3d11_command_encoder_release
+    command_encoder_begin_render_pass       = d3d11_command_encoder_begin_render_pass
+    command_encoder_copy_texture_to_texture = d3d11_command_encoder_copy_texture_to_texture
+    command_encoder_finish                  = d3d11_command_encoder_finish
+    command_encoder_get_label               = d3d11_command_encoder_get_label
+    command_encoder_set_label               = d3d11_command_encoder_set_label
+    command_encoder_add_ref                 = d3d11_command_encoder_add_ref
+    command_encoder_release                 = d3d11_command_encoder_release
 
     // Device procedures
-    device_create_buffer              = d3d11_device_create_buffer
-    device_create_bind_group_layout   = d3d11_device_create_bind_group_layout
-    device_create_bind_group          = d3d11_device_create_bind_group
-    device_create_command_encoder     = d3d11_device_create_command_encoder
-    device_create_render_pipeline     = d3d11_device_create_render_pipeline
-    device_create_pipeline_layout     = d3d11_device_create_pipeline_layout
-    device_create_texture             = d3d11_device_create_texture
-    device_create_sampler             = d3d11_device_create_sampler
-    device_create_shader_module       = d3d11_device_create_shader_module
-    device_get_features               = d3d11_device_get_features
-    device_get_limits                 = d3d11_device_get_limits
-    device_get_queue                  = d3d11_device_get_queue
-    device_get_label                  = d3d11_device_get_label
-    device_set_label                  = d3d11_device_set_label
-    device_add_ref                    = d3d11_device_add_ref
-    device_release                    = d3d11_device_release
+    device_create_buffer                    = d3d11_device_create_buffer
+    device_create_bind_group_layout         = d3d11_device_create_bind_group_layout
+    device_create_bind_group                = d3d11_device_create_bind_group
+    device_create_command_encoder           = d3d11_device_create_command_encoder
+    device_create_render_pipeline           = d3d11_device_create_render_pipeline
+    device_create_pipeline_layout           = d3d11_device_create_pipeline_layout
+    device_create_texture                   = d3d11_device_create_texture
+    device_create_sampler                   = d3d11_device_create_sampler
+    device_create_shader_module             = d3d11_device_create_shader_module
+    device_get_features                     = d3d11_device_get_features
+    device_get_limits                       = d3d11_device_get_limits
+    device_get_queue                        = d3d11_device_get_queue
+    device_get_label                        = d3d11_device_get_label
+    device_set_label                        = d3d11_device_set_label
+    device_add_ref                          = d3d11_device_add_ref
+    device_release                          = d3d11_device_release
 
     // Instance procedures
-    instance_create_surface           = d3d11_instance_create_surface
-    instance_request_adapter          = d3d11_instance_request_adapter
-    instance_get_label                = d3d11_instance_get_label
-    instance_set_label                = d3d11_instance_set_label
-    instance_add_ref                  = d3d11_instance_add_ref
-    instance_release                  = d3d11_instance_release
+    instance_create_surface                 = d3d11_instance_create_surface
+    instance_request_adapter                = d3d11_instance_request_adapter
+    instance_get_label                      = d3d11_instance_get_label
+    instance_set_label                      = d3d11_instance_set_label
+    instance_add_ref                        = d3d11_instance_add_ref
+    instance_release                        = d3d11_instance_release
 
     // Pipeline Layout procedures
-    pipeline_layout_get_label         = d3d11_pipeline_layout_get_label
-    pipeline_layout_set_label         = d3d11_pipeline_layout_set_label
-    pipeline_layout_add_ref           = d3d11_pipeline_layout_add_ref
-    pipeline_layout_release           = d3d11_pipeline_layout_release
+    pipeline_layout_get_label               = d3d11_pipeline_layout_get_label
+    pipeline_layout_set_label               = d3d11_pipeline_layout_set_label
+    pipeline_layout_add_ref                 = d3d11_pipeline_layout_add_ref
+    pipeline_layout_release                 = d3d11_pipeline_layout_release
 
     // Queue procedures
-    queue_submit                      = d3d11_queue_submit
-    queue_write_buffer_impl           = d3d11_queue_write_buffer
-    queue_write_texture               = d3d11_queue_write_texture
-    queue_get_label                   = d3d11_queue_get_label
-    queue_set_label                   = d3d11_queue_set_label
-    queue_add_ref                     = d3d11_queue_add_ref
-    queue_release                     = d3d11_queue_release
+    queue_submit                            = d3d11_queue_submit
+    queue_write_buffer_impl                 = d3d11_queue_write_buffer
+    queue_write_texture                     = d3d11_queue_write_texture
+    queue_get_label                         = d3d11_queue_get_label
+    queue_set_label                         = d3d11_queue_set_label
+    queue_add_ref                           = d3d11_queue_add_ref
+    queue_release                           = d3d11_queue_release
 
     // Render Pass procedures
-    render_pass_draw                  = d3d11_render_pass_draw
-    render_pass_draw_indexed          = d3d11_render_pass_draw_indexed
-    render_pass_end                   = d3d11_render_pass_end
-    render_pass_set_stencil_reference = d3d11_render_pass_set_stencil_reference
-    render_pass_set_scissor_rect      = d3d11_render_pass_set_scissor_rect
-    render_pass_set_viewport          = d3d11_render_pass_set_viewport
-    render_pass_set_bind_group        = d3d11_render_pass_set_bind_group
-    render_pass_set_pipeline          = d3d11_render_pass_set_pipeline
-    render_pass_set_vertex_buffer     = d3d11_render_pass_set_vertex_buffer
-    render_pass_set_index_buffer      = d3d11_render_pass_set_index_buffer
-    render_pass_get_label             = d3d11_render_pass_get_label
-    render_pass_set_label             = d3d11_render_pass_set_label
-    render_pass_add_ref               = d3d11_render_pass_add_ref
-    render_pass_release               = d3d11_render_pass_release
+    render_pass_draw                        = d3d11_render_pass_draw
+    render_pass_draw_indexed                = d3d11_render_pass_draw_indexed
+    render_pass_end                         = d3d11_render_pass_end
+    render_pass_set_stencil_reference       = d3d11_render_pass_set_stencil_reference
+    render_pass_set_scissor_rect            = d3d11_render_pass_set_scissor_rect
+    render_pass_set_viewport                = d3d11_render_pass_set_viewport
+    render_pass_set_bind_group              = d3d11_render_pass_set_bind_group
+    render_pass_set_pipeline                = d3d11_render_pass_set_pipeline
+    render_pass_set_vertex_buffer           = d3d11_render_pass_set_vertex_buffer
+    render_pass_set_index_buffer            = d3d11_render_pass_set_index_buffer
+    render_pass_get_label                   = d3d11_render_pass_get_label
+    render_pass_set_label                   = d3d11_render_pass_set_label
+    render_pass_add_ref                     = d3d11_render_pass_add_ref
+    render_pass_release                     = d3d11_render_pass_release
 
     // Render Pipeline procedures
-    render_pipeline_get_label         = d3d11_render_pipeline_get_label
-    render_pipeline_set_label         = d3d11_render_pipeline_set_label
-    render_pipeline_add_ref           = d3d11_render_pipeline_add_ref
-    render_pipeline_release           = d3d11_render_pipeline_release
+    render_pipeline_get_label               = d3d11_render_pipeline_get_label
+    render_pipeline_set_label               = d3d11_render_pipeline_set_label
+    render_pipeline_add_ref                 = d3d11_render_pipeline_add_ref
+    render_pipeline_release                 = d3d11_render_pipeline_release
 
     // Sampler procedures
-    sampler_get_label                 = d3d11_sampler_get_label
-    sampler_set_label                 = d3d11_sampler_set_label
-    sampler_add_ref                   = d3d11_sampler_add_ref
-    sampler_release                   = d3d11_sampler_release
+    sampler_get_label                       = d3d11_sampler_get_label
+    sampler_set_label                       = d3d11_sampler_set_label
+    sampler_add_ref                         = d3d11_sampler_add_ref
+    sampler_release                         = d3d11_sampler_release
 
     // Shader Module procedures
-    shader_module_get_label           = d3d11_shader_module_get_label
-    shader_module_set_label           = d3d11_shader_module_set_label
-    shader_module_add_ref             = d3d11_shader_module_add_ref
-    shader_module_release             = d3d11_shader_module_release
+    shader_module_get_label                 = d3d11_shader_module_get_label
+    shader_module_set_label                 = d3d11_shader_module_set_label
+    shader_module_add_ref                   = d3d11_shader_module_add_ref
+    shader_module_release                   = d3d11_shader_module_release
 
     // Surface procedures
-    surface_get_capabilities          = d3d11_surface_get_capabilities
-    surface_capabilities_free_members = d3d11_surface_capabilities_free_members
-    surface_configure                 = d3d11_surface_configure
-    surface_get_current_texture       = d3d11_surface_get_current_texture
-    surface_present                   = d3d11_surface_present
-    surface_get_label                 = d3d11_surface_get_label
-    surface_set_label                 = d3d11_surface_set_label
-    surface_add_ref                   = d3d11_surface_add_ref
-    surface_release                   = d3d11_surface_release
+    surface_get_capabilities                = d3d11_surface_get_capabilities
+    surface_capabilities_free_members       = d3d11_surface_capabilities_free_members
+    surface_configure                       = d3d11_surface_configure
+    surface_get_current_texture             = d3d11_surface_get_current_texture
+    surface_present                         = d3d11_surface_present
+    surface_get_label                       = d3d11_surface_get_label
+    surface_set_label                       = d3d11_surface_set_label
+    surface_add_ref                         = d3d11_surface_add_ref
+    surface_release                         = d3d11_surface_release
 
     // Texture procedures
-    texture_create_view_impl          = d3d11_texture_create_view
-    texture_get_descriptor            = d3d11_texture_get_descriptor
-    texture_get_dimension             = d3d11_texture_get_dimension
-    texture_get_format                = d3d11_texture_get_format
-    texture_get_height                = d3d11_texture_get_height
-    texture_get_mip_level_count       = d3d11_texture_get_mip_level_count
-    texture_get_sample_count          = d3d11_texture_get_sample_count
-    texture_get_size                  = d3d11_texture_get_size
-    texture_get_usage                 = d3d11_texture_get_usage
-    texture_get_width                 = d3d11_texture_get_width
-    texture_get_label                 = d3d11_texture_get_label
-    texture_set_label                 = d3d11_texture_set_label
-    texture_add_ref                   = d3d11_texture_add_ref
-    texture_release                   = d3d11_texture_release
+    texture_create_view_impl                = d3d11_texture_create_view
+    texture_get_descriptor                  = d3d11_texture_get_descriptor
+    texture_get_dimension                   = d3d11_texture_get_dimension
+    texture_get_format                      = d3d11_texture_get_format
+    texture_get_height                      = d3d11_texture_get_height
+    texture_get_mip_level_count             = d3d11_texture_get_mip_level_count
+    texture_get_sample_count                = d3d11_texture_get_sample_count
+    texture_get_size                        = d3d11_texture_get_size
+    texture_get_usage                       = d3d11_texture_get_usage
+    texture_get_width                       = d3d11_texture_get_width
+    texture_get_label                       = d3d11_texture_get_label
+    texture_set_label                       = d3d11_texture_set_label
+    texture_add_ref                         = d3d11_texture_add_ref
+    texture_release                         = d3d11_texture_release
 
     // Texture View procedures
-    texture_view_get_label            = d3d11_texture_view_get_label
-    texture_view_set_label            = d3d11_texture_view_set_label
-    texture_view_add_ref              = d3d11_texture_view_add_ref
-    texture_view_release              = d3d11_texture_view_release
+    texture_view_get_label                  = d3d11_texture_view_get_label
+    texture_view_set_label                  = d3d11_texture_view_set_label
+    texture_view_add_ref                    = d3d11_texture_view_add_ref
+    texture_view_release                    = d3d11_texture_view_release
 }
 
 // -----------------------------------------------------------------------------
@@ -1268,6 +1269,52 @@ d3d11_command_encoder_begin_render_pass :: proc(
     cmd.height = texture_impl.size.height
 
     return Render_Pass(rpass_impl)
+}
+
+d3d11_command_encoder_copy_buffer_to_buffer :: proc(
+    encoder: Command_Encoder,
+    source: Buffer,
+    source_offset: u64,
+    destination: Buffer,
+    destination_offset: u64,
+    size: u64,
+    loc := #caller_location,
+) {
+    unimplemented()
+}
+
+d3d11_command_encoder_copy_buffer_to_texture :: proc(
+    encoder: Command_Encoder,
+    source: ^Texel_Copy_Buffer_Info,
+    destination: ^Texel_Copy_Texture_Info,
+    copy_size: ^Extent_3D,
+    loc := #caller_location,
+) {
+    unimplemented()
+}
+
+d3d11_command_encoder_copy_texture_to_buffer :: proc(
+    encoder: Command_Encoder,
+    source: ^Texel_Copy_Texture_Info,
+    destination: ^Texel_Copy_Buffer_Info,
+    copy_size: ^Extent_3D,
+    loc := #caller_location,
+) {
+    unimplemented()
+}
+
+d3d11_command_encoder_copy_texture_to_texture :: proc(
+    encoder: Command_Encoder,
+    source: Texel_Copy_Texture_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
+    loc := #caller_location,
+) {
+    impl := get_impl(GL_Command_Encoder_Impl, encoder, loc)
+    cmd := command_allocator_allocate(&impl.cmd_allocator, Command_Copy_Texture_To_Texture)
+    cmd.source = source
+    cmd.destination = destination
+    cmd.copy_size = copy_size
 }
 
 d3d11_command_encoder_finish :: proc(

@@ -4553,6 +4553,20 @@ Texture_Base :: struct {
     is_swapchain:      bool,
 }
 
+texture_get_subresource_index :: proc(
+    texture: Texture_Base,
+    mip_level: u32,
+    array_slice: u32,
+    aspect: Texture_Aspect,
+    loc := #caller_location,
+) -> u32 {
+    assert(aspect != .Undefined, "Invalid texture aspect", loc)
+    plane_slice := format_aspect_get_aspect_index(aspect)
+    return mip_level +
+           (array_slice * texture.mip_level_count) +
+           (plane_slice * texture.mip_level_count * texture.array_layer_count)
+}
+
 Proc_Texture_Create_View :: #type proc(
     texture: Texture,
     descriptor: Texture_View_Descriptor,

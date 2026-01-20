@@ -1,9 +1,6 @@
 package gpu
 
 // Core
-import "base:runtime"
-import "core:fmt"
-import "core:log"
 import "core:reflect"
 import "core:strings"
 import sa "core:container/small_array"
@@ -166,6 +163,9 @@ Limits :: struct {
     max_acceleration_structures_per_shader_stage: u32,
 }
 
+// Total number of available limits.
+LIMITS_TOTAL :: 43
+
 // These default limits are guaranteed to to work on all modern backends and
 // guaranteed to be supported by WebGPU.
 LIMITS_DEFAULT :: Limits {
@@ -320,6 +320,7 @@ LIMITS_DOWNLEVEL_WEBGL2 :: Limits {
     max_acceleration_structures_per_shader_stage        = 0,
 }
 
+// Use the minimum limits.
 LIMITS_MINIMUM_DEFAULT :: LIMITS_DOWNLEVEL
 
 // Modify the current limits to use the resolution limits of the other.
@@ -348,8 +349,7 @@ limits_using_alignment :: proc(self, other: Limits) -> Limits {
     return self
 }
 
-// The minimum guaranteed limits for acceleration structures if you enable
-// `Features{ .Experimental_Ray_Query }`
+// The minimum guaranteed limits for acceleration structures.
 limits_using_minimum_supported_acceleration_structure_values :: proc(self: Limits) -> Limits {
     self := self
     self.max_blas_geometry_count = (1 << 24) - 1 // 2^24 - 1: Vulkan's minimum
@@ -390,35 +390,37 @@ limits_using_recommended_minimum_mesh_shader_values :: proc(self: Limits) -> Lim
     return self
 }
 
+// A single limit violation.
 Limits_Violation_Value :: struct {
-    field_name: string,
-    current:    u64,
-    allowed:    u64,
+    name:    string,
+    current: u64,
+    allowed: u64,
 }
 
-LIMITS_MAX_VIOLATIONS :: 44
+// Total number of possible limits violations, is the total of available limits + 1.
+LIMITS_MAX_VIOLATIONS :: LIMITS_TOTAL + 1
 
+// List of possible limits violations.
 Limits_Violation_List :: sa.Small_Array(LIMITS_MAX_VIOLATIONS, Limits_Violation_Value)
 
+// Return value for `limits_check`.
 Limits_Violations :: struct {
     values: Limits_Violation_List,
     ok:     bool,
 }
 
-/*
-Compares two `Limits` structures and identifies any violations where the `self`
-limits exceed or fall short of the `allowed` limits.
-
-Inputs:
-
-- `self: Limits`: The limits to be checked.
-- `allowed: Limits`: The reference limits that `self` is checked against.
-
-Returns:
-
-- `violations: Limits_Violations`: A structure containing information about any
-  limit violations.
-*/
+// Compares two `Limits` structures and identifies any violations where the
+// `self` limits exceed or fall short of the `allowed` limits.
+//
+// Inputs:
+//
+// - `self: Limits`: The limits to be checked.
+// - `allowed: Limits`: The reference limits that `self` is checked against.
+//
+// Returns:
+//
+// - `violations: Limits_Violations`: A structure containing information about
+//   any limit violations.
 @(require_results)
 limits_check :: proc (
     self: Limits,
@@ -432,11 +434,11 @@ limits_check :: proc (
 
     add_violation :: proc(
         violations: ^Limits_Violation_List,
-        field_name: string,
+        name: string,
         current, allowed: u64,
     ) {
         violation := Limits_Violation_Value {
-            field_name = field_name,
+            name = name,
             current    = current,
             allowed    = allowed,
         }
@@ -446,21 +448,21 @@ limits_check :: proc (
 
     check_max :: proc(
         violations: ^Limits_Violation_List,
-        field_name: string,
+        name: string,
         #any_int current, allowed: u64,
     ) {
         if current > allowed {
-            add_violation(violations, field_name, current, allowed)
+            add_violation(violations, name, current, allowed)
         }
     }
 
     check_min :: proc(
         violations: ^Limits_Violation_List,
-        field_name: string,
+        name: string,
         #any_int current, allowed: u64,
     ) {
         if current < allowed {
-            add_violation(violations, field_name, current, allowed)
+            add_violation(violations, name, current, allowed)
         }
     }
 
@@ -468,7 +470,7 @@ limits_check :: proc (
     assert(len(fields) == LIMITS_MAX_VIOLATIONS, "Mismatch violations entries")
 
     for &field in fields {
-        field_name := field.name
+        name := field.name
 
         // Get field values using offsets
         self_ptr := rawptr(uintptr(&self) + field.offset)
@@ -488,55 +490,14 @@ limits_check :: proc (
             unreachable()
         }
 
-        if strings.has_prefix(field_name, "max_") {
-            check_max(&violations.values, field_name, value1, value2)
-        } else if strings.has_prefix(field_name, "min_") {
-            check_min(&violations.values, field_name, value1, value2)
+        if strings.has_prefix(name, "max_") {
+            check_max(&violations.values, name, value1, value2)
+        } else if strings.has_prefix(name, "min_") {
+            check_min(&violations.values, name, value1, value2)
         }
     }
 
     violations.ok = sa.len(violations.values) == 0
     ok = violations.ok
     return
-}
-
-limits_violation_log :: proc(violations: Limits_Violations, loc := #caller_location) {
-    if violations.ok {
-        return // Early exit if no violations
-    }
-
-    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-    violation_str := limits_violation_to_string(violations, context.temp_allocator)
-    log.fatalf("Limits violations detected:\n%s", violation_str, location = loc)
-}
-
-limits_violation_to_string :: proc(
-    violation: Limits_Violations,
-    allocator := context.allocator,
-) -> string {
-    if violation.ok || sa.len(violation.values) == 0 {
-        return ""
-    }
-
-    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == context.temp_allocator)
-    b := strings.builder_make(0, 512, context.temp_allocator)
-    defer strings.builder_destroy(&b)
-
-    violations := violation.values
-    violations_slice := sa.slice(&violations)
-    for &value, i in violations_slice {
-        if i > 0 {
-            strings.write_byte(&b, '\n') // Separator before, not after
-        }
-
-        fmt.sbprintf(&b, "%s:\n", value.field_name)
-        fmt.sbprintf(&b, "  Current: %d\n", value.current)
-        fmt.sbprintf(&b, "  Allowed: %d\n", value.allowed)
-
-        // Determine violation type
-        violation_type := "exceeds maximum" if value.current > value.allowed else "below minimum"
-        fmt.sbprintf(&b, "  Violation: %s\n", violation_type)
-    }
-
-    return strings.clone(strings.to_string(b), allocator)
 }

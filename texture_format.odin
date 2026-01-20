@@ -175,6 +175,17 @@ format_aspects_from :: proc "contextless" (format: Texture_Format) -> Format_Asp
     return { .Color }
 }
 
+format_aspect_get_aspect_index :: proc(aspect: Texture_Aspect, loc := #caller_location) -> u32 {
+    assert(aspect != .Undefined, "Invalid texture aspect", loc)
+    #partial switch aspect {
+    case .All, .Depth_Only, .Plane0: return 0
+    case .Plane1, .Stencil_Only: return 1
+    case .Plane2: return 2
+    case:
+        unreachable()
+    }
+}
+
 // Texture format capability flags.
 Texture_Format_Capabilities :: bit_set[Texture_Format_Capability; u32]
 Texture_Format_Capability :: enum {

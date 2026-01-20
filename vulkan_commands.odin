@@ -369,7 +369,7 @@ vk_execute_render_pass_end :: proc(
     }
 }
 
-vk_command_copy_buffer_to_buffer :: proc(
+vk_execute_copy_buffer_to_buffer :: proc(
     cmd_buf: ^Vulkan_Command_Buffer_Impl,
     cmd: ^Command_Copy_Buffer_To_Buffer,
     loc := #caller_location,
@@ -395,7 +395,7 @@ vk_command_copy_buffer_to_buffer :: proc(
     vk_deletion_queue_push(&cmd_buf.resources, dst_impl)
 }
 
-vk_command_copy_buffer_to_texture :: proc(
+vk_execute_copy_buffer_to_texture :: proc(
     cmd_buf: ^Vulkan_Command_Buffer_Impl,
     cmd: ^Command_Copy_Buffer_To_Texture,
     loc := #caller_location,
@@ -475,7 +475,7 @@ vk_command_copy_buffer_to_texture :: proc(
     vk_deletion_queue_push(&cmd_buf.resources, texture_impl)
 }
 
-vk_command_copy_texture_to_texture :: proc(
+vk_execute_copy_texture_to_texture :: proc(
     cmd_buf: ^Vulkan_Command_Buffer_Impl,
     cmd: ^Command_Copy_Texture_To_Texture,
     loc := #caller_location,
@@ -695,13 +695,13 @@ vk_record_commands :: proc(cmd_buf: ^Vulkan_Command_Buffer_Impl, loc := #caller_
             rpass_start = -1
 
         case Command_Copy_Buffer_To_Buffer:
-            vk_command_copy_buffer_to_buffer(cmd_buf, &c, loc)
+            vk_execute_copy_buffer_to_buffer(cmd_buf, &c, loc)
 
         case Command_Copy_Buffer_To_Texture:
-            vk_command_copy_buffer_to_texture(cmd_buf, &c, loc)
+            vk_execute_copy_buffer_to_texture(cmd_buf, &c, loc)
 
         case Command_Copy_Texture_To_Texture:
-            vk_command_copy_texture_to_texture(cmd_buf, &c, loc)
+            vk_execute_copy_texture_to_texture(cmd_buf, &c, loc)
 
         case Command_Finish:
             vk_execute_finish(cmd_buf, &c, loc)

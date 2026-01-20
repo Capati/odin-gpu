@@ -7,7 +7,7 @@ vertices.
 
 - Renders a colored square on screen using vertex and fragment shaders
 - Uses separate vertex buffers for position and color data
-- Implements a triangle strip topology for efficient quad rendering
+- Implements a triangle strip topology
 
 ## Running
 

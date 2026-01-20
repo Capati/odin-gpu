@@ -9,11 +9,6 @@ vertices.
 - Uses a vertex buffer to store triangle vertices (position and color data)
 - Implements a complete render pipeline with vertex and fragment shaders
 
-## Requirements
-
-- Shader source `triangle.slang` compiled and placed in
-  `/examples/build/shaders/<backend>/<compiled_shader>`
-
 ## Running
 
 To build and run this example:

@@ -20,7 +20,10 @@ import "libs/egl" // vendor version is incomplete
 
 
 GL_Instance_Impl :: struct {
-    using base:           Instance_Base,
+    // Base
+    using instance_base:  Instance_Base,
+
+    // Backend
     egl_display:          egl.Display,
     egl_major, egl_minor: i32,
     extensions_view:      string,

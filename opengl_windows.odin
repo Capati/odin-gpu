@@ -146,10 +146,10 @@ GL_Instance_WGL :: struct {
 }
 
 GL_Instance_Impl :: struct {
-    using base: Instance_Base,
-    hwnd:       win32.HWND,
-    hdc:        win32.HDC,
-    wgl:        GL_Instance_WGL,
+    using instance_base: Instance_Base,
+    hwnd:                win32.HWND,
+    hdc:                 win32.HDC,
+    wgl:                 GL_Instance_WGL,
 }
 
 @(require_results)

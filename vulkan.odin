@@ -2502,7 +2502,7 @@ vk_device_release :: proc(device: Device, loc := #caller_location) {
 
 Vulkan_Instance_Impl :: struct {
     // Base
-    using base:           Instance_Base,
+    using instance_base:  Instance_Base,
 
     // Library
     lib:                  Vulkan_Library,

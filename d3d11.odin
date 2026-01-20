@@ -2351,11 +2351,11 @@ D3D11_Instance_Devices :: struct {
 
 D3D11_Instance_Impl :: struct {
     // Base
-    using base:    Instance_Base,
+    using instance_base: Instance_Base,
 
     // Backend
-    dxgi_factory:  ^dxgi.IFactory2,
-    allow_tearing: bool,
+    dxgi_factory:        ^dxgi.IFactory2,
+    allow_tearing:       bool,
 }
 
 @(require_results)

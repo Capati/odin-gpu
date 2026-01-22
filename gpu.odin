@@ -3,7 +3,6 @@ package gpu
 // Core
 import "base:runtime"
 import "core:fmt"
-// import "core:log"
 import "core:reflect"
 import "core:strings"
 import intr "base:intrinsics"
@@ -1025,7 +1024,7 @@ Vertex_Format :: enum {
 }
 
 // Returns the byte size of the format.
-vertex_format_size :: proc(self: Vertex_Format) -> u64 {
+vertex_format_size :: proc "contextless" (self: Vertex_Format) -> u64 {
     switch self {
     case .Uint8, .Sint8, .Unorm8, .Snorm8:
         return 1

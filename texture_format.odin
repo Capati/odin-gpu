@@ -1488,3 +1488,27 @@ surface_get_format_priority :: proc "contextless" (format: Texture_Format) -> in
         return 0
     }
 }
+
+// Calculate bytes per row from the given row width.
+texture_format_bytes_per_row :: proc "contextless" (
+    format: Texture_Format,
+    width: u32,
+) -> (
+    bytes_per_row: u32,
+) {
+    block_width, _ := texture_format_block_dimensions(format)
+    block_size := texture_format_block_copy_size(format)
+
+    // Calculate the number of blocks for the given width
+    blocks_in_width := (width + block_width - 1) / block_width
+
+    // Calculate unaligned bytes per row
+    unaligned_bytes_per_row := blocks_in_width * block_size
+
+    // Align to COPY_BYTES_PER_ROW_ALIGNMENT
+    bytes_per_row =
+        (unaligned_bytes_per_row + COPY_BYTES_PER_ROW_ALIGNMENT - 1) &
+        ~(COPY_BYTES_PER_ROW_ALIGNMENT - 1)
+
+    return
+}

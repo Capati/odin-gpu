@@ -4171,6 +4171,29 @@ texture_get_subresource_index :: proc(
            (plane_slice * texture.mip_level_count * texture.array_layer_count)
 }
 
+texture_get_virtual_mip_size :: proc(
+    texture: Texture_Base,
+    level: u32,
+    aspect: Texture_Aspect,
+) -> (
+    extent: Extent_3D,
+) {
+    base_size := texture.size
+    extent = { max(base_size.width >> level, 1), 1, 1 }
+    if (texture.dimension == .D1) {
+        return
+    }
+
+    extent.height = max(base_size.height >> level, 1)
+    if (texture.dimension == .D2) {
+        return
+    }
+
+    extent.depth_or_array_layers = max(base_size.depth_or_array_layers >> level, 1)
+
+    return
+}
+
 Proc_Texture_Create_View :: #type proc(
     texture: Texture,
     descriptor: Texture_View_Descriptor,

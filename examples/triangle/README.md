@@ -14,7 +14,7 @@ vertices.
 To build and run this example:
 
 ```shell
-build.bat|sh 02_triangle run
+build.bat|sh triangle run
 ```
 
 ## Screenshots

@@ -14,7 +14,7 @@ This example demonstrates how to render a textured cube.
 To build and run this example:
 
 ```shell
-build.bat|sh 08_cube_textured run
+build.bat|sh cube_textured run
 ```
 
 ## Screenshots

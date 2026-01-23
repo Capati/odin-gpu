@@ -14,7 +14,7 @@ vertices.
 To build and run this example:
 
 ```shell
-build.bat|sh 03_square run
+build.bat|sh square run
 ```
 
 ## Screenshots

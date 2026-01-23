@@ -9,7 +9,7 @@ different offsets in a uniform buffer.
 To build and run this example:
 
 ```shell
-build.bat|sh 07_two_cubes run
+build.bat|sh two_cubes run
 ```
 
 ## Screenshots

@@ -1,6 +1,6 @@
 # MicroUI Example
 
-This example demonstrates how to use MicroUI with a WGPU-based renderer in Odin.
+This example demonstrates how to use MicroUI with a custom renderer.
 
 ## Build
 

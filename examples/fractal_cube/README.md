@@ -7,7 +7,7 @@ This example uses the previous frame's rendering result as the source texture fo
 To build and run this example:
 
 ```shell
-build.bat|sh 09_fractal_cube run
+build.bat|sh fractal_cube run
 ```
 
 ## Screenshots

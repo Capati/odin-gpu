@@ -12,7 +12,7 @@ This example demonstrates how to clear the screen.
 To build and run this example:
 
 ```shell
-build.bat|sh 01_clear_screen run
+build.bat|sh clear_screen run
 ```
 
 ## Screenshots

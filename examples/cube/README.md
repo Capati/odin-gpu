@@ -13,7 +13,7 @@ This example demonstrates how to render a colored cube.
 To build and run this example:
 
 ```shell
-build.bat|sh 05_cube run
+build.bat|sh cube run
 ```
 
 ## Screenshots

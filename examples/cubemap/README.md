@@ -12,7 +12,7 @@ This example shows how to render and sample from a cubemap texture.
 To build and run this example:
 
 ```shell
-build.bat|sh 10_cubemap run
+build.bat|sh cubemap run
 ```
 
 ## Screenshots

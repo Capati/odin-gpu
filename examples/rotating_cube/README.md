@@ -11,7 +11,7 @@ This example shows how to upload uniform data every frame to render a rotating o
 To build and run this example:
 
 ```shell
-build.bat|sh 06_rotating_cube run
+build.bat|sh rotating_cube run
 ```
 
 ## Screenshots

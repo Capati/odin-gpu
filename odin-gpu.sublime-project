@@ -11,182 +11,182 @@
             "file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
             "variants": [
                 {
-                    "name": "01 - Clear Screen",
+                    "name": "Clear Screen",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\01_clear_screen", "run"
+                            "cmd", "/c", "build.bat", "examples\\clear_screen", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/01_clear_screen", "run"
+                            "./build.sh", "examples/clear_screen", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/01_clear_screen", "run"
+                            "./build.sh", "examples/clear_screen", "run"
                         ],
                     },
                 },
                 {
-                    "name": "02 - Triangle",
+                    "name": "Triangle",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\02_triangle", "run"
+                            "cmd", "/c", "build.bat", "examples\\triangle", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/02_triangle", "run"
+                            "./build.sh", "examples/triangle", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/02_triangle", "run"
+                            "./build.sh", "examples/triangle", "run"
                         ],
                     },
                 },
                 {
-                    "name": "03 - Square",
+                    "name": "Square",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\03_square", "run"
+                            "cmd", "/c", "build.bat", "examples\\square", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/03_square", "run"
+                            "./build.sh", "examples/square", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/03_square", "run"
+                            "./build.sh", "examples/square", "run"
                         ],
                     },
                 },
                 {
-                    "name": "04 - Stencil Triangles",
+                    "name": "Stencil Triangles",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\04_stencil_triangles", "run"
+                            "cmd", "/c", "build.bat", "examples\\stencil_triangles", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/04_stencil_triangles", "run"
+                            "./build.sh", "examples/stencil_triangles", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/04_stencil_triangles", "run"
+                            "./build.sh", "examples/stencil_triangles", "run"
                         ],
                     },
                 },
                 {
-                    "name": "05 - Cube",
+                    "name": "Cube",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\05_cube", "run"
+                            "cmd", "/c", "build.bat", "examples\\cube", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/05_cube", "run"
+                            "./build.sh", "examples/cube", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/05_cube", "run"
+                            "./build.sh", "examples/cube", "run"
                         ],
                     },
                 },
                 {
-                    "name": "06 - Rotating Cube",
+                    "name": "Rotating Cube",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\06_rotating_cube", "run"
+                            "cmd", "/c", "build.bat", "examples\\rotating_cube", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/06_rotating_cube", "run"
+                            "./build.sh", "examples/rotating_cube", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/06_rotating_cube", "run"
+                            "./build.sh", "examples/rotating_cube", "run"
                         ],
                     },
                 },
                 {
-                    "name": "07 - Two Cubes",
+                    "name": "Two Cubes",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\07_two_cubes", "run"
+                            "cmd", "/c", "build.bat", "examples\\two_cubes", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/07_two_cubes", "run"
+                            "./build.sh", "examples/two_cubes", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/07_two_cubes", "run"
+                            "./build.sh", "examples/two_cubes", "run"
                         ],
                     },
                 },
                 {
-                    "name": "08 - Cube Textured",
+                    "name": "Cube Textured",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\08_cube_textured", "run"
+                            "cmd", "/c", "build.bat", "examples\\cube_textured", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/08_cube_textured", "run"
+                            "./build.sh", "examples/cube_textured", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/08_cube_textured", "run"
+                            "./build.sh", "examples/cube_textured", "run"
                         ],
                     },
                 },
                 {
-                    "name": "09 - Fractal Cube",
+                    "name": "Fractal Cube",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\09_fractal_cube", "run"
+                            "cmd", "/c", "build.bat", "examples\\fractal_cube", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/09_fractal_cube", "run"
+                            "./build.sh", "examples/fractal_cube", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/09_fractal_cube", "run"
+                            "./build.sh", "examples/fractal_cube", "run"
                         ],
                     },
                 },
                 {
-                    "name": "10 - Cubemap",
+                    "name": "Cubemap",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\10_cubemap", "run"
+                            "cmd", "/c", "build.bat", "examples\\cubemap", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/10_cubemap", "run"
+                            "./build.sh", "examples/cubemap", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/10_cubemap", "run"
+                            "./build.sh", "examples/cubemap", "run"
                         ],
                     },
                 },

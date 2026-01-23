@@ -2,7 +2,7 @@
     "folders": [
         {
             "path": ".",
-        }
+        },
     ],
     "build_systems": [
         {
@@ -169,6 +169,24 @@
                     "osx": {
                         "cmd": [
                             "./build.sh", "examples/09_fractal_cube", "run"
+                        ],
+                    },
+                },
+                {
+                    "name": "10 - Cubemap",
+                    "windows": {
+                        "cmd": [
+                            "cmd", "/c", "build.bat", "examples\\10_cubemap", "run"
+                        ],
+                    },
+                    "linux": {
+                        "cmd": [
+                            "./build.sh", "examples/10_cubemap", "run"
+                        ],
+                    },
+                    "osx": {
+                        "cmd": [
+                            "./build.sh", "examples/10_cubemap", "run"
                         ],
                     },
                 },

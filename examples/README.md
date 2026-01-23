@@ -1,5 +1,19 @@
 # Examples
 
+## Table of Contents
+
+- [Clear Screen](#clear-screen)
+- [Triangle](#triangle)
+- [Square](#square)
+- [Stencil Triangles](#stencil-triangles)
+- [Cube](#cube)
+- [Rotating Cube](#rotating-cube)
+- [Two Cubes](#two-cubes)
+- [Cube Textured](#cube-textured)
+- [Fractal Cube](#fractal-cube)
+- [Cubemap](#cubemap)
+- [MicroUI](#microui)
+
 ## [Clear Screen](./clear_screen)
 
 This example demonstrates how to clear the screen.

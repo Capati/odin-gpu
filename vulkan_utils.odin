@@ -297,7 +297,7 @@ vk_transition_to_color_attachment :: proc(
     }
 
     vk_texture_transition_layout(
-        texture, cmd.vk_cmd_buf, .COLOR_ATTACHMENT_OPTIMAL, subresource_range)
+        texture, cmd.vk_cmd_buf, .COLOR_ATTACHMENT_OPTIMAL, subresource_range, loc)
 }
 
 vk_texture_transition_layout :: proc(
@@ -305,31 +305,76 @@ vk_texture_transition_layout :: proc(
     command_buffer: vk.CommandBuffer,
     new_image_layout: vk.ImageLayout,
     subresource_range: vk.ImageSubresourceRange,
+    loc := #caller_location,
 ) {
-    old_image_layout := texture.vk_image_layout
+    // Calculate actual layer count from sentinel value, with bounds checking
+    actual_layer_count := subresource_range.layerCount
+    if actual_layer_count == vk.REMAINING_ARRAY_LAYERS {
+        assert(subresource_range.baseArrayLayer < texture.num_layers,
+            "Base array layer out of bounds", loc)
+        actual_layer_count = texture.num_layers - subresource_range.baseArrayLayer
+    }
+
+    assert(actual_layer_count > 0, "Invalid layer count in subresource range", loc)
+    assert(subresource_range.baseArrayLayer + actual_layer_count <= texture.num_layers,
+        "Subresource range exceeds texture layers", loc)
+
+    // Calculate actual mip level count from sentinel value, with bounds checking
+    actual_level_count := subresource_range.levelCount
+    if actual_level_count == vk.REMAINING_MIP_LEVELS {
+        assert(subresource_range.baseMipLevel < texture.num_levels, "Base mip level out of bounds", loc)
+        actual_level_count = texture.num_levels - subresource_range.baseMipLevel
+    }
+
+    assert(actual_level_count > 0, "Invalid mip level count in subresource range", loc)
+    assert(subresource_range.baseMipLevel + actual_level_count <= texture.num_levels,
+        "Subresource range exceeds texture mip levels", loc)
+
+    // Cache depth attachment check for efficiency
+    is_depth_attachment := vk_image_usage_is_depth_attachment(texture.vk_usage_flags)
+
+    // Get old layout for the first layer in the range
+    old_image_layout := texture.vk_layer_layouts[subresource_range.baseArrayLayer]
     if old_image_layout == .ATTACHMENT_OPTIMAL {
-        old_image_layout = vk_image_usage_is_depth_attachment(texture.vk_usage_flags) \
-            ? .DEPTH_STENCIL_ATTACHMENT_OPTIMAL \
-            : .COLOR_ATTACHMENT_OPTIMAL
+        old_image_layout =
+            is_depth_attachment ? .DEPTH_STENCIL_ATTACHMENT_OPTIMAL : .COLOR_ATTACHMENT_OPTIMAL
     }
 
-    new_image_layout := new_image_layout
-    if new_image_layout == .ATTACHMENT_OPTIMAL {
-        new_image_layout = vk_image_usage_is_depth_attachment(texture.vk_usage_flags) \
-            ? .DEPTH_STENCIL_ATTACHMENT_OPTIMAL : .COLOR_ATTACHMENT_OPTIMAL
+    // Resolve new layout
+    resolved_new_layout := new_image_layout
+    if resolved_new_layout == .ATTACHMENT_OPTIMAL {
+        resolved_new_layout =
+            is_depth_attachment ? .DEPTH_STENCIL_ATTACHMENT_OPTIMAL : .COLOR_ATTACHMENT_OPTIMAL
     }
 
+    end_layer := subresource_range.baseArrayLayer + actual_layer_count
+
+    when ODIN_DEBUG {
+        // Verify all layers in the range have the same old layout (safety check)
+        for layer in subresource_range.baseArrayLayer + 1 ..< end_layer {
+            layer_old_layout := texture.vk_layer_layouts[layer]
+            if layer_old_layout == .ATTACHMENT_OPTIMAL {
+                layer_old_layout =
+                    is_depth_attachment ? .DEPTH_STENCIL_ATTACHMENT_OPTIMAL : .COLOR_ATTACHMENT_OPTIMAL
+            }
+            assert(layer_old_layout == old_image_layout,
+                "Layers in subresource range have inconsistent old layouts; split the transition", loc)
+        }
+    }
+
+    // Get source and destination pipeline stages/accesses
     src := vk_get_pipeline_stage_access(old_image_layout)
-    dst := vk_get_pipeline_stage_access(new_image_layout)
+    dst := vk_get_pipeline_stage_access(resolved_new_layout)
 
-    if vk_image_usage_is_depth_attachment(texture.vk_usage_flags) && texture.is_resolve_attachment {
-        // https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#renderpass-resolve-operations
+    // Adjust for resolve attachments if applicable
+    if is_depth_attachment && texture.is_resolve_attachment {
         src.stage += { .COLOR_ATTACHMENT_OUTPUT }
         dst.stage += { .COLOR_ATTACHMENT_OUTPUT }
         src.access += { .COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE }
         dst.access += { .COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE }
     }
 
+    // Set up the image memory barrier
     barrier := vk.ImageMemoryBarrier2 {
         sType               = .IMAGE_MEMORY_BARRIER_2,
         srcStageMask        = src.stage,
@@ -337,22 +382,35 @@ vk_texture_transition_layout :: proc(
         dstStageMask        = dst.stage,
         dstAccessMask       = dst.access,
         oldLayout           = old_image_layout,
-        newLayout           = new_image_layout,
+        newLayout           = resolved_new_layout,
         srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
         dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
         image               = texture.vk_image,
         subresourceRange    = subresource_range,
     }
 
+    // Dependency info for the barrier
     dep_info := vk.DependencyInfo {
         sType                   = .DEPENDENCY_INFO,
         imageMemoryBarrierCount = 1,
         pImageMemoryBarriers    = &barrier,
     }
 
+    // Record the pipeline barrier
     vk.CmdPipelineBarrier2(command_buffer, &dep_info)
 
-    texture.vk_image_layout = new_image_layout
+    // Update layouts for all affected layers.
+    //
+    // Note: We track per-layer layouts only, assuming all mip levels per layer
+    // share the same layout
+    for layer in subresource_range.baseArrayLayer ..< end_layer {
+        texture.vk_layer_layouts[layer] = resolved_new_layout
+    }
+
+    // Update the global layout tracker only if the entire image (all layers) is transitioned
+    if subresource_range.baseArrayLayer == 0 && actual_layer_count == texture.num_layers {
+        texture.vk_image_layout = resolved_new_layout
+    }
 }
 
 VK_MAX_DYNAMIC_STATES :: 128
@@ -883,4 +941,96 @@ vk_descriptor_allocator_allocate :: proc(
     })
 
     return set, new_pool
+}
+
+vk_compute_texture_copy_extent :: proc(
+    texture_copy: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
+    loc := #caller_location,
+) -> Extent_3D {
+    valid_texture_copy_extent := copy_size
+
+    texture := get_impl(Vulkan_Texture_Impl, texture_copy.texture, loc)
+
+    virtual_size_at_level :=
+        texture_get_virtual_mip_size(texture, texture_copy.mip_level, texture_copy.aspect)
+
+    assert(texture_copy.origin.x <= virtual_size_at_level.width)
+    assert(texture_copy.origin.y <= virtual_size_at_level.height)
+
+    if copy_size.width > virtual_size_at_level.width - texture_copy.origin.x {
+        assert(texture_format_is_compressed(texture.format), loc = loc)
+        valid_texture_copy_extent.width = virtual_size_at_level.width - texture_copy.origin.x
+    }
+
+    if copy_size.height > virtual_size_at_level.height - texture_copy.origin.y {
+        assert(texture_format_is_compressed(texture.format), loc = loc)
+        valid_texture_copy_extent.height = virtual_size_at_level.height - texture_copy.origin.y
+    }
+
+    return valid_texture_copy_extent
+}
+
+vk_compute_buffer_image_copy_region :: proc(
+    data_layout: Texel_Copy_Buffer_Layout,
+    texture_copy: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
+    loc := #caller_location,
+) -> (
+    region: vk.BufferImageCopy,
+) {
+    texture := get_impl(Vulkan_Texture_Impl, texture_copy.texture, loc)
+
+    region.bufferOffset = vk.DeviceSize(data_layout.offset)
+
+    region.bufferRowLength = data_layout.bytes_per_row / texture_format_block_copy_size(texture.format)
+    region.bufferImageHeight = data_layout.rows_per_image
+
+    region.imageSubresource.aspectMask =
+        vk_conv_to_image_aspect_flags(texture_copy.aspect, texture.format)
+    region.imageSubresource.mipLevel = texture_copy.mip_level
+
+    switch texture.dimension {
+    case .Undefined:
+        unreachable()
+
+    case .D1:
+        assert(texture_copy.origin.z == 0 && copy_size.depth_or_array_layers == 1, loc = loc)
+        region.imageOffset.x = i32(texture_copy.origin.x)
+        region.imageOffset.y = 0
+        region.imageOffset.z = 0
+        region.imageSubresource.baseArrayLayer = 0
+        region.imageSubresource.layerCount = 1
+
+        assert(!texture_format_is_compressed(texture.format), loc = loc)
+        region.imageExtent.width = copy_size.width
+        region.imageExtent.height = 1
+        region.imageExtent.depth = 1
+
+    case .D2:
+        region.imageOffset.x = i32(texture_copy.origin.x)
+        region.imageOffset.y = i32(texture_copy.origin.y)
+        region.imageOffset.z = 0
+        region.imageSubresource.baseArrayLayer = texture_copy.origin.z
+        region.imageSubresource.layerCount = copy_size.depth_or_array_layers
+
+        image_extent := vk_compute_texture_copy_extent(texture_copy, copy_size)
+        region.imageExtent.width = image_extent.width
+        region.imageExtent.height = image_extent.height
+        region.imageExtent.depth = 1
+
+    case .D3:
+        region.imageOffset.x = i32((texture_copy.origin.x))
+        region.imageOffset.y = i32((texture_copy.origin.y))
+        region.imageOffset.z = i32((texture_copy.origin.z))
+        region.imageSubresource.baseArrayLayer = 0
+        region.imageSubresource.layerCount = 1
+
+        image_extent := vk_compute_texture_copy_extent(texture_copy, copy_size)
+        region.imageExtent.width = image_extent.width
+        region.imageExtent.height = image_extent.height
+        region.imageExtent.depth = copy_size.depth_or_array_layers
+    }
+
+    return
 }

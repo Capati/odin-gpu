@@ -2324,6 +2324,10 @@ vk_device_create_texture :: proc(
         unreachable()
     }
 
+    if (array_layers >= 6 && descriptor.size.width == descriptor.size.height) {
+        vk_create_flags += { .CUBE_COMPATIBLE }
+    }
+
     // Convert sample count to Vulkan sample count
     vk_samples := vk_conv_to_sample_count_flags(descriptor.sample_count)
 
@@ -2439,6 +2443,12 @@ vk_device_create_texture :: proc(
     if len(descriptor.label) > 0 {
         vk_texture_set_label(Texture(texture), descriptor.label, loc)
     }
+
+    texture.vk_layer_layouts = make([]vk.ImageLayout, array_layers, impl.allocator)
+    for i in 0..< array_layers {
+        texture.vk_layer_layouts[i] = .UNDEFINED
+    }
+    texture.vk_image_layout = .UNDEFINED
 
     return Texture(texture)
 }
@@ -3074,10 +3084,17 @@ vk_queue_write_texture :: proc(
     // texture_impl := get_impl(Vulkan_Texture_Impl, destination.texture, loc)
     device_impl := get_impl(Vulkan_Device_Impl, queue_impl.device, loc)
 
+    // Calculate proper staging buffer size with alignment
+    bytes_per_row := data_layout.bytes_per_row
+    rows_per_image := data_layout.rows_per_image
+
+    // Calculate actual buffer size needed (aligned)
+    staging_buffer_size := u64(bytes_per_row) * u64(rows_per_image) * u64(write_size.depth_or_array_layers)
+
     // Create staging buffer
     staging_desc := Buffer_Descriptor{
         label = "Queue write texture staging",
-        size  = u64(len(data)),
+        size  = staging_buffer_size,
         usage = {.Copy_Src, .Map_Write},
     }
 
@@ -3827,6 +3844,7 @@ vk_surface_configure :: proc(
                 vk.DestroyFence(device_impl.vk_device, impl.acquire_fences[i], nil)
                 impl.acquire_fences[i] = {}
             }
+            delete(vk_texture.vk_layer_layouts)
         }
 
         if impl.timeline_semaphore != {} {
@@ -3917,7 +3935,8 @@ vk_surface_configure :: proc(
             is_swapchain_image = true,
         }
 
-        vk_set_debug_object_name(device_impl.vk_device, .IMAGE, img, debug_name_image_str)
+        texture.vk_layer_layouts = make([]vk.ImageLayout, 1, impl.allocator)
+        texture.vk_layer_layouts[0] = .UNDEFINED
 
         texture.vk_image_view = vk_texture_create_image_view(
             texture     = &texture,
@@ -3930,6 +3949,7 @@ vk_surface_configure :: proc(
         )
 
         impl.textures[i] = texture
+        vk_texture_set_label(Texture(&impl.textures[i]), debug_name_image_str)
 
         texture_view := Vulkan_Texture_View_Impl {
             vk_image_view     = texture.vk_image_view,
@@ -4158,6 +4178,8 @@ vk_surface_release :: proc(surface: Surface, loc := #caller_location) {
                 if impl.acquire_fences[i] !=  {} {
                     vk.DestroyFence(device_impl.vk_device, impl.acquire_fences[i], nil)
                 }
+
+                delete(vk_texture.vk_layer_layouts)
             }
 
             vk.DestroySemaphore(device_impl.vk_device, impl.timeline_semaphore, nil)
@@ -4207,6 +4229,7 @@ Vulkan_Texture_Impl :: struct {
     is_stencil_format:     bool,
     debug_name:            String_Buffer_Small,
     vk_image_layout:       vk.ImageLayout,
+    vk_layer_layouts:      []vk.ImageLayout,
     vk_image_view:         vk.ImageView,
     vk_image_view_storage: vk.ImageView,
 
@@ -4373,6 +4396,7 @@ vk_texture_release :: proc(texture: Texture, loc := #caller_location) {
         context.allocator = impl.allocator
         device_impl := get_impl(Vulkan_Device_Impl, impl.device, loc)
         vma.destroy_image(device_impl.vma_allocator, impl.vk_image, impl.vma_allocation)
+        delete(impl.vk_layer_layouts)
         free(impl)
     }
 }

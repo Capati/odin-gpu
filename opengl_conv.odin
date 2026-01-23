@@ -520,21 +520,21 @@ gl_texture_view_dimension_to_target :: #force_inline proc "contextless" (dimensi
 gl_texture_dimension_to_target :: #force_inline proc "contextless" (
     dimension: Texture_Dimension,
     sample_count: u32,
-    layers: u32,
+    depth_or_layers: u32,
+    loc := #caller_location,
 ) -> u32 {
+    assert_contextless(dimension != .Undefined, "Invalid texture dimension", loc)
     #partial switch dimension {
     case .D1:
-        return layers > 1 ? gl.TEXTURE_1D_ARRAY : gl.TEXTURE_1D
-
+        return depth_or_layers > 1 ? gl.TEXTURE_1D_ARRAY : gl.TEXTURE_1D
     case .D2:
         if sample_count > 1 {
-            return layers > 1 ? gl.TEXTURE_2D_MULTISAMPLE_ARRAY : gl.TEXTURE_2D_MULTISAMPLE
+            return depth_or_layers > 1 ? \
+                gl.TEXTURE_2D_MULTISAMPLE_ARRAY : gl.TEXTURE_2D_MULTISAMPLE
         }
-        return layers > 1 ? gl.TEXTURE_2D_ARRAY : gl.TEXTURE_2D
-
+        return depth_or_layers > 1 ? gl.TEXTURE_2D_ARRAY : gl.TEXTURE_2D
     case .D3:
         return gl.TEXTURE_3D
-
     case:
         unreachable()
     }

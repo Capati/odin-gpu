@@ -2088,6 +2088,14 @@ d3d11_device_create_texture :: proc(
     cpu_access_flags: d3d11.CPU_ACCESS_FLAGS
     misc_flags: d3d11.RESOURCE_MISC_FLAGS
 
+    // Check if this is a cubemap (6 layers for basic cubemap)
+    is_cubemap := descriptor.dimension == .D2 &&
+                  descriptor.size.depth_or_array_layers == 6
+
+    if is_cubemap {
+        misc_flags += {.TEXTURECUBE}
+    }
+
     dxgi_format := d3d_dxgi_texture_format(descriptor.format)
 
     // Create the appropriate texture type based on dimension
@@ -3708,18 +3716,18 @@ d3d11_texture_create_view :: proc(
 
     if .Render_Attachment in view_impl.usage {
         if is_depth_stencil {
-            d3d11_create_depth_stencil_view(device_impl, impl, view_impl, loc)
+            d3d11_create_depth_stencil_view(device_impl, impl, view_impl)
         } else {
-            d3d11_create_render_target_view(device_impl, impl, view_impl, loc)
+            d3d11_create_render_target_view(device_impl, impl, view_impl)
         }
     }
 
     if .Texture_Binding in view_impl.usage {
-        d3d11_create_shader_resource_view(device_impl, impl, view_impl, loc)
+        d3d11_create_shader_resource_view(device_impl, impl, view_impl)
     }
 
     if .Storage_Binding in view_impl.usage {
-        d3d11_create_unordered_access_view(device_impl, impl, view_impl, loc)
+        d3d11_create_unordered_access_view(device_impl, impl, view_impl)
     }
 
     return Texture_View(view_impl)
@@ -3924,7 +3932,7 @@ d3d11_create_render_target_view :: proc(
     device_impl: ^D3D11_Device_Impl,
     texture_impl: ^D3D11_Texture_Impl,
     view_impl: ^D3D11_Texture_View_Impl,
-    loc: runtime.Source_Code_Location,
+    loc := #caller_location,
 ) {
     desc := d3d11.RENDER_TARGET_VIEW_DESC{
         Format = d3d_dxgi_texture_format(view_impl.format),
@@ -3941,6 +3949,13 @@ d3d11_create_render_target_view :: proc(
         } else {
             desc.ViewDimension = .TEXTURE2D
             desc.Texture2D.MipSlice = view_impl.base_mip_level
+        }
+    case .Cube:
+        desc.ViewDimension = .TEXTURE2DARRAY
+        desc.Texture2DArray = {
+            MipSlice        = view_impl.base_mip_level,
+            FirstArraySlice = view_impl.base_array_layer,
+            ArraySize       = view_impl.array_layer_count,
         }
     case .D3:
         desc.ViewDimension = .TEXTURE3D
@@ -3965,7 +3980,7 @@ d3d11_create_depth_stencil_view :: proc(
     device_impl: ^D3D11_Device_Impl,
     texture_impl: ^D3D11_Texture_Impl,
     view_impl: ^D3D11_Texture_View_Impl,
-    loc: runtime.Source_Code_Location,
+    loc := #caller_location,
 ) {
     desc := d3d11.DEPTH_STENCIL_VIEW_DESC{
         Format = d3d_dxgi_texture_format(view_impl.format),
@@ -3982,6 +3997,13 @@ d3d11_create_depth_stencil_view :: proc(
         } else {
             desc.ViewDimension = .TEXTURE2D
             desc.Texture2D.MipSlice = view_impl.base_mip_level
+        }
+    case .Cube:
+        desc.ViewDimension = .TEXTURE2DARRAY
+        desc.Texture2DArray = {
+            MipSlice        = view_impl.base_mip_level,
+            FirstArraySlice = view_impl.base_array_layer,
+            ArraySize       = view_impl.array_layer_count,
         }
     case .D3:
         log.panicf("3D textures cannot be used as depth stencil views", location = loc)
@@ -4001,7 +4023,7 @@ d3d11_create_shader_resource_view :: proc(
     device_impl: ^D3D11_Device_Impl,
     texture_impl: ^D3D11_Texture_Impl,
     view_impl: ^D3D11_Texture_View_Impl,
-    loc: runtime.Source_Code_Location,
+    loc := #caller_location,
 ) {
     desc := d3d11.SHADER_RESOURCE_VIEW_DESC{
         Format = d3d_dxgi_texture_format(view_impl.format),
@@ -4025,6 +4047,12 @@ d3d11_create_shader_resource_view :: proc(
                 MipLevels       = view_impl.mip_level_count,
             }
         }
+    case .Cube:  // Add cubemap support
+        desc.ViewDimension = .TEXTURECUBE
+        desc.TextureCube = {
+            MostDetailedMip = view_impl.base_mip_level,
+            MipLevels       = view_impl.mip_level_count,
+        }
     case .D3:
         desc.ViewDimension = .TEXTURE3D
         desc.Texture3D = {
@@ -4047,7 +4075,7 @@ d3d11_create_unordered_access_view :: proc(
     device_impl: ^D3D11_Device_Impl,
     texture_impl: ^D3D11_Texture_Impl,
     view_impl: ^D3D11_Texture_View_Impl,
-    loc: runtime.Source_Code_Location,
+    loc := #caller_location,
 ) {
     desc := d3d11.UNORDERED_ACCESS_VIEW_DESC{
         Format = d3d_dxgi_texture_format(view_impl.format),
@@ -4061,6 +4089,13 @@ d3d11_create_unordered_access_view :: proc(
     case .D2:
         desc.ViewDimension = .TEXTURE2D
         desc.Texture2D.MipSlice = view_impl.base_mip_level
+    case .Cube:
+        desc.ViewDimension = .TEXTURE2DARRAY
+        desc.Texture2DArray = {
+            MipSlice        = view_impl.base_mip_level,
+            FirstArraySlice = view_impl.base_array_layer,
+            ArraySize       = view_impl.array_layer_count,
+        }
     case .D3:
         desc.ViewDimension = .TEXTURE3D
         desc.Texture3D = {

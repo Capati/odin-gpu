@@ -768,6 +768,7 @@ gl_adapter_request_device :: proc(
      // Default state
     gl.Enable(gl.SCISSOR_TEST)
     gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
+    gl.Enable(gl.TEXTURE_CUBE_MAP_SEAMLESS)
 
     if .Debug in instance_impl.flags {
         gl.Enable(gl.DEBUG_OUTPUT)
@@ -1468,15 +1469,11 @@ gl_device_create_texture :: proc(
     descriptor: Texture_Descriptor,
     loc := #caller_location,
 ) -> Texture {
-    // Validate descriptor
-    assert(descriptor.size.width > 0, "Texture width must be greater than 0", loc)
-    assert(descriptor.size.height > 0, "Texture height must be greater than 0", loc)
-    assert(descriptor.size.depth_or_array_layers > 0,
-           "Texture depth/layers must be greater than 0", loc)
-    assert(descriptor.mip_level_count > 0, "Mip level count must be at least 1", loc)
-    assert(descriptor.sample_count > 0, "Sample count must be at least 1", loc)
+    impl := get_impl(GL_Device_Impl, device, loc)
 
-    // impl := get_impl(GL_Device_Impl, device, loc)
+    // Validate descriptor
+    texture_descriptor_validade(descriptor, impl.features, loc)
+
     texture := device_new_handle(GL_Texture_Impl, device, loc)
 
     // Store descriptor info
@@ -1487,20 +1484,30 @@ gl_device_create_texture :: proc(
     texture.format = descriptor.format
     texture.usage = descriptor.usage
 
+    // Detect if this is a cubemap
+    is_cubemap := descriptor.dimension == .D2 &&
+                  descriptor.size.depth_or_array_layers >= 6 &&
+                  descriptor.size.depth_or_array_layers % 6 == 0 &&
+                  descriptor.size.width == descriptor.size.height
+
     // Convert to GL texture target
-    gl_target := gl_texture_dimension_to_target(
-        descriptor.dimension,
-        descriptor.sample_count,
-        descriptor.size.depth_or_array_layers,
-    )
-    texture.gl_target = gl_target
+    if is_cubemap {
+        texture.gl_target = descriptor.size.depth_or_array_layers == 6 ? \
+                    gl.TEXTURE_CUBE_MAP : gl.TEXTURE_CUBE_MAP_ARRAY
+    } else {
+        texture.gl_target = gl_texture_dimension_to_target(
+            descriptor.dimension,
+            descriptor.sample_count,
+            descriptor.size.depth_or_array_layers,
+        )
+    }
 
     // Get GL internal format
     gl_internal_format := GL_FORMAT_TABLE[descriptor.format].internal_format
     texture.gl_format = gl_internal_format
 
     // Create texture object
-    gl.CreateTextures(gl_target, 1, &texture.handle)
+    gl.CreateTextures(texture.gl_target, 1, &texture.handle)
     assert(texture.handle != 0, "Failed to create GL texture", loc)
 
     // Allocate storage based on texture type
@@ -1556,8 +1563,31 @@ gl_device_create_texture :: proc(
                 )
             }
         } else {
-            // Regular 2D
-            if descriptor.size.depth_or_array_layers > 1 {
+            // Regular 2D or Cubemap
+            if is_cubemap {
+                // Cubemap handling
+                if descriptor.size.depth_or_array_layers == 6 {
+                    // Regular cubemap - use TextureStorage2D
+                    // The 6 faces are implicit in GL_TEXTURE_CUBE_MAP
+                    gl.TextureStorage2D(
+                        texture.handle,
+                        levels,
+                        gl_internal_format,
+                        width,
+                        height,
+                    )
+                } else {
+                    // Cubemap array - use TextureStorage3D
+                    gl.TextureStorage3D(
+                        texture.handle,
+                        levels,
+                        gl_internal_format,
+                        width,
+                        height,
+                        depth,  // 6 * num_cubemaps
+                    )
+                }
+            } else if descriptor.size.depth_or_array_layers > 1 {
                 // 2D Array
                 gl.TextureStorage3D(
                     texture.handle,
@@ -1568,19 +1598,16 @@ gl_device_create_texture :: proc(
                     depth,  // layers
                 )
             } else {
-                // In gl_device_create_texture, ensure depth textures get proper parameters
+                // Single 2D texture
                 if texture_format_has_depth_aspect(descriptor.format) {
                     gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
                     gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
                     gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
                     gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-
-                    // Important: Depth textures should not have mipmaps by default for attachments
                     gl.TextureParameteri(texture.handle, gl.TEXTURE_BASE_LEVEL, 0)
                     gl.TextureParameteri(texture.handle, gl.TEXTURE_MAX_LEVEL, 0)
                 }
 
-                // 2D
                 gl.TextureStorage2D(
                     texture.handle,
                     levels,
@@ -1604,20 +1631,38 @@ gl_device_create_texture :: proc(
         )
 
     case:
-        panic("Unsupported texture dimension", loc)
+        unreachable()
     }
 
     // Set default texture parameters (can be overridden with samplers)
     if descriptor.sample_count == 1 {
-        gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-        gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-        gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-        gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-        gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+        if is_cubemap {
+            // Cubemap-specific parameters
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+
+            // If using mipmaps, use linear mipmap filtering
+            if descriptor.mip_level_count > 1 {
+                gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+            }
+        } else {
+            // Regular texture parameters
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+            gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+
+            if descriptor.dimension == .D3 {
+                gl.TextureParameteri(texture.handle, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+            }
+        }
     }
 
     // Set debug label if available
-    when ODIN_DEBUG {
+    if len(descriptor.label) > 0 {
         string_buffer_init(&texture.label, descriptor.label)
         label_cstr := string_buffer_get_cstring(&texture.label)
         gl.ObjectLabel(gl.TEXTURE, texture.handle, i32(len(label_cstr)), label_cstr)

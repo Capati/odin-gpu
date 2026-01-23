@@ -406,28 +406,22 @@ vk_execute_copy_buffer_to_texture :: proc(
     buffer_impl := get_impl(Vulkan_Buffer_Impl, cmd.source.buffer, loc)
     texture_impl := get_impl(Vulkan_Texture_Impl, cmd.destination.texture, loc)
 
-    // Calculate the mip level dimensions
-    mip_level := cmd.destination.mip_level
-    mip_width := max(1, texture_impl.vk_extent.width >> mip_level)
-    mip_height := max(1, texture_impl.vk_extent.height >> mip_level)
-    // mip_depth := max(1, texture_impl.vk_extent.depth >> mip_level)
+    // Set up the buffer image copy region
+    region := vk_compute_buffer_image_copy_region(
+        cmd.source.layout,
+        cmd.destination,
+        cmd.copy_size,
+        loc,
+    )
 
-    // Validate copy region
-    assert(cmd.destination.origin.x + cmd.copy_size.width <= mip_width,
-        "Copy width exceeds texture dimensions", loc)
-    assert(cmd.destination.origin.y + cmd.copy_size.height <= mip_height,
-        "Copy height exceeds texture dimensions", loc)
-
-    // Determine aspect flags
-    aspect_flags := vk_conv_to_image_aspect_flags(cmd.destination.aspect, texture_impl.format)
-
-    // Define subresource range for the copy
+    // Define subresource range for the layout transition
+    // Derive it directly from the computed region to keep them in sync
     subresource_range := vk.ImageSubresourceRange{
-        aspectMask     = aspect_flags,
-        baseMipLevel   = cmd.destination.mip_level,
+        aspectMask     = region.imageSubresource.aspectMask,
+        baseMipLevel   = region.imageSubresource.mipLevel,
         levelCount     = 1,
-        baseArrayLayer = cmd.destination.origin.z,
-        layerCount     = cmd.copy_size.depth_or_array_layers,
+        baseArrayLayer = region.imageSubresource.baseArrayLayer,
+        layerCount     = region.imageSubresource.layerCount,
     }
 
     // Transition to TRANSFER_DST_OPTIMAL
@@ -438,37 +432,14 @@ vk_execute_copy_buffer_to_texture :: proc(
         subresource_range,
     )
 
-    // Set up the buffer image copy region
-    region := vk.BufferImageCopy{
-        bufferOffset = vk.DeviceSize(cmd.source.layout.offset),
-        bufferRowLength = cmd.source.layout.bytes_per_row / texture_format_block_copy_size(texture_impl.format),
-        bufferImageHeight = cmd.source.layout.rows_per_image,
-        imageSubresource = vk.ImageSubresourceLayers{
-            aspectMask = vk_conv_to_image_aspect_flags(cmd.destination.aspect, texture_impl.format),
-            mipLevel = cmd.destination.mip_level,
-            baseArrayLayer = cmd.destination.origin.z,
-            layerCount = cmd.copy_size.depth_or_array_layers,
-        },
-        imageOffset = vk.Offset3D{
-            x = i32(cmd.destination.origin.x),
-            y = i32(cmd.destination.origin.y),
-            z = i32(cmd.destination.origin.z),
-        },
-        imageExtent = vk.Extent3D{
-            width = cmd.copy_size.width,
-            height = cmd.copy_size.height,
-            depth = cmd.copy_size.depth_or_array_layers,
-        },
-    }
-
     // Copy buffer to image
     vk.CmdCopyBufferToImage(
-        cmd_buf.vk_cmd_buf,
-        buffer_impl.vk_buffer,
-        texture_impl.vk_image,
-        .TRANSFER_DST_OPTIMAL,
-        1,
-        &region,
+        commandBuffer  = cmd_buf.vk_cmd_buf,
+        srcBuffer      = buffer_impl.vk_buffer,
+        dstImage       = texture_impl.vk_image,
+        dstImageLayout = .TRANSFER_DST_OPTIMAL,
+        regionCount    = 1,
+        pRegions       = &region,
     )
 
     vk_deletion_queue_push(&cmd_buf.resources, buffer_impl)

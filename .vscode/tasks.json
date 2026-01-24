@@ -33,16 +33,17 @@
             "type": "pickString",
             "description": "Select the example to run",
             "options": [
+                "blend",
                 "clear_screen",
-                "triangle",
+                "cube",
+                "cube_textured",
+                "cubemap",
+                "fractal_cube",
+                "rotating_cube",
                 "square",
                 "stencil_triangles",
-                "cube",
-                "rotating_cube",
+                "triangle",
                 "two_cubes",
-                "cube_textured",
-                "fractal_cube",
-                "cubemap",
             ]
         }
     ]

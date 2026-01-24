@@ -8,6 +8,8 @@ import "core:slice"
 // Local packages
 import gpu "../../"
 
+USE_SRGB :: #config(USE_SRGB, false)
+
 App_Result :: enum {
     Continue,
     Success,
@@ -228,8 +230,13 @@ on_adapter_and_device :: proc() {
         present_mode = .Mailbox
     }
 
-    // Use first available format as the preferred one and remove the srgb if any
-    preferred_format := gpu.texture_format_remove_srgb_suffix(ctx.gc.caps.formats[0])
+    // Use first available format as the preferred one
+    preferred_format := ctx.gc.caps.formats[0]
+    when USE_SRGB {
+        preferred_format = gpu.texture_format_add_srgb_suffix(preferred_format)
+    } else {
+        preferred_format = gpu.texture_format_remove_srgb_suffix(preferred_format)
+    }
 
     width, height := get_framebuffer_size()
 

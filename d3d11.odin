@@ -1918,11 +1918,16 @@ d3d11_device_create_render_pipeline :: proc(
     out.primitive_topology = d3d11_conv_to_primitive_topology(descriptor.primitive.topology)
     out.strip_index_format = descriptor.primitive.strip_index_format
 
+    front_counter_clockwise: bool
+    #partial switch descriptor.primitive.front_face {
+    case .Undefined, .Ccw: front_counter_clockwise = true
+    }
+
     // Initialize the rasterizer state
     rasterizer_desc := d3d11.RASTERIZER_DESC {
         FillMode              = .SOLID,
         CullMode              = d3d11_conv_to_cull_mode(descriptor.primitive.cull_mode),
-        FrontCounterClockwise = descriptor.primitive.front_face == .Ccw,
+        FrontCounterClockwise = win32.BOOL(front_counter_clockwise),
         DepthClipEnable       = win32.BOOL(descriptor.primitive.unclipped_depth),
         ScissorEnable         = true,
         MultisampleEnable     = descriptor.multisample.count > 1,

@@ -61,9 +61,12 @@ gl_get_primitive_mode :: #force_inline proc "contextless" (topology: Primitive_T
 }
 
 gl_get_front_face :: #force_inline proc "contextless" (face: Front_Face) -> u32 {
-    // Note that we invert winding direction in OpenGL. Because Y axis is up in
-    // OpenGL, which is different from WebGPU and other backends (Y axis is down).
-    return face == .Ccw ? gl.CCW : gl.CW
+    #partial switch face {
+    case .Ccw: return gl.CCW
+    case .Cw:  return gl.CW
+    case:
+        return gl.CCW
+    }
 }
 
 gl_get_cull_enabled :: #force_inline proc "contextless" (mode: Face) -> bool {

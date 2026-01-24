@@ -5,6 +5,7 @@
 - [Clear Screen](#clear-screen)
 - [Triangle](#triangle)
 - [Square](#square)
+- [Blend](#blend)
 - [Stencil Triangles](#stencil-triangles)
 - [Cube](#cube)
 - [Rotating Cube](#rotating-cube)
@@ -33,6 +34,12 @@ This example demonstrates how to render a colored square with smooth color inter
 vertices.
 
 ![Square](./square/square.png)
+
+## [Blend](./blend)
+
+This example shows blending in sRGB or linear space.
+
+![Blend](./blend/blend.png)
 
 ## [Stencil Triangles](./stencil_triangles)
 

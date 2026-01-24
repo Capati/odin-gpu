@@ -34,7 +34,7 @@ for arg in "$@"; do
                 COMPILE_SHADERS=true
                 ;;
             *)
-                ADDITIONAL_ARGS="$ADDITIONAL_ARGS $arg"
+                ADDITIONAL_ARGS="$ADDITIONAL_ARGS -define:$arg=true"
                 ;;
         esac
     fi

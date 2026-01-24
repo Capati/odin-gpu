@@ -28,11 +28,13 @@ for %%i in (%*) do (
 		) else if /i "%%i"=="shaders" (
 			set COMPILE_SHADERS=true
 		) else (
-			set "ADDITIONAL_ARGS=!ADDITIONAL_ARGS! %%i"
+			set "ADDITIONAL_ARGS=!ADDITIONAL_ARGS! -define:%%i=true"
 		)
 	)
 	set /a ARG_COUNTER+=1
 )
+
+echo %ADDITIONAL_ARGS%
 
 :: Set mode string
 if "%RELEASE_MODE%"=="true" (

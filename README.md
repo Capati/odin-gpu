@@ -154,7 +154,7 @@ Explore [all examples](./examples) to see the implementation in action.
 
 ## Contributing
 
-Contributions, feedback, and memes are welcome!
+Contributions and feedback are always welcome!
 
 [Odin Language]: https://odin-lang.org/
 [WebGPU]: https://www.w3.org/TR/webgpu/

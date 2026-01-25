@@ -19,9 +19,9 @@ Currently I'm working on [renderlink][] as a "proof of concept" for this library
 
 ## Status
 
-🚧 **This project is extremely work-in-progress.**
-
-> I was tired of hitting bugs in wgpu… so I decided to write my own bugs instead.
+> [!WARNING]
+> **This project is extremely work-in-progress.**. Until the API is stabilized, break
+> changes can happen without notice.
 
 ## Overview
 
@@ -38,17 +38,17 @@ possible, it's expected.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | **Core API** |
-| Core API Layout | 🟡 In Progress | Basic types exist, API not yet stable |
+| Core API Layout | In Progress | Basic types exist, API not yet stable |
 | **Backends** |
-| Vulkan     | 🔴 Not Started | Should be the main backend, requires 1.3 |
-| DirectX 12 | 🔴 Not Started | Windows support |
-| DirectX 11 | 🟡 In Progress | Fallback Windows support, requires 11.1 |
-| Metal      | 🔴 Not Started | Might rely on MoltenVK first |
-| OpenGL     | 🟡 In Progress | Fallback backend on Linux and Windows, requires 4.5 |
-| WebGPU     | 🟡 In Progress | WASM support |
+| Vulkan     | In Progress | Should be the main backend, requires 1.3 |
+| DirectX 12 | Not Started | Windows support |
+| DirectX 11 | In Progress | Fallback Windows support, requires 11.1 |
+| Metal      | Not Started | Might rely on MoltenVK first |
+| OpenGL     | In Progress | Fallback backend on Linux and Windows, requires 4.5 |
+| WebGPU     | In Progress | WASM support, uses the vendor bindings |
 | **Advanced** |
-| Bindless    | ⚪ TODO | Not currently planned |
-| Ray Tracing | ⚪ TODO | Not currently planned |
+| Bindless    | TODO | |
+| Ray Tracing | TODO | |
 
 ## Installation
 

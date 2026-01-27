@@ -34,8 +34,6 @@ for %%i in (%*) do (
 	set /a ARG_COUNTER+=1
 )
 
-echo %ADDITIONAL_ARGS%
-
 :: Set mode string
 if "%RELEASE_MODE%"=="true" (
 	set MODE=RELEASE

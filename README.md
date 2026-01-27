@@ -33,7 +33,7 @@ The early API stages will probably match WebGPU pretty closely. Over time, namin
 even core concepts may shift as things stabilize for better patterns. A future refactor is not only
 possible, it's expected.
 
-## Roadmap
+## Backends
 
 | Feature | Status | Notes |
 |---------|--------|-------|

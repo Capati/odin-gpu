@@ -173,6 +173,24 @@
                     },
                 },
                 {
+                    "name": "Fractal Cube",
+                    "windows": {
+                        "cmd": [
+                            "cmd", "/c", "build.bat", "examples\\fractal_cube", "run"
+                        ],
+                    },
+                    "linux": {
+                        "cmd": [
+                            "./build.sh", "examples/fractal_cube", "run"
+                        ],
+                    },
+                    "osx": {
+                        "cmd": [
+                            "./build.sh", "examples/fractal_cube", "run"
+                        ],
+                    },
+                },
+                {
                     "name": "Cube Textured",
                     "windows": {
                         "cmd": [
@@ -191,20 +209,20 @@
                     },
                 },
                 {
-                    "name": "Fractal Cube",
+                    "name": "OBJ Model",
                     "windows": {
                         "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\fractal_cube", "run"
+                            "cmd", "/c", "build.bat", "examples\\obj_model", "run"
                         ],
                     },
                     "linux": {
                         "cmd": [
-                            "./build.sh", "examples/fractal_cube", "run"
+                            "./build.sh", "examples/obj_model", "run"
                         ],
                     },
                     "osx": {
                         "cmd": [
-                            "./build.sh", "examples/fractal_cube", "run"
+                            "./build.sh", "examples/obj_model", "run"
                         ],
                     },
                 },
@@ -243,7 +261,7 @@
                             "./build.sh", "examples/microui", "run"
                         ],
                     },
-                }
+                },
             ],
         }
     ],

@@ -10,8 +10,9 @@
 - [Cube](#cube)
 - [Rotating Cube](#rotating-cube)
 - [Two Cubes](#two-cubes)
-- [Cube Textured](#cube-textured)
 - [Fractal Cube](#fractal-cube)
+- [Cube Textured](#cube-textured)
+- [OBJ Model](#obj-model)
 - [Cubemap](#cubemap)
 - [MicroUI](#microui)
 
@@ -67,17 +68,23 @@ different offsets in a uniform buffer.
 
 ![Two Cubes](./two_cubes/two_cubes.png)
 
+## [Fractal Cube](./fractal_cube)
+
+This example uses the previous frame's rendering result as the source texture for the next frame.
+
+![Fractal Cube](./fractal_cube/fractal_cube.png)
+
 ## [Cube Textured](./cube_textured)
 
 This example demonstrates how to render a textured cube.
 
 ![Cube Textured](./cube_textured/cube_textured.png)
 
-## [Fractal Cube](./fractal_cube)
+## [OBJ Model](./obj_model)
 
-This example uses the previous frame's rendering result as the source texture for the next frame.
+This example demonstrates how to load a `OBJ` model using tobj (tinyobjloader).
 
-![Fractal Cube](./fractal_cube/fractal_cube.png)
+![Cubemap](./obj_model/obj_model.png)
 
 ## [Cubemap](./cubemap)
 

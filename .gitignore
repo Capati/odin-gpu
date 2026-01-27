@@ -16,6 +16,8 @@
 *.wasm
 node_modules
 
+!/build/assets/**/*.obj
+
 /build/shaders/*/*.wgsl
 /build/shaders/*/*.spv
 /build/shaders/*/*.metal

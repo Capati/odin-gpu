@@ -63,7 +63,8 @@ Just copy or clone this repository to your dependencies folder.
 │   └── vma        # Memory allocator for the Vulkan backend
 ├── shared         # Code reused across multiple packages
 ├── utils          # Additional renderer and utility packages
-│   └── microui    # Micro UI renderer
+│   ├── microui    # Micro UI renderer
+│   └── tobj       # OBJ loader
 └── wasm           # WebGPU support
 ```
 

@@ -136,6 +136,7 @@ init :: proc(title: string, width, height: u32, allocator := context.allocator) 
     instance_descriptor: gpu.Instance_Descriptor
 
     when ODIN_DEBUG {
+        // instance_descriptor.backends = { .Dx11 }
         instance_descriptor.flags = { .Debug, .Validation }
     }
 
@@ -187,7 +188,7 @@ on_adapter :: proc "c" (
         },
     }
 
-    gpu.adapter_request_device(adapter, device_descriptor, { callback = on_device })
+    gpu.adapter_request_device(adapter, { callback = on_device }, device_descriptor)
 }
 
 @(private="file")
@@ -246,8 +247,8 @@ on_adapter_and_device :: proc() {
         format       = preferred_format,
         width        = width,
         height       = height,
-        present_mode = present_mode,
-        alpha_mode   = .Auto,
+        present_mode = .Fifo,
+        alpha_mode   = .Opaque,
     }
 
     gpu.surface_configure(ctx.gc.surface, ctx.gc.device, ctx.gc.config)

@@ -17,8 +17,10 @@ import "../../utils/tobj"
 CLIENT_WIDTH  :: 640
 CLIENT_HEIGHT :: 480
 EXAMPLE_TITLE :: "OBJ Model"
-MODELS_DIR    :: "assets/models/" // relative to the build folder
 DEPTH_FORMAT  :: gpu.Texture_Format.Depth24_Plus
+
+MODELS_DIR    :: "assets/models/" // relative to the build folder
+OBJ_PYRAMID :: MODELS_DIR + "pyramid.obj"
 
 My_Uniforms :: struct {
     projection_matrix: la.Matrix4f32,
@@ -254,9 +256,17 @@ load_geometry_from_obj :: proc(
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == ta)
 
     // Call the core loading procedure of tobj
-    models, _, obj_err := tobj.load_obj(MODELS_DIR + "pyramid.obj", allocator = ta)
+    when ODIN_OS == .JS {
+        obj_bytes, obj_bytes_ok := app.load_file(OBJ_PYRAMID, ta)
+        if !obj_bytes_ok {
+            log.panic("Failed to load [%s]", OBJ_PYRAMID)
+        }
+        models, _, obj_err := tobj.load_obj_bytes(obj_bytes, allocator = ta)
+    } else {
+        models, _, obj_err := tobj.load_obj_filename(OBJ_PYRAMID, allocator = ta)
+    }
     if obj_err != nil {
-        log.errorf("Could not load geometry: %v", obj_err)
+        log.errorf("Could not load geometry %s: %v", OBJ_PYRAMID, obj_err)
         res = .Failure
         return
     }

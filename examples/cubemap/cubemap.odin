@@ -285,10 +285,15 @@ create_cubemap_texture_from_files :: proc(
     ta := context.temp_allocator
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
+    first_img_bytes, first_image_ok := app.load_file(file_paths[0], ta)
+    if !first_image_ok {
+        log.panic("Failed to load the first cubemap image file", location = loc)
+    }
+
     // Get info of the first image
-    first_img, first_img_err := image.load_from_file(file_paths[0], allocator = ta)
+    first_img, first_img_err := image.load_from_bytes(first_img_bytes, allocator = ta)
     if first_img_err != nil {
-        log.panicf("Failed to load first cubemap image: %v", first_img_err, location = loc)
+        log.panicf("Failed to load bytes the first cubemap image: %v", first_img_err, location = loc)
     }
 
     // Set defaults
@@ -326,8 +331,13 @@ create_cubemap_texture_from_files :: proc(
 
     // Load and copy each face of the cubemap
     for i in 0 ..< 6 {
+        img_bytes, img_bytes_ok := app.load_file(file_paths[i], ta)
+        if !img_bytes_ok {
+            log.panic("Failed to load the [%v] cubemap image file", i, location = loc)
+        }
+
         // Check info of each face
-        img, img_err := image.load_from_file(file_paths[i], allocator = ta)
+        img, img_err := image.load_from_bytes(img_bytes, allocator = ta)
         if img_err != nil {
             log.panicf("Failed to load cubemap image [%d]: %v", i, img_err, location = loc)
         }
@@ -384,7 +394,7 @@ create_cubemap_texture_from_files :: proc(
         lod_min_clamp    = 0.0,
         lod_max_clamp    = 1.0,
         compare          = .Undefined,
-        anisotropy_clamp = 1,
+        max_anisotropy   = 1,
     }
 
     out.sampler = gpu.device_create_sampler(self.device, sampler_descriptor)

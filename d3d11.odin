@@ -561,8 +561,8 @@ d3d11_adapter_get_features_impl :: proc(adapter: ^D3D11_Adapter_Impl) -> Feature
     ret := Features{
         .Depth32_Float_Stencil8,
         .Depth_Clip_Control,
-        .Texture_Compression_Bc,
-        .Texture_Compression_Bc_Sliced_3D,
+        .Texture_Compression_BC,
+        .Texture_Compression_BC_Sliced_3D,
         .Float32_Filterable,
         .Float32_Blendable,
         .Dual_Source_Blending,
@@ -593,7 +593,7 @@ d3d11_adapter_get_features_impl :: proc(adapter: ^D3D11_Adapter_Impl) -> Feature
     // Feature Level specific
     if feature_level >= ._11_1 {
         ret += {
-            .Shader_Float32_Atomic,
+            // .Shader_Float32_Atomic,
             .Multi_Draw_Indirect_Count,
             .Partially_Bound_Binding_Array,
         }
@@ -810,8 +810,8 @@ d3d11_adapter_info_free_members :: proc(self: Adapter_Info, allocator := context
 
 d3d11_adapter_request_device :: proc(
     adapter: Adapter,
-    descriptor: Maybe(Device_Descriptor),
     callback_info: Request_Device_Callback_Info,
+    descriptor: Maybe(Device_Descriptor) = nil,
     loc := #caller_location,
 ) {
     impl := get_impl(D3D11_Adapter_Impl, adapter, loc)
@@ -1712,7 +1712,6 @@ d3d11_device_create_buffer :: proc(
         buffer_impl.mapped_ptr = mapped.pData
         buffer_impl.mapped_range = {0, Buffer_Address(final_size)}
         buffer_impl.mapped_at_creation = true
-        buffer_impl.map_state = .Mapped_At_Creation
 
         // Do we need a separate main GPU buffer?
         if has_gpu_binding || copy_dst {
@@ -2206,7 +2205,7 @@ d3d11_device_create_sampler :: proc(
     mipmap_filter := d3d11_conv_to_mipmap_filter_type(descriptor.mipmap_filter)
 
     // https://docs.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_sampler_desc
-    sampler_desc.MaxAnisotropy = u32(clamp(descriptor.anisotropy_clamp, 1, 16))
+    sampler_desc.MaxAnisotropy = u32(clamp(descriptor.max_anisotropy, 1, 16))
 
     // Filter reduction type determines how filter results are combined
     // Defaults to normal filtering (interpolation)
@@ -2444,7 +2443,7 @@ d3d11_instance_request_adapter :: proc(
             base += dedicated_gb * 5 // Bonus per GB
         case .Low_Power:
             base = desc.DedicatedVideoMemory == 0 ? 150 : 50 // Shared memory = integrated
-        case .Undefined, .None:
+        case .Undefined:
             base = 100 + dedicated_gb * 3
         }
 

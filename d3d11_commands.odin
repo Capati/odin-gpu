@@ -362,7 +362,7 @@ d3d11_execute_render_pass_set_bind_group :: proc(
                 dynamic_offset_idx += 1
             }
 
-            switch buffer_layout.type {
+            #partial switch buffer_layout.type {
             case .Uniform:
                 cb := res.buffer.buffer
 
@@ -412,7 +412,7 @@ d3d11_execute_render_pass_set_bind_group :: proc(
                     d3d_context->CSSetUnorderedAccessViews(slot, 1, &uav, &initial_count)
                 }
 
-            case .Undefined:
+            case:
                 unreachable()
             }
 
@@ -434,7 +434,7 @@ d3d11_execute_render_pass_set_bind_group :: proc(
             buffer_layout := layout_entry.type.(D3D11_Buffer_Binding_Layout)
             count := u32(len(res))
 
-            switch buffer_layout.type {
+            #partial switch buffer_layout.type {
             case .Uniform:
                 runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
@@ -499,7 +499,7 @@ d3d11_execute_render_pass_set_bind_group :: proc(
                         slot, count, raw_data(uavs), raw_data(initial_counts))
                 }
 
-            case .Undefined:
+            case:
                 unreachable()
             }
 

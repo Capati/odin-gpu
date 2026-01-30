@@ -303,7 +303,7 @@ gl_adapter_get_features :: proc(
         // Core since GL 4.1 (ARB_vertex_attrib_64bit).
         .Vertex_Attribute_64Bit,
         // Core since GL 3.1 (ARB_uniform_buffer_object).
-        .Uniform_Buffer_Binding_Arrays,
+        // .Uniform_Buffer_Binding_Arrays,
     }
 
     // Version-gated core features.
@@ -335,7 +335,7 @@ gl_adapter_get_features :: proc(
             // ARB_shader_draw_parameters for full.
             .Indirect_First_Instance,
             // Core since GL 4.2 (ARB_shader_atomic_counters).
-            .Shader_Float32_Atomic,
+            // .Shader_Float32_Atomic,
             // Core since GL 4.2 (ARB_shader_image_load_store).
             .Texture_Atomic,
             // Core since GL 4.2 (layout(early_fragment_tests)).
@@ -354,7 +354,7 @@ gl_adapter_get_features :: proc(
             // Core since GL 4.3 (SSBOs in vertex shaders).
             .Vertex_Writable_Storage,
             // Core since GL 4.3, or ARB_ES3_compatibility.
-            .Texture_Compression_Etc2,
+            .Texture_Compression_ETC2,
         }
     }
 
@@ -390,17 +390,17 @@ gl_adapter_get_features :: proc(
 
     if gl_check_extension_support("GL_EXT_texture_compression_s3tc") ||
        gl_check_extension_support("GL_ARB_texture_compression_bptc") {
-        features += {.Texture_Compression_Bc, .Texture_Compression_Bc_Sliced_3D}
+        features += {.Texture_Compression_BC, .Texture_Compression_BC_Sliced_3D}
     }
 
     if gl_check_extension_support("GL_KHR_texture_compression_astc_ldr") ||
        gl_check_extension_support("WEBGL_compressed_texture_astc") ||
        gl_check_extension_support("GL_OES_texture_compression_astc") {
-        features += {.Texture_Compression_Astc, .Texture_Compression_Astc_Sliced_3D}
+        features += {.Texture_Compression_ASTC, .Texture_Compression_ASTC_Sliced_3D}
     }
 
     if gl_check_extension_support("GL_KHR_texture_compression_astc_hdr") {
-        features += {.Texture_Compression_Astc_Hdr}
+        features += {.Texture_Compression_ASTC_Hdr}
     }
 
     if gl_check_extension_support("GL_ARB_bindless_texture") {
@@ -410,7 +410,7 @@ gl_adapter_get_features :: proc(
     if gl_check_extension_support("GL_ARB_gpu_shader5") || supported(version, 4, 0) {
         features += {
             .Sampled_Texture_And_Storage_Buffer_Array_Non_Uniform_Indexing,
-            .Storage_Texture_Array_Non_Uniform_Indexing,
+            // .Storage_Texture_Array_Non_Uniform_Indexing,
         }
     }
 
@@ -429,9 +429,9 @@ gl_adapter_get_features :: proc(
         features += {.Subgroup, .Subgroup_Vertex, .Subgroup_Barrier}
     }
 
-    if gl_check_extension_support("GL_NV_shader_atomic_int64") {
-        features += {.Shader_Int64_Atomic_Min_Max, .Shader_Int64_Atomic_All_Ops}
-    }
+    // if gl_check_extension_support("GL_NV_shader_atomic_int64") {
+    //     features += {.Shader_Int64_Atomic_Min_Max, .Shader_Int64_Atomic_All_Ops}
+    // }
 
     if gl_check_extension_support("GL_AMD_gpu_shader_half_float") ||
        gl_check_extension_support("GL_NV_gpu_shader5") {
@@ -451,9 +451,9 @@ gl_adapter_get_features :: proc(
         features += {.Partially_Bound_Binding_Array}
     }
 
-    if gl_check_extension_support("GL_ARB_get_program_binary") || supported(version, 4, 1) {
-        features += {.Pipeline_Cache}
-    }
+    // if gl_check_extension_support("GL_ARB_get_program_binary") || supported(version, 4, 1) {
+    //     features += {.Pipeline_Cache}
+    // }
 
     if gl_check_extension_support("GL_ARB_timer_query") {
         features += {
@@ -601,13 +601,13 @@ gl_adapter_get_limits :: proc(adapter: Adapter, loc := #caller_location) -> (lim
 
     max_uniform_block_size: i32
     gl.GetIntegerv(gl.MAX_UNIFORM_BLOCK_SIZE, &max_uniform_block_size)
-    limits.max_uniform_buffer_binding_size = u32(max_uniform_block_size)
+    limits.max_uniform_buffer_binding_size = u64(max_uniform_block_size)
 
     max_shader_storage_block_size: i32 = 0
     if supported(version, 4, 3) ||
        gl_check_extension_support("GL_ARB_shader_storage_buffer_object") {
         gl.GetIntegerv(gl.MAX_SHADER_STORAGE_BLOCK_SIZE, &max_shader_storage_block_size)
-        limits.max_storage_buffer_binding_size = u32(max_shader_storage_block_size)
+        limits.max_storage_buffer_binding_size = u64(max_shader_storage_block_size)
     }
 
     // Alignment Requirements
@@ -738,8 +738,8 @@ gl_adapter_has_feature :: proc(
 
 gl_adapter_request_device :: proc(
     adapter: Adapter,
-    descriptor: Maybe(Device_Descriptor),
     callback_info: Request_Device_Callback_Info,
+    descriptor: Maybe(Device_Descriptor) = nil,
     loc := #caller_location,
 ) {
     impl := get_impl(GL_Adapter_Impl, adapter, loc)
@@ -1451,7 +1451,7 @@ gl_device_create_buffer :: proc(
         )
         assert(buffer_impl.mapped_ptr != nil, "Failed to map buffer at creation", loc)
 
-        buffer_impl.map_state = .Mapped_At_Creation
+        buffer_impl.map_state = .Mapped
         buffer_impl.mapped_range = { start = 0, end = descriptor.size }
     }
 
@@ -1704,9 +1704,9 @@ gl_device_create_sampler :: proc(
     gl.SamplerParameterf(sampler_id, gl.TEXTURE_MAX_LOD, descriptor.lod_max_clamp)
 
     // Set anisotropy if enabled
-    if descriptor.anisotropy_clamp > 1 {
+    if descriptor.max_anisotropy > 1 {
         gl.SamplerParameterf(
-            sampler_id, gl.TEXTURE_MAX_ANISOTROPY, f32(descriptor.anisotropy_clamp))
+            sampler_id, gl.TEXTURE_MAX_ANISOTROPY, f32(descriptor.max_anisotropy))
     }
 
     // Set comparison mode if enabled
@@ -2887,9 +2887,9 @@ gl_command_encoder_copy_buffer_to_buffer :: proc(
 
 gl_command_encoder_copy_buffer_to_texture :: proc(
     encoder: Command_Encoder,
-    source: ^Texel_Copy_Buffer_Info,
-    destination: ^Texel_Copy_Texture_Info,
-    copy_size: ^Extent_3D,
+    source: Texel_Copy_Buffer_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
     loc := #caller_location,
 ) {
     unimplemented()
@@ -2897,9 +2897,9 @@ gl_command_encoder_copy_buffer_to_texture :: proc(
 
 gl_command_encoder_copy_texture_to_buffer :: proc(
     encoder: Command_Encoder,
-    source: ^Texel_Copy_Texture_Info,
-    destination: ^Texel_Copy_Buffer_Info,
-    copy_size: ^Extent_3D,
+    source: Texel_Copy_Texture_Info,
+    destination: Texel_Copy_Buffer_Info,
+    copy_size: Extent_3D,
     loc := #caller_location,
 ) {
     unimplemented()

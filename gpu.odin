@@ -91,21 +91,21 @@ MAX_BUFFER_SIZE :: 0x80000000 // 2GB
 
 MAX_INTER_STAGE_SHADER_VARIABLES :: 16  // Conservative limit for compatibility
 
-Status :: enum {
+Status :: enum i32 {
     Success,
     Error,
 }
 
 // Collections of shader features a device supports if they support less than
 // WebGPU normally allows
-Shader_Model :: enum {
+Shader_Model :: enum i32 {
     Sm2,
     Sm4,
     Sm5,
 }
 
 // Supported physical device types.
-Device_Type :: enum {
+Device_Type :: enum i32 {
     // Other or Unknown.
     Other,
     // Integrated GPU with shared CPU/GPU memory.
@@ -144,7 +144,7 @@ Adapter_Info :: struct {
     backend:     Backend,
 }
 
-Memory_Hints_Type :: enum {
+Memory_Hints_Type :: enum i32 {
     Performace,
     Memory,
     Manual,
@@ -180,7 +180,7 @@ Device_Descriptor :: struct {
 }
 
 // Order in which texture data is laid out in memory.
-Texture_Data_Order :: enum {
+Texture_Data_Order :: enum i32 {
     // The texture is laid out densely in memory as:
     //
     // - `Layer0Mip0 Layer0Mip1 Layer0Mip2`
@@ -298,7 +298,7 @@ describe_uses :: proc(
 // functionality in OpenGL:
 //
 // https://www.khronos.org/opengl/wiki/Blending#Blending_Parameters
-Blend_Factor :: enum {
+Blend_Factor :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // 0.0
@@ -354,9 +354,7 @@ blend_factor_ref_second_blend_source :: proc(self: Blend_Factor) -> bool {
 // the analogous functionality in OpenGL:
 //
 // https://www.khronos.org/opengl/wiki/Blending#Blend_Equations.
-Blend_Operation :: enum {
-    // Indicates no value is passed for this argument.
-    Undefined,
+Blend_Operation :: enum i32 {
     // Src + Dst
     Add,
     // Src - Dst
@@ -452,7 +450,7 @@ BLEND_STATE_NORMAL := Blend_State {
 }
 
 // Primitive type the input mesh is composed of.
-Primitive_Topology :: enum {
+Primitive_Topology :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Vertex data is a list of points. Each vertex is a new point.
@@ -487,7 +485,7 @@ primitive_topology_is_strip :: proc(self: Primitive_Topology) -> bool {
 }
 
 // Vertex winding order which classifies the "front" face of a triangle.
-Front_Face :: enum {
+Front_Face :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Triangles with vertices in counter clockwise order are considered the front face.
@@ -501,7 +499,7 @@ Front_Face :: enum {
 }
 
 // Face of a vertex.
-Face :: enum {
+Face :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // No face culling
@@ -513,7 +511,7 @@ Face :: enum {
 }
 
 // Type of drawing mode for polygons
-Polygon_Mode :: enum {
+Polygon_Mode :: enum i32 {
     // Polygons are filled
     Fill,
     // Polygons are drawn as line segments
@@ -690,9 +688,11 @@ depth_bias_state_is_enabled :: proc(self: Depth_Bias_State) -> bool {
 }
 
 // Operation to perform to the output attachment at the start of a render pass.
-Load_Op :: enum {
+Load_Op :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
+    // Loads the existing value for this attachment into the render pass.
+    Load,
     // Loads the specified value for this attachment into the render pass.
     //
     // On some GPU hardware (primarily mobile), "clear" is significantly cheaper
@@ -704,12 +704,10 @@ Load_Op :: enum {
     // where the initial value doesn’t matter
     // (e.g. the render target will be cleared using a skybox).
     Clear,
-    // Loads the existing value for this attachment into the render pass.
-    Load,
 }
 
 // Operation to perform to the output attachment at the end of a render pass.
-Store_Op :: enum {
+Store_Op :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Stores the resulting value of the render pass for this attachment.
@@ -785,7 +783,7 @@ depth_stencil_state_is_read_only :: proc(
 }
 
 // Format of indices used with pipeline.
-Index_Format :: enum {
+Index_Format :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Indices are 16 bit unsigned integers.
@@ -806,7 +804,7 @@ index_format_byte_size :: proc(self: Index_Format) -> uint {
 }
 
 // Operation to perform on the stencil value.
-Stencil_Operation :: enum {
+Stencil_Operation :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Keep stencil value unchanged.
@@ -870,7 +868,7 @@ stencil_face_state_is_read_only :: proc(self: Stencil_Face_State) -> bool {
 }
 
 // Comparison function used for depth and stencil operations.
-Compare_Function :: enum {
+Compare_Function :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Function never passes
@@ -905,7 +903,9 @@ compare_function_needs_ref_value :: proc(self: Compare_Function) -> bool {
 }
 
 // Whether a vertex buffer is indexed by vertex or by instance.
-Vertex_Step_Mode :: enum {
+Vertex_Step_Mode :: enum i32 {
+    // Vertex buffer intentionally unused.
+    Vertex_Buffer_Not_Used,
     // Indicates no value is passed for this argument.
     Undefined,
     // Vertex data is advanced every vertex.
@@ -915,7 +915,7 @@ Vertex_Step_Mode :: enum {
 }
 
 // Vertex Format for a `Vertex_Attribute` (input).
-Vertex_Format :: enum {
+Vertex_Format :: enum i32 {
     // One unsigned byte (u8). `u32` in shaders.
     Uint8,
     // Two unsigned bytes (u8). `vec2<u32>` in shaders.
@@ -1117,7 +1117,7 @@ vertex_format_acceleration_structure_stride_alignment :: proc(self: Vertex_Forma
 // Specifying only usages the application will actually perform may increase
 // performance.
 Buffer_Usages :: bit_set[Buffer_Usage;Flags]
-Buffer_Usage :: enum u32 {
+Buffer_Usage :: enum i32 {
     // Allow a buffer to be mapped for reading using `buffer_map_async` +
     // `buffer_get_mapped_range`. This does not include creating a buffer with
     // `Buffer_Descriptor.mapped_at_creation` set.
@@ -1270,7 +1270,7 @@ Command_Encoder_Descriptor :: struct {
 // Some modes are only supported by some backends. You can use one of the
 // `Auto*` modes, `Fifo`, or choose one of the supported modes from
 // `Surface_Capabilities.present_modes`.
-Present_Mode :: enum {
+Present_Mode :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Presentation frames are kept in a First-In-First-Out queue approximately
@@ -1340,7 +1340,7 @@ PRESENT_MODE_DEFAULT :: Present_Mode.Fifo
 
 // Specifies how the alpha channel of the textures should be handled during
 // compositing.
-Composite_Alpha_Mode :: enum {
+Composite_Alpha_Mode :: enum i32 {
     // Chooses either `Opaque` or `Inherit` automatically，depending on the
     // `alpha_mode` that the current surface can support.
     Auto,
@@ -1627,7 +1627,7 @@ Surface_Configuration :: struct {
 }
 
 // Status of the received surface image.
-Surface_Status :: enum {
+Surface_Status :: enum i32 {
     // No issues.
     Good,
     // The swap chain is operational, but it does no longer perfectly
@@ -1922,7 +1922,7 @@ texture_descriptor_get_array_layer_count :: proc(self: Texture_Descriptor) -> u3
 // Selects a subset of the data a `Texture` holds.
 //
 // Used in texture views and texture copy operations.
-Texture_Aspect :: enum {
+Texture_Aspect :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Depth, Stencil, and Color.
@@ -1940,7 +1940,7 @@ Texture_Aspect :: enum {
 }
 
 // How edges should be handled in texture addressing.
-Address_Mode :: enum {
+Address_Mode :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Clamp the value to the edge of the texture
@@ -1967,7 +1967,7 @@ Address_Mode :: enum {
 }
 
 // Texel mixing mode when sampling between texels.
-Filter_Mode :: enum {
+Filter_Mode :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Nearest neighbor sampling.
@@ -1981,7 +1981,7 @@ Filter_Mode :: enum {
 }
 
 // Texel mixing mode when sampling between texels.
-Mipmap_Filter_Mode :: enum {
+Mipmap_Filter_Mode :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // Nearest neighbor sampling.
@@ -2084,6 +2084,8 @@ Texel_Copy_Buffer_Layout :: struct {
 
 // Specific type of a buffer binding.
 Buffer_Binding_Type :: enum i32 {
+    // Binding slot intentionally unused.
+    Binding_Not_Used,
     // Indicates no value is passed for this argument.
     Undefined,
     // A buffer for uniform values.
@@ -2095,7 +2097,9 @@ Buffer_Binding_Type :: enum i32 {
 }
 
 // Specific type of a sample in a texture binding.
-Texture_Sample_Type :: enum {
+Texture_Sample_Type :: enum i32 {
+    // Binding slot intentionally unused.
+    Binding_Not_Used,
     // Indicates no value is passed for this argument.
     Undefined,
     // Sampling returns floats.
@@ -2113,7 +2117,9 @@ Texture_Sample_Type :: enum {
 // Specific type of a sample in a texture binding.
 //
 // For use in `Binding_Type.StorageTexture`.
-Storage_Texture_Access :: enum {
+Storage_Texture_Access :: enum i32 {
+    // Binding slot intentionally unused.
+    Binding_Not_Used,
     // Indicates no value is passed for this argument.
     Undefined,
     // The texture can only be written in the shader and it:
@@ -2143,7 +2149,9 @@ Storage_Texture_Access :: enum {
 // Specific type of a sampler binding.
 //
 // For use in `Binding_Type.Sampler`.
-Sampler_Binding_Type :: enum {
+Sampler_Binding_Type :: enum i32 {
+    // Binding slot intentionally unused.
+    Binding_Not_Used,
     // Indicates no value is passed for this argument.
     Undefined,
     // The sampling result is produced based on more than a single color sample
@@ -2232,10 +2240,10 @@ Bind_Group_Layout_Descriptor :: struct {
 
 // View of a buffer which can be used to copy to/from a texture.
 Texel_Copy_Buffer_Info :: struct {
-    // The buffer to be copied to/from.
-    buffer: Buffer,
     // The layout of the texture data in this buffer.
     layout: Texel_Copy_Buffer_Layout,
+    // The buffer to be copied to/from.
+    buffer: Buffer,
 }
 
 // View of a texture which can be used to copy to/from a buffer/texture.
@@ -2291,7 +2299,7 @@ subresource_range_get_affected_by_copy :: proc(
 }
 
 // Color variation to use when sampler addressing mode is `Address_Mode.Clamp_To_Border`.
-Sampler_Border_Color :: enum {
+Sampler_Border_Color :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
     // [0, 0, 0, 0]
@@ -2321,7 +2329,7 @@ Query_Set_Descriptor :: struct {
 }
 
 // Type of query contained in a `Query_Set`.
-Query_Type :: enum {
+Query_Type :: enum i32 {
     // Query returns a single 64-bit number, serving as an occlusion boolean.
     Occlusion,
     // Query returns up to 5 64-bit numbers based on the given flags.
@@ -2611,8 +2619,8 @@ Proc_Adapter_Get_Limits :: #type proc(adapter: Adapter, loc := #caller_location)
 
 Proc_Adapter_Request_Device :: #type proc(
     adapter: Adapter,
-    descriptor: Maybe(Device_Descriptor),
     callback_info: Request_Device_Callback_Info,
+    descriptor: Maybe(Device_Descriptor) = nil,
     loc := #caller_location,
 )
 
@@ -2830,28 +2838,22 @@ Buffer_Base :: struct {
     mapped_range:       Range(Buffer_Address),
 }
 
-Buffer_Map_State :: enum {
-    Unmapped,
-    Pending_Map,
-    Mapped_For_Read,
-    Mapped_For_Write,
-    Mapped_For_Read_Write,
-    Mapped_At_Creation,
-    Host_Mapped_Persistent,
-    Shared_Memory_No_Access,
-    Destroyed,
+Buffer_Map_State :: enum i32 {
+    Unmapped = 1,
+    Pending,
+    Mapped,
 }
 
 // Type of buffer mapping.
 Map_Modes :: bit_set[Map_Mode;Flags]
-Map_Mode :: enum {
+Map_Mode :: enum i32 {
     // Map only for reading.
     Read,
     // Map only for writing.
     Write,
 }
 
-Map_Async_Status :: enum {
+Map_Async_Status :: enum i32 {
     Success,
     Instance_Dropped,
     Error,
@@ -2982,10 +2984,7 @@ when ODIN_OS != .JS {
         impl := get_impl(Buffer_Base, buffer, loc)
 
         // Validate write access
-        assert(
-            impl.map_state != .Mapped_For_Write &&
-            impl.map_state != .Mapped_For_Read_Write &&
-            impl.map_state != .Mapped_At_Creation,
+        assert(impl.map_state != .Mapped,
             "Buffer must be not mapped with write access to get an immutable mapped range", loc)
 
         return buffer_get_mapped_range_impl(buffer, offset, size, loc)
@@ -3000,10 +2999,7 @@ when ODIN_OS != .JS {
         impl := get_impl(Buffer_Base, buffer, loc)
 
         // Validate write access
-        assert(
-            impl.map_state == .Mapped_For_Write ||
-            impl.map_state == .Mapped_For_Read_Write ||
-            impl.map_state == .Mapped_At_Creation,
+        assert(impl.map_state == .Mapped,
             "Buffer must be mapped with write access to get a mutable mapped range", loc)
 
         return buffer_get_mapped_range_impl(buffer, offset, size, loc)
@@ -3155,17 +3151,17 @@ Proc_Command_Encoder_Copy_Buffer_To_Buffer :: #type proc(
 
 Proc_Command_Encoder_Copy_Buffer_To_Texture :: #type proc(
     encoder: Command_Encoder,
-    source: ^Texel_Copy_Buffer_Info,
-    destination: ^Texel_Copy_Texture_Info,
-    copy_size: ^Extent_3D,
+    source: Texel_Copy_Buffer_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
     loc := #caller_location,
 )
 
 Proc_Command_Encoder_Copy_Texture_To_Buffer :: #type proc(
     encoder: Command_Encoder,
-    source: ^Texel_Copy_Texture_Info,
-    destination: ^Texel_Copy_Buffer_Info,
-    copy_size: ^Extent_3D,
+    source: Texel_Copy_Texture_Info,
+    destination: Texel_Copy_Buffer_Info,
+    copy_size: Extent_3D,
     loc := #caller_location,
 )
 
@@ -3894,7 +3890,7 @@ surface_release: Proc_Surface_Release
 // Surface Texture procedures
 // -----------------------------------------------------------------------------
 
-Surface_Error :: enum {
+Surface_Error :: enum i32 {
     None,
     Timeout,
     Outdated,
@@ -3904,8 +3900,8 @@ Surface_Error :: enum {
 }
 
 // Status of the received surface image.
-Surface_Texture_Status :: enum {
-    Success_Optimal,
+Surface_Texture_Status :: enum i32 {
+    Success_Optimal = 1,
     Success_Suboptimal,
     Timeout,
     Outdated,
@@ -4073,43 +4069,43 @@ Sampler_Base :: struct {
 Sampler_Descriptor :: struct {
     // Debug label of the sampler. This will show up in graphics debuggers for
     // easy identification.
-    label:            string,
+    label:          string,
     // How to deal with out of bounds accesses in the u (i.e. x) direction
-    address_mode_u:   Address_Mode,
+    address_mode_u: Address_Mode,
     // How to deal with out of bounds accesses in the v (i.e. y) direction
-    address_mode_v:   Address_Mode,
+    address_mode_v: Address_Mode,
     // How to deal with out of bounds accesses in the w (i.e. z) direction
-    address_mode_w:   Address_Mode,
+    address_mode_w: Address_Mode,
     // How to filter the texture when it needs to be magnified (made larger)
-    mag_filter:       Filter_Mode,
+    mag_filter:     Filter_Mode,
     // How to filter the texture when it needs to be minified (made smaller)
-    min_filter:       Filter_Mode,
+    min_filter:     Filter_Mode,
     // How to filter between mip map levels
-    mipmap_filter:    Mipmap_Filter_Mode,
+    mipmap_filter:  Mipmap_Filter_Mode,
     // Minimum level of detail (i.e. mip level) to use
-    lod_min_clamp:    f32,
+    lod_min_clamp:  f32,
     // Maximum level of detail (i.e. mip level) to use
-    lod_max_clamp:    f32,
+    lod_max_clamp:  f32,
     // If this is enabled, this is a comparison sampler using the given comparison function.
-    compare:          Compare_Function,
+    compare:        Compare_Function,
     // Must be at least 1. If this is not 1, all filter modes must be linear.
-    anisotropy_clamp: u16,
+    max_anisotropy: u16,
     // Border color to use when `address_mode` is `Address_Mode.ClampToBorder`
-    border_color:     Sampler_Border_Color,
+    border_color:   Sampler_Border_Color,
 }
 
 SAMPLER_DESCRIPTOR_DEFAULT :: Sampler_Descriptor {
-    address_mode_u   = .Clamp_To_Edge,
-    address_mode_v   = .Clamp_To_Edge,
-    address_mode_w   = .Clamp_To_Edge,
-    mag_filter       = .Nearest,
-    min_filter       = .Nearest,
-    mipmap_filter    = .Nearest,
-    lod_min_clamp    = 0.0,
-    lod_max_clamp    = 32.0,
-    compare          = .Undefined,
-    anisotropy_clamp = 1,
-    border_color     = .Undefined,
+    address_mode_u = .Clamp_To_Edge,
+    address_mode_v = .Clamp_To_Edge,
+    address_mode_w = .Clamp_To_Edge,
+    mag_filter     = .Nearest,
+    min_filter     = .Nearest,
+    mipmap_filter  = .Nearest,
+    lod_min_clamp  = 0.0,
+    lod_max_clamp  = 32.0,
+    compare        = .Undefined,
+    max_anisotropy = 1,
+    border_color   = .Undefined,
 }
 
 Proc_Sampler_Get_Label :: #type proc(sampler: Sampler, loc := #caller_location) -> string

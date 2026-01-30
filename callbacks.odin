@@ -11,13 +11,13 @@ Callback_Mode :: enum i32 {
 }
 
 // "Feature level" for the adapter request.
-Feature_Level :: enum {
+Feature_Level :: enum i32 {
     Core,
     Compatibility,
 }
 
-Request_Device_Status :: enum {
-    Success,
+Request_Device_Status :: enum i32 {
+    Success = 1,
     Instance_Dropped,
     Error,
     Unknown,
@@ -37,7 +37,7 @@ Request_Device_Callback_Info :: struct {
     userdata2: rawptr,
 }
 
-Device_Lost_Reason :: enum {
+Device_Lost_Reason :: enum i32 {
     Undefined,
     Unknown,
     Destroyed,
@@ -45,8 +45,8 @@ Device_Lost_Reason :: enum {
     Failed_Creation,
 }
 
-Error_Type :: enum {
-    NoError,
+Error_Type :: enum i32 {
+    No_Error = 1,
     Validation,
     Out_Of_Memory,
     Internal,

@@ -6,7 +6,6 @@ package gpu
 // conversion listed here is for loading from texture in a shader.When writing
 // to the texture, the opposite conversion takes place.
 Texture_Format :: enum {
-    // WebGPU
     Undefined,
 
     // Normal 8 bit formats
@@ -592,13 +591,13 @@ texture_format_is_compressed :: proc "contextless" (format: Texture_Format) -> b
 
 // Returns `true` for BCn compressed formats.
 texture_format_is_bcn :: proc "contextless" (format: Texture_Format) -> bool {
-    return texture_format_required_features(format) == { .Texture_Compression_Bc }
+    return texture_format_required_features(format) == { .Texture_Compression_BC }
 }
 
 // Returns `true` for Astc compressed formats.
 texture_format_is_astc :: proc "contextless" (format: Texture_Format) -> bool {
     required_features := texture_format_required_features(format)
-    return required_features & { .Texture_Compression_Astc, .Texture_Compression_Astc_Hdr } != {}
+    return required_features & { .Texture_Compression_ASTC, .Texture_Compression_ASTC_Hdr } != {}
 }
 
 // Returns the required features (if any) in order to use the texture.
@@ -682,7 +681,7 @@ texture_format_required_features :: proc "contextless" (self: Texture_Format) ->
          .Bc6_hRgb_Float,
          .Bc7_Rgba_Unorm,
          .Bc7_Rgba_Unorm_Srgb:
-        return { .Texture_Compression_Bc }
+        return { .Texture_Compression_BC }
 
     case .Etc2_Rgb8_Unorm,
          .Etc2_Rgb8_Unorm_Srgb,
@@ -694,7 +693,7 @@ texture_format_required_features :: proc "contextless" (self: Texture_Format) ->
          .Eac_R11_Snorm,
          .Eac_Rg11_Unorm,
          .Eac_Rg11_Snorm:
-        return { .Texture_Compression_Etc2 }
+        return { .Texture_Compression_ETC2 }
 
     case .Astc_4x4_Unorm_Hdr,
          .Astc_5x4_Unorm_Hdr,
@@ -710,7 +709,7 @@ texture_format_required_features :: proc "contextless" (self: Texture_Format) ->
          .Astc_10x10_Unorm_Hdr,
          .Astc_12x10_Unorm_Hdr,
          .Astc_12x12_Unorm_Hdr:
-        return { .Texture_Compression_Astc_Hdr }
+        return { .Texture_Compression_ASTC_Hdr }
 
     case .Astc_4x4_Unorm,
          .Astc_4x4_Unorm_Srgb,
@@ -740,7 +739,7 @@ texture_format_required_features :: proc "contextless" (self: Texture_Format) ->
          .Astc_12x10_Unorm_Srgb,
          .Astc_12x12_Unorm,
          .Astc_12x12_Unorm_Srgb:
-        return { .Texture_Compression_Astc }
+        return { .Texture_Compression_ASTC }
 
     case .Undefined:
         return {}

@@ -51,10 +51,10 @@ Limits :: struct {
     max_uniform_buffers_per_shader_stage: u32,
     // Maximum size in bytes of a binding to a uniform buffer. Defaults to 64
     // KiB. Higher is "better".
-    max_uniform_buffer_binding_size: u32,
+    max_uniform_buffer_binding_size: u64,
     // Maximum size in bytes of a binding to a storage buffer. Defaults to 128
     // MiB. Higher is "better".
-    max_storage_buffer_binding_size: u32,
+    max_storage_buffer_binding_size: u64,
     // Required `BufferBindingType.Uniform` alignment for
     // `Buffer_Binding.offset` when creating a `Bind_Group`, or for
     // `set_bind_group` `dynamic_offsets`. Defaults to 256. Lower is "better".

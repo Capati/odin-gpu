@@ -11,10 +11,10 @@ D3D11_INDIRECT_BUFFER_MIN_SIZE  :: 12                     // Minimum for draw in
 d3d11_conv_to_input_classification :: #force_inline proc "contextless" (
     mode: Vertex_Step_Mode,
 ) -> d3d11.INPUT_CLASSIFICATION {
-    switch mode {
+    #partial switch mode {
     case .Vertex:    return .VERTEX_DATA
     case .Instance:  return .INSTANCE_DATA
-    case .Undefined:
+    case:
         return .VERTEX_DATA
     }
     unreachable()
@@ -94,8 +94,6 @@ d3d11_conv_to_blend_op :: #force_inline proc "contextless" (
     case .Reverse_Subtract: return .REV_SUBTRACT
     case .Min:              return .MIN
     case .Max:              return .MAX
-    case .Undefined:
-        return .ADD
     }
     unreachable()
 }

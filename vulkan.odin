@@ -49,6 +49,7 @@ vk_init :: proc(allocator := context.allocator) {
     bind_group_layout_release               = vk_bind_group_layout_release
 
     // Buffer procedures
+    buffer_destroy                          = vk_buffer_destroy
     buffer_unmap                            = vk_buffer_unmap
     buffer_get_map_state                    = vk_buffer_get_map_state
     buffer_get_size                         = vk_buffer_get_size
@@ -605,8 +606,8 @@ vk_adapter_get_limits_impl :: proc(impl: ^Vulkan_Adapter_Impl) -> (ret: Limits) 
     ret.max_uniform_buffers_per_shader_stage = limits.maxPerStageDescriptorUniformBuffers
 
     // Buffer limits
-    ret.max_uniform_buffer_binding_size = limits.maxUniformBufferRange
-    ret.max_storage_buffer_binding_size = limits.maxStorageBufferRange
+    ret.max_uniform_buffer_binding_size = u64(limits.maxUniformBufferRange)
+    ret.max_storage_buffer_binding_size = u64(limits.maxStorageBufferRange)
     ret.min_uniform_buffer_offset_alignment = u32(limits.minUniformBufferOffsetAlignment)
     ret.min_storage_buffer_offset_alignment = u32(limits.minStorageBufferOffsetAlignment)
 
@@ -683,8 +684,8 @@ vk_adapter_get_limits :: proc(adapter: Adapter, loc := #caller_location) -> (ret
 
 vk_adapter_request_device :: proc(
     adapter: Adapter,
-    descriptor: Maybe(Device_Descriptor),
     callback_info: Request_Device_Callback_Info,
+    descriptor: Maybe(Device_Descriptor) = nil,
     loc := #caller_location,
 ) {
     impl := get_impl(Vulkan_Adapter_Impl, adapter, loc)
@@ -1196,6 +1197,9 @@ Vulkan_Buffer_Impl :: struct {
     vk_usage_flags: vk.BufferUsageFlags,
     vma_alloc_info: vma.Allocation_Info,
     vk_mem_flags:   vk.MemoryPropertyFlags,
+}
+
+vk_buffer_destroy :: proc(buffer: Buffer, loc := #caller_location) {
 }
 
 vk_buffer_unmap :: proc(buffer: Buffer, loc := #caller_location) {
@@ -1847,7 +1851,7 @@ vk_device_create_buffer :: proc(
     if .Map_Read in descriptor.usage || .Map_Write in descriptor.usage || descriptor.mapped_at_creation {
         // Host-visible memory for mappable buffers
         property_to_find = { .HOST_VISIBLE, .HOST_COHERENT }
-        map_state = .Pending_Map
+        map_state = .Pending
     } else {
         // Device-local memory for GPU-only buffers
         property_to_find = { .DEVICE_LOCAL }
@@ -1861,7 +1865,7 @@ vk_device_create_buffer :: proc(
     // If mapped_at_creation, ensure the allocation will be mapped
     if descriptor.mapped_at_creation {
         vma_alloc_info.flags = { .Mapped }
-        map_state = .Mapped_At_Creation
+        map_state = .Mapped
     }
 
     vk_buffer: vk.Buffer
@@ -2222,7 +2226,7 @@ vk_device_create_sampler :: proc(
 ) -> Sampler {
     impl := get_impl(Vulkan_Device_Impl, device, loc)
 
-    anisotropy_enable := descriptor.anisotropy_clamp > 1
+    anisotropy_enable := descriptor.max_anisotropy > 1
     compare_enable := descriptor.compare != .Undefined
 
     create_info := vk.SamplerCreateInfo {
@@ -2236,7 +2240,7 @@ vk_device_create_sampler :: proc(
         addressModeW     = vk_conv_to_sampler_address_mode(descriptor.address_mode_w),
         mipmapMode       = descriptor.mipmap_filter == .Linear ? .LINEAR : .NEAREST,
         anisotropyEnable = b32(anisotropy_enable),
-        maxAnisotropy    = anisotropy_enable ? f32(descriptor.anisotropy_clamp) : 1.0,
+        maxAnisotropy    = anisotropy_enable ? f32(descriptor.max_anisotropy) : 1.0,
         magFilter        = descriptor.mag_filter == .Linear ? .LINEAR : .NEAREST,
         minFilter        = descriptor.min_filter == .Linear ? .LINEAR : .NEAREST,
     }

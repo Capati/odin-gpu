@@ -23,7 +23,7 @@ Instance_Base :: struct {
 }
 
 // Backends supported by the GPU.
-Backend :: enum {
+Backend :: enum i32 {
     Null,
     Vulkan,
     Metal,
@@ -48,7 +48,7 @@ BACKENDS_SECONDARY :: Backends{.Dx11, .Gl}
 
 // Instance debugging flags.
 Instance_Flags :: bit_set[Instance_Flag;Flags]
-Instance_Flag :: enum {
+Instance_Flag :: enum i32 {
     Debug,
     Validation,
 }
@@ -70,7 +70,7 @@ Gl_Backend_Options :: struct {
 Dx12_Compiler_Fxc :: struct {}
 
 // DXC shader model.
-Dxc_Shader_Model :: enum {
+Dxc_Shader_Model :: enum i32 {
     V6_0, V6_1, V6_2, V6_3, V6_4, V6_5, V6_6, V6_7,
 }
 
@@ -187,7 +187,7 @@ create_instance :: proc(
 
     when ODIN_OS == .JS {
         if .WebGPU in requested_backends {
-            webgpu_init(allocator)
+            wgpu_init(allocator)
             backend = .WebGPU
             shader_formats = { .Wgsl }
         }
@@ -313,8 +313,8 @@ Proc_Instance_Create_Surface :: #type proc(
 ) -> Surface
 instance_create_surface: Proc_Instance_Create_Surface
 
-Request_Adapter_Status :: enum {
-    Success,
+Request_Adapter_Status :: enum i32 {
+    Success = 1,
     Instance_Dropped,
     Unavailable,
     Error,
@@ -336,11 +336,9 @@ Request_Adapter_Callback_Info :: struct {
 }
 
 // Power Preference when choosing a physical adapter.
-Power_Preference :: enum {
+Power_Preference :: enum i32 {
     // Indicates no value is passed for this argument.
     Undefined,
-    // Power usage is not considered when choosing an adapter.
-    None,
     // Adapter that uses the least possible power. This is often an integrated GPU.
     Low_Power,
     // Adapter that has the highest performance. This is often a discrete GPU.
@@ -362,7 +360,7 @@ Request_Adapter_Options :: struct {
 }
 
 REQUEST_ADAPTER_OPTIONS_DEFAULT :: Request_Adapter_Options {
-    power_preference       = .None,
+    power_preference       = .High_Performance,
     force_fallback_adapter = false,
     compatible_surface     = nil,
 }

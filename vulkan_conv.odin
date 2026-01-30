@@ -138,7 +138,6 @@ vk_conv_to_blend_factor :: #force_inline proc "contextless" (
 
 vk_conv_to_blend_op :: #force_inline proc "contextless" (blend_op: Blend_Operation) -> vk.BlendOp {
     switch blend_op {
-    case .Undefined:        return .ADD
     case .Add:              return .ADD
     case .Subtract:         return .SUBTRACT
     case .Reverse_Subtract: return .REVERSE_SUBTRACT

@@ -1431,7 +1431,6 @@ gl_device_create_buffer :: proc(
     buffer_impl.allocated_size     = allocated_size
     buffer_impl.size               = descriptor.size
     buffer_impl.usage              = descriptor.usage
-    buffer_impl.mapped_at_creation = descriptor.mapped_at_creation
     buffer_impl.map_state          = .Unmapped
 
     if descriptor.mapped_at_creation {

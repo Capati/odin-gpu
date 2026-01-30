@@ -1131,7 +1131,6 @@ d3d11_buffer_unmap :: proc(buffer: Buffer, loc := #caller_location) {
     // Clear mapping state
     impl.mapped_ptr = nil
     impl.mapped_range = {}
-    impl.mapped_at_creation = false
     impl.map_state = .Unmapped
 }
 
@@ -1616,7 +1615,6 @@ d3d11_device_create_buffer :: proc(
 
     buffer_impl.size = Buffer_Address(final_size)
     buffer_impl.usage = descriptor.usage
-    buffer_impl.mapped_at_creation = descriptor.mapped_at_creation
 
     map_read  := .Map_Read  in descriptor.usage
     map_write := .Map_Write in descriptor.usage
@@ -1711,7 +1709,7 @@ d3d11_device_create_buffer :: proc(
 
         buffer_impl.mapped_ptr = mapped.pData
         buffer_impl.mapped_range = {0, Buffer_Address(final_size)}
-        buffer_impl.mapped_at_creation = true
+        buffer_impl.map_state = .Mapped
 
         // Do we need a separate main GPU buffer?
         if has_gpu_binding || copy_dst {

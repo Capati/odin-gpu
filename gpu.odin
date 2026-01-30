@@ -2826,16 +2826,15 @@ bind_group_release: Proc_Bind_Group_Release
 Buffer :: distinct rawptr
 
 Buffer_Base :: struct {
-    label:              String_Buffer_Small,
-    ref:                Ref_Count,
-    device:             Device,
-    allocator:          runtime.Allocator,
-    size:               Buffer_Address,
-    usage:              Buffer_Usages,
-    mapped_at_creation: bool,
-    map_state:          Buffer_Map_State,
-    mapped_ptr:         rawptr,
-    mapped_range:       Range(Buffer_Address),
+    label:        String_Buffer_Small,
+    ref:          Ref_Count,
+    device:       Device,
+    allocator:    runtime.Allocator,
+    size:         Buffer_Address,
+    usage:        Buffer_Usages,
+    map_state:    Buffer_Map_State,
+    mapped_ptr:   rawptr,
+    mapped_range: Range(Buffer_Address),
 }
 
 Buffer_Map_State :: enum i32 {

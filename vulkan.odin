@@ -1214,7 +1214,6 @@ vk_buffer_unmap :: proc(buffer: Buffer, loc := #caller_location) {
     // Clear mapping state
     impl.mapped_ptr = nil
     impl.mapped_range = {}
-    impl.mapped_at_creation = false
     impl.map_state = .Unmapped
 }
 
@@ -1892,7 +1891,6 @@ vk_device_create_buffer :: proc(
     // Set base
     buffer.size = descriptor.size
     buffer.usage = descriptor.usage
-    buffer.mapped_at_creation = descriptor.mapped_at_creation
     buffer.map_state = map_state
 
     // Set backend

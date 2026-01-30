@@ -45,7 +45,7 @@ possible, it's expected.
 | DirectX 11 | In Progress | Fallback Windows support, requires 11.1 |
 | Metal      | Not Started | Might rely on MoltenVK first |
 | OpenGL     | In Progress | Fallback backend on Linux and Windows, requires 4.5 |
-| WebGPU     | In Progress | WASM support, uses the vendor bindings |
+| WebGPU     | In Progress | WASM support |
 | **Advanced** |
 | Bindless    | TODO | |
 | Ray Tracing | TODO | |

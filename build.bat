@@ -82,12 +82,14 @@ if "%CLEAN_BUILD%"=="true" (
 	if exist "%OUT%\*.exe" del /F /Q %OUT%\*.exe
 	if exist "%OUT%\*.pdb" del /F /Q %OUT%\*.pdb
 	if exist "%OUT%\*.wasm" del /F /Q %OUT%\*.wasm
-	if exist "%OUT%\gpu.js" del /F /Q %OUT%\gpu.js
+	if exist "%OUT%\wgpu.js" del /F /Q %OUT%\wgpu.js
 	if exist "%OUT%\odin.js" del /F /Q %OUT%\odin.js
+	if exist "%OUT%\utils.js" del /F /Q %OUT%\utils.js
 )
 
 set INITIAL_MEMORY_PAGES=2000
 set MAX_MEMORY_PAGES=65536
+
 set PAGE_SIZE=65536
 set /a INITIAL_MEMORY_BYTES=%INITIAL_MEMORY_PAGES% * %PAGE_SIZE%
 set /a MAX_MEMORY_BYTES=%MAX_MEMORY_PAGES% * %PAGE_SIZE%
@@ -110,12 +112,9 @@ if "%WEB_BUILD%"=="true" (
 		echo [BUILD] --- Error building '%TARGET_NAME%' for web
 		set ERROR_OCCURRED=true
 	) else (
-		:: Build gpu.js
-		pushd .\wasm
-		call tsc
-		popd
 		copy "%ODIN_ROOT%\core\sys\wasm\js\odin.js" "%OUT%\odin.js" >nul
-		copy ".\wasm\gpu.js" "%OUT%\gpu.js" >nul
+		copy ".\wasm\wgpu.js" "%OUT%\wgpu.js" >nul
+		copy ".\wasm\utils.js" "%OUT%\utils.js" >nul
 		echo [BUILD] --- Web build completed successfully.
 	)
 ) else (

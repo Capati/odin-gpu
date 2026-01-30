@@ -10,7 +10,8 @@
 
         <script type="text/javascript" src="third-party/stats.js"></script>
         <script type="text/javascript" src="odin.js"></script>
-        <script type="text/javascript" src="gpu.js"></script>
+        <script type="text/javascript" src="wgpu.js"></script>
+        <script type="text/javascript" src="utils.js"></script>
         <script type="text/javascript">
             // Initialize Stats
             const stats = new Stats();
@@ -21,7 +22,11 @@
             const memInterface = new odin.WasmMemoryInterface();
             memInterface.setMemory(mem);
             const wgpuInterface = new odin.WebGPUInterface(memInterface);
-            odin.runWasm("app.wasm", null, { webgpu: wgpuInterface.getInterface() }, memInterface, /*intSize=8*/);
+            const utilsInterface = new odin.UtilsInterface(memInterface);
+            odin.runWasm("app.wasm", null, {
+                wgpu: wgpuInterface.getInterface(),
+                js_utils: utilsInterface.getInterface(),
+            }, memInterface, /*intSize=8*/);
 
             const originalRAF = window.requestAnimationFrame;
             window.requestAnimationFrame = function(callback) {

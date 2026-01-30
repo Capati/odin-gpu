@@ -89,8 +89,9 @@ if [ "$CLEAN_BUILD" = true ]; then
     rm -f "$OUT"/*.exe
     rm -f "$OUT"/*.pdb
     rm -f "$OUT"/*.wasm
-    rm -f "$OUT"/gpu.js
+    rm -f "$OUT"/wgpu.js
     rm -f "$OUT"/odin.js
+    rm -f "$OUT"/utils.js
 fi
 
 INITIAL_MEMORY_PAGES=2000
@@ -121,7 +122,8 @@ if [ "$WEB_BUILD" = true ]; then
         tsc
         popd > /dev/null
         cp "$ODIN_ROOT/core/sys/wasm/js/odin.js" "$OUT/odin.js"
-        cp "./wasm/gpu.js" "$OUT/gpu.js"
+        cp "./wasm/wgpu.js" "$OUT/wgpu.js"
+        cp "./wasm/utils.js" "$OUT/utils.js"
         echo "[BUILD] --- Web build completed successfully."
     fi
 else

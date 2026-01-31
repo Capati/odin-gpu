@@ -379,12 +379,12 @@ Proc_Instance_Request_Adapter :: #type proc(
 instance_request_adapter: Proc_Instance_Request_Adapter
 
 // Retrieves all available `Adapters` for the current backend.
-Proc_Instance_Enumarate_Adapters :: #type proc(
+Proc_Instance_Enumerate_Adapters :: #type proc(
     instance: Instance,
     allocator := context.allocator,
     loc := #caller_location,
 ) -> []Adapter
-instance_enumarate_adapters: Proc_Instance_Enumarate_Adapters
+instance_enumerate_adapters: Proc_Instance_Enumerate_Adapters
 
 // Get the current backend.
 instance_get_backend :: proc(instance: Instance, loc := #caller_location) -> Backend {

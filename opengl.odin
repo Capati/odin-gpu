@@ -147,7 +147,7 @@ gl_init :: proc(allocator := context.allocator) {
     device_release                            = gl_device_release
 
     // Instance procedures
-    instance_enumarate_adapters               = gl_instance_enumarate_adapters
+    instance_enumerate_adapters               = gl_instance_enumerate_adapters
     instance_get_label                        = gl_instance_get_label
     instance_set_label                        = gl_instance_set_label
     instance_add_ref                          = gl_instance_add_ref
@@ -2181,7 +2181,7 @@ gl_device_release :: proc(device: Device, loc := #caller_location) {
 // -----------------------------------------------------------------------------
 
 
-gl_instance_enumarate_adapters :: proc(
+gl_instance_enumerate_adapters :: proc(
     instance: Instance,
     allocator := context.allocator,
     loc := #caller_location,
@@ -2215,16 +2215,10 @@ gl_instance_enumarate_adapters :: proc(
     }
 
     // We always use one adapter in OpenGL
-    adpaters := make([]^GL_Adapter_Impl, 1, allocator)
-    adapter_impl := instance_new_handle(GL_Adapter_Impl, instance, loc)
+    adapters := make([]Adapter, 1, allocator)
+    adapters[0] = adapter_res.adapter
 
-    // Get features and limits
-    adapter_impl.features = gl_adapter_get_features(Adapter(adapter_impl), loc)
-    adapter_impl.limits = gl_adapter_get_limits(Adapter(adapter_impl), loc)
-
-    adpaters[0] = adapter_impl
-
-    return transmute([]Adapter)adpaters[:]
+    return adapters
 }
 
 @(require_results)

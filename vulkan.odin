@@ -95,6 +95,7 @@ vk_init :: proc(allocator := context.allocator) {
     // Instance procedures
     instance_create_surface                 = vk_instance_create_surface
     instance_request_adapter                = vk_instance_request_adapter
+    instance_enumerate_adapters             = vk_instance_enumerate_adapters
     instance_get_label                      = vk_instance_get_label
     instance_set_label                      = vk_instance_set_label
     instance_add_ref                        = vk_instance_add_ref
@@ -2796,6 +2797,34 @@ vk_instance_adapter_default_impl :: proc(impl: ^Vulkan_Adapter_Impl) {
     // Fill api features and limits
     impl.features = vk_adapter_get_features_impl(impl)
     impl.limits = vk_adapter_get_limits_impl(impl)
+}
+
+vk_instance_enumerate_adapters :: proc(
+    instance: Instance,
+    allocator := context.allocator,
+    loc := #caller_location,
+) -> []Adapter {
+    impl := get_impl(Vulkan_Instance_Impl, instance, loc)
+
+    ta := context.temp_allocator
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == ta)
+
+    // Get available physical devices
+    device_count: u32
+    vk_check(vk.EnumeratePhysicalDevices(impl.vk_instance, &device_count, nil))
+    physical_devices := make([]vk.PhysicalDevice, device_count, ta)
+    vk_check(vk.EnumeratePhysicalDevices(impl.vk_instance, &device_count, raw_data(physical_devices)))
+
+    adapters := make([dynamic]Adapter, allocator)
+
+    for vk_physical_device in physical_devices {
+        adapter := instance_new_handle(Vulkan_Adapter_Impl, instance, loc)
+        adapter.vk_physical_device = vk_physical_device
+        vk_instance_adapter_default_impl(adapter)
+        append(&adapters, Adapter(adapter))
+    }
+
+    return adapters[:]
 }
 
 @(require_results)

@@ -383,6 +383,7 @@ d3d11_init :: proc(allocator := context.allocator) {
     // Instance procedures
     instance_create_surface                 = d3d11_instance_create_surface
     instance_request_adapter                = d3d11_instance_request_adapter
+    instance_enumerate_adapters             = d3d11_instance_enumerate_adapters
     instance_get_label                      = d3d11_instance_get_label
     instance_set_label                      = d3d11_instance_set_label
     instance_add_ref                        = d3d11_instance_add_ref
@@ -2401,6 +2402,33 @@ d3d11_instance_create_surface :: proc(
     return Surface(surface)
 }
 
+@private
+_d3d11_create_device :: proc(
+    adapter: ^dxgi.IAdapter1,
+    feature_levels: []d3d11.FEATURE_LEVEL,
+    flags: d3d11.CREATE_DEVICE_FLAGS,
+) -> (
+    device: ^d3d11.IDevice,
+    d3d_context: ^d3d11.IDeviceContext,
+    feature_level: d3d11.FEATURE_LEVEL,
+    ok: bool,
+) {
+    ok = win32.SUCCEEDED(d3d11.CreateDevice(
+        adapter, .UNKNOWN, nil, flags,
+        &feature_levels[0], u32(len(feature_levels)),
+        d3d11.SDK_VERSION, &device, &feature_level, &d3d_context,
+    ))
+    return
+}
+
+@private
+_d3d11_get_device_type :: proc(desc: ^dxgi.ADAPTER_DESC1) -> Device_Type {
+    if .SOFTWARE in desc.Flags do return .Cpu
+    if .REMOTE in desc.Flags   do return .Virtual_Gpu
+    // Assuming any dedicated memory is discrete gpu
+    return desc.DedicatedVideoMemory > 0 ? .Discrete_Gpu : .Integrated_Gpu
+}
+
 d3d11_instance_request_adapter :: proc(
     instance: Instance,
     callback_info: Request_Adapter_Callback_Info,
@@ -2446,13 +2474,6 @@ d3d11_instance_request_adapter :: proc(
         }
 
         return base
-    }
-
-    get_device_type :: proc(desc: ^dxgi.ADAPTER_DESC1) -> Device_Type {
-        if .SOFTWARE in desc.Flags do return .Cpu
-        if .REMOTE in desc.Flags   do return .Virtual_Gpu
-        // Assuming any dedicated memory is discrete gpu
-        return desc.DedicatedVideoMemory > 0 ? .Discrete_Gpu : .Integrated_Gpu
     }
 
     feature_levels := [?]d3d11.FEATURE_LEVEL{._11_1, ._11_0}
@@ -2501,7 +2522,7 @@ d3d11_instance_request_adapter :: proc(
         best_adapter->AddRef()  // Transfer ownership
         best_score = score
         best_desc = desc
-        best_type = get_device_type(&desc)
+        best_type = _d3d11_get_device_type(&desc)
     }
 
     if best_adapter == nil {
@@ -2515,36 +2536,18 @@ d3d11_instance_request_adapter :: proc(
         device_flags += { .DEBUG }
     }
 
-    create_device :: proc(
-        adapter: ^dxgi.IAdapter1,
-        feature_levels: []d3d11.FEATURE_LEVEL,
-        flags: d3d11.CREATE_DEVICE_FLAGS,
-    ) -> (
-        device: ^d3d11.IDevice,
-        d3d_context: ^d3d11.IDeviceContext,
-        feature_level: d3d11.FEATURE_LEVEL,
-        ok: bool,
-    ) {
-        ok = win32.SUCCEEDED(d3d11.CreateDevice(
-            adapter, .UNKNOWN, nil, flags,
-            &feature_levels[0], u32(len(feature_levels)),
-            d3d11.SDK_VERSION, &device, &feature_level, &d3d_context,
-        ))
-        return
-    }
-
     device: ^d3d11.IDevice
     d3d_context: ^d3d11.IDeviceContext
     feature_level: d3d11.FEATURE_LEVEL
     ok: bool
 
     device, d3d_context, feature_level, ok =
-        create_device(best_adapter, feature_levels[:], device_flags)
+        _d3d11_create_device(best_adapter, feature_levels[:], device_flags)
     if !ok && .Debug in impl.flags {
         log.warn("D3D11 debug layer failed, retrying without it")
         device_flags -= {.DEBUG}
         device, d3d_context, feature_level, ok =
-            create_device(best_adapter, feature_levels[:], device_flags)
+            _d3d11_create_device(best_adapter, feature_levels[:], device_flags)
     }
     if !ok {
         best_adapter->Release()
@@ -2579,6 +2582,75 @@ d3d11_instance_request_adapter :: proc(
     adapter_impl.limits = d3d11_adapter_get_limits_impl(adapter_impl)
 
     invoke_callback(callback_info, .Success, Adapter(adapter_impl), "")
+}
+
+d3d11_instance_enumerate_adapters :: proc(
+    instance: Instance,
+    allocator := context.allocator,
+    loc := #caller_location,
+) -> []Adapter {
+    impl := get_impl(D3D11_Instance_Impl, instance, loc)
+
+    ta := context.temp_allocator
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == ta)
+
+    adapters := make([dynamic]^D3D11_Adapter_Impl, allocator)
+
+    feature_levels := [?]d3d11.FEATURE_LEVEL{._11_1, ._11_0}
+    device_flags := d3d11.CREATE_DEVICE_FLAGS{.BGRA_SUPPORT}
+
+    if .Debug in impl.flags {
+        device_flags += { .DEBUG }
+    }
+
+    // Enumerate adapters
+    for adapter_index: u32 = 0; /* */ ; adapter_index += 1 {
+        adapter: ^dxgi.IAdapter1
+        hr := impl.dxgi_factory->EnumAdapters1(u32(adapter_index), &adapter)
+        if hr == dxgi.ERROR_NOT_FOUND {
+            break
+        }
+        if win32.FAILED(hr) { continue }
+        defer adapter->Release()
+
+        device, d3d_context, feature_level, create_device_ok :=
+            _d3d11_create_device(adapter, feature_levels[:], device_flags)
+        if !create_device_ok { continue }
+
+        defer {
+            device->Release()
+            d3d_context->Release()
+        }
+
+        desc: dxgi.ADAPTER_DESC1
+        adapter->GetDesc1(&desc)
+
+        // Query D3D11.1 interfaces
+        device1: ^D3D11_IDevice1
+        hr = device->QueryInterface(D3D11_IDevice1_UUID, (^rawptr)(&device1))
+        if win32.FAILED(hr) { continue }
+
+        d3d_context1: ^D3D11_IDeviceContext1
+        hr = d3d_context->QueryInterface(D3D11_IDeviceContext1_UUID, (^rawptr)(&d3d_context1))
+        if win32.FAILED(hr) { continue }
+
+        adapter->AddRef()
+
+        adapter_impl := instance_new_handle(D3D11_Adapter_Impl, instance, loc)
+        adapter_impl.adapter = adapter
+        adapter_impl.device = device1
+        adapter_impl.d3d_context = d3d_context1
+        adapter_impl.is_debug_device = .Debug in impl.flags && device_flags & {.DEBUG} != {}
+        adapter_impl.type = _d3d11_get_device_type(&desc)
+        adapter_impl.desc = desc
+        adapter_impl.feature_level = feature_level
+        adapter_impl.features = d3d11_adapter_get_features_impl(adapter_impl)
+        adapter_impl.limits = d3d11_adapter_get_limits_impl(adapter_impl)
+
+        append(&adapters, adapter_impl)
+    }
+
+    return transmute([]Adapter)adapters[:]
 }
 
 @(require_results)

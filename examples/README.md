@@ -2,6 +2,7 @@
 
 ## Table of Contents
 
+- [Info](#info)
 - [Clear Screen](#clear-screen)
 - [Triangle](#triangle)
 - [Square](#square)
@@ -15,6 +16,10 @@
 - [OBJ Model](#obj-model)
 - [Cubemap](#cubemap)
 - [MicroUI](#microui)
+
+## [Info](./info)
+
+Print current version and selected adapter information.
 
 ## [Clear Screen](./clear_screen)
 

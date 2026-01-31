@@ -46,6 +46,7 @@ possible, it's expected.
 | Metal      | Not Started | Might rely on MoltenVK first |
 | OpenGL     | In Progress | Fallback backend on Linux and Windows, requires 4.5 |
 | WebGPU     | In Progress | WASM support |
+| WebGL     | Not Started | Fallback WASM support, limited features |
 | **Advanced** |
 | Bindless    | TODO | |
 | Ray Tracing | TODO | |

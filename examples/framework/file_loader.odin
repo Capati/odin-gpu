@@ -3,7 +3,7 @@ package framework
 
 // Core
 import "core:log"
-import os "core:os/os2"
+import "core:os"
 
 load_file :: proc(filename: string, allocator := context.allocator) -> (data: []u8, ok: bool) {
     log.infof("Loading: %s", filename)

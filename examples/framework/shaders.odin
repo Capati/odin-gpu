@@ -5,7 +5,7 @@ package framework
 import "base:runtime"
 import "core:fmt"
 import "core:log"
-import os "core:os/os2"
+import "core:os"
 
 // Libs
 import gpu "../../"

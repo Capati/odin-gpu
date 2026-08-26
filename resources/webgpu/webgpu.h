@@ -661,6 +661,7 @@ typedef enum WGPUFeatureName {
     WGPUFeatureName_TextureFormatsTier2 = 0x00000014,
     WGPUFeatureName_PrimitiveIndex = 0x00000015,
     WGPUFeatureName_TextureComponentSwizzle = 0x00000016,
+    WGPUFeatureName_SubgroupSizeControl = 0x00000017,
     WGPUFeatureName_Force32 = 0x7FFFFFFF
 } WGPUFeatureName WGPU_ENUM_ATTRIBUTE;
 
@@ -1253,6 +1254,7 @@ typedef enum WGPUWGSLLanguageFeatureName {
     WGPUWGSLLanguageFeatureName_TextureFormatsTier1 = 0x00000009,
     WGPUWGSLLanguageFeatureName_LinearIndexing = 0x0000000A,
     WGPUWGSLLanguageFeatureName_ImmediateAddressSpace = 0x0000000B,
+    WGPUWGSLLanguageFeatureName_BufferView = 0x0000000C,
     WGPUWGSLLanguageFeatureName_Force32 = 0x7FFFFFFF
 } WGPUWGSLLanguageFeatureName WGPU_ENUM_ATTRIBUTE;
 
@@ -1370,7 +1372,6 @@ static const WGPUTextureUsage WGPUTextureUsage_TextureBinding = 0x00000000000000
 static const WGPUTextureUsage WGPUTextureUsage_StorageBinding = 0x0000000000000008;
 static const WGPUTextureUsage WGPUTextureUsage_RenderAttachment = 0x0000000000000010;
 static const WGPUTextureUsage WGPUTextureUsage_TransientAttachment = 0x0000000000000020;
-static const WGPUTextureUsage WGPUTextureUsage_StorageAtomic = 0x0000000000000040;
 
 /** @} */
 

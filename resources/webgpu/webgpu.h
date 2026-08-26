@@ -229,6 +229,10 @@ typedef struct WGPUComputePipelineImpl* WGPUComputePipeline WGPU_OBJECT_ATTRIBUT
  * For more info, see @ref DeviceRelease.
  */
 typedef struct WGPUDeviceImpl* WGPUDevice WGPU_OBJECT_ATTRIBUTE;
+/**
+ * A sampleable 2D texture that may perform 0-copy YUV sampling internally. Creation of @ref WGPUExternalTexture is extremely implementation-dependent and not defined in this header.
+ */
+typedef struct WGPUExternalTextureImpl* WGPUExternalTexture WGPU_OBJECT_ATTRIBUTE;
 typedef struct WGPUInstanceImpl* WGPUInstance WGPU_OBJECT_ATTRIBUTE;
 typedef struct WGPUPipelineLayoutImpl* WGPUPipelineLayout WGPU_OBJECT_ATTRIBUTE;
 typedef struct WGPUQuerySetImpl* WGPUQuerySet WGPU_OBJECT_ATTRIBUTE;
@@ -250,19 +254,20 @@ typedef struct WGPUTextureViewImpl* WGPUTextureView WGPU_OBJECT_ATTRIBUTE;
 
 // Structure forward declarations
 struct WGPUAdapterInfo;
-struct WGPUBindGroupEntry;
 struct WGPUBlendComponent;
 struct WGPUBufferBindingLayout;
 struct WGPUBufferDescriptor;
 struct WGPUColor;
 struct WGPUCommandBufferDescriptor;
 struct WGPUCommandEncoderDescriptor;
+struct WGPUCompatibilityModeLimits;
 struct WGPUCompilationMessage;
 struct WGPUConstantEntry;
 struct WGPUExtent3D;
+struct WGPUExternalTextureBindingEntry;
+struct WGPUExternalTextureBindingLayout;
 struct WGPUFuture;
 struct WGPUInstanceLimits;
-struct WGPULimits;
 struct WGPUMultisampleState;
 struct WGPUOrigin3D;
 struct WGPUPassTimestampWrites;
@@ -296,30 +301,35 @@ struct WGPUSurfaceSourceXlibWindow;
 struct WGPUSurfaceTexture;
 struct WGPUTexelCopyBufferLayout;
 struct WGPUTextureBindingLayout;
-struct WGPUTextureViewDescriptor;
+struct WGPUTextureBindingViewDimension;
+struct WGPUTextureComponentSwizzle;
 struct WGPUVertexAttribute;
-struct WGPUBindGroupDescriptor;
+struct WGPUBindGroupEntry;
 struct WGPUBindGroupLayoutEntry;
 struct WGPUBlendState;
 struct WGPUCompilationInfo;
 struct WGPUComputePassDescriptor;
 struct WGPUComputeState;
 struct WGPUDepthStencilState;
-struct WGPUDeviceDescriptor;
 struct WGPUFutureWaitInfo;
 struct WGPUInstanceDescriptor;
+struct WGPULimits;
 struct WGPURenderPassColorAttachment;
 struct WGPURequestAdapterOptions;
 struct WGPUShaderModuleDescriptor;
 struct WGPUSurfaceDescriptor;
 struct WGPUTexelCopyBufferInfo;
 struct WGPUTexelCopyTextureInfo;
+struct WGPUTextureComponentSwizzleDescriptor;
 struct WGPUTextureDescriptor;
 struct WGPUVertexBufferLayout;
+struct WGPUBindGroupDescriptor;
 struct WGPUBindGroupLayoutDescriptor;
 struct WGPUColorTargetState;
 struct WGPUComputePipelineDescriptor;
+struct WGPUDeviceDescriptor;
 struct WGPURenderPassDescriptor;
+struct WGPUTextureViewDescriptor;
 struct WGPUVertexState;
 struct WGPUFragmentState;
 struct WGPURenderPipelineDescriptor;
@@ -501,6 +511,38 @@ typedef enum WGPUCompilationMessageType {
     WGPUCompilationMessageType_Force32 = 0x7FFFFFFF
 } WGPUCompilationMessageType WGPU_ENUM_ATTRIBUTE;
 
+typedef enum WGPUComponentSwizzle {
+    /**
+     * `0`. Indicates no value is passed for this argument. See @ref SentinelValues.
+     */
+    WGPUComponentSwizzle_Undefined = 0x00000000,
+    /**
+     * Force its value to 0.
+     */
+    WGPUComponentSwizzle_Zero = 0x00000001,
+    /**
+     * Force its value to 1.
+     */
+    WGPUComponentSwizzle_One = 0x00000002,
+    /**
+     * Take its value from the red channel of the texture.
+     */
+    WGPUComponentSwizzle_R = 0x00000003,
+    /**
+     * Take its value from the green channel of the texture.
+     */
+    WGPUComponentSwizzle_G = 0x00000004,
+    /**
+     * Take its value from the blue channel of the texture.
+     */
+    WGPUComponentSwizzle_B = 0x00000005,
+    /**
+     * Take its value from the alpha channel of the texture.
+     */
+    WGPUComponentSwizzle_A = 0x00000006,
+    WGPUComponentSwizzle_Force32 = 0x7FFFFFFF
+} WGPUComponentSwizzle WGPU_ENUM_ATTRIBUTE;
+
 /**
  * Describes how frames are composited with other contents on the screen when @ref wgpuSurfacePresent is called.
  */
@@ -618,6 +660,7 @@ typedef enum WGPUFeatureName {
     WGPUFeatureName_TextureFormatsTier1 = 0x00000013,
     WGPUFeatureName_TextureFormatsTier2 = 0x00000014,
     WGPUFeatureName_PrimitiveIndex = 0x00000015,
+    WGPUFeatureName_TextureComponentSwizzle = 0x00000016,
     WGPUFeatureName_Force32 = 0x7FFFFFFF
 } WGPUFeatureName WGPU_ENUM_ATTRIBUTE;
 
@@ -914,6 +957,11 @@ typedef enum WGPUSType {
     WGPUSType_SurfaceSourceXCBWindow = 0x00000009,
     WGPUSType_SurfaceColorManagement = 0x0000000A,
     WGPUSType_RequestAdapterWebXROptions = 0x0000000B,
+    WGPUSType_TextureComponentSwizzleDescriptor = 0x0000000C,
+    WGPUSType_ExternalTextureBindingLayout = 0x0000000D,
+    WGPUSType_ExternalTextureBindingEntry = 0x0000000E,
+    WGPUSType_CompatibilityModeLimits = 0x0000000F,
+    WGPUSType_TextureBindingViewDimension = 0x00000010,
     WGPUSType_Force32 = 0x7FFFFFFF
 } WGPUSType WGPU_ENUM_ATTRIBUTE;
 
@@ -1198,6 +1246,13 @@ typedef enum WGPUWGSLLanguageFeatureName {
     WGPUWGSLLanguageFeatureName_Packed4x8IntegerDotProduct = 0x00000002,
     WGPUWGSLLanguageFeatureName_UnrestrictedPointerParameters = 0x00000003,
     WGPUWGSLLanguageFeatureName_PointerCompositeAccess = 0x00000004,
+    WGPUWGSLLanguageFeatureName_UniformBufferStandardLayout = 0x00000005,
+    WGPUWGSLLanguageFeatureName_SubgroupId = 0x00000006,
+    WGPUWGSLLanguageFeatureName_TextureAndSamplerLet = 0x00000007,
+    WGPUWGSLLanguageFeatureName_SubgroupUniformity = 0x00000008,
+    WGPUWGSLLanguageFeatureName_TextureFormatsTier1 = 0x00000009,
+    WGPUWGSLLanguageFeatureName_LinearIndexing = 0x0000000A,
+    WGPUWGSLLanguageFeatureName_ImmediateAddressSpace = 0x0000000B,
     WGPUWGSLLanguageFeatureName_Force32 = 0x7FFFFFFF
 } WGPUWGSLLanguageFeatureName WGPU_ENUM_ATTRIBUTE;
 
@@ -1241,7 +1296,7 @@ static const WGPUBufferUsage WGPUBufferUsage_CopyDst = 0x0000000000000008;
  */
 static const WGPUBufferUsage WGPUBufferUsage_Index = 0x0000000000000010;
 /**
- * The buffer can be used as an Vertex buffer when using a render pipeline.
+ * The buffer can be used as a Vertex buffer when using a render pipeline.
  */
 static const WGPUBufferUsage WGPUBufferUsage_Vertex = 0x0000000000000020;
 /**
@@ -1314,6 +1369,8 @@ static const WGPUTextureUsage WGPUTextureUsage_CopyDst = 0x0000000000000002;
 static const WGPUTextureUsage WGPUTextureUsage_TextureBinding = 0x0000000000000004;
 static const WGPUTextureUsage WGPUTextureUsage_StorageBinding = 0x0000000000000008;
 static const WGPUTextureUsage WGPUTextureUsage_RenderAttachment = 0x0000000000000010;
+static const WGPUTextureUsage WGPUTextureUsage_TransientAttachment = 0x0000000000000020;
+static const WGPUTextureUsage WGPUTextureUsage_StorageAtomic = 0x0000000000000040;
 
 /** @} */
 
@@ -1370,7 +1427,11 @@ typedef void (*WGPUCreateRenderPipelineAsyncCallback)(WGPUCreatePipelineAsyncSta
  * (2) The last ref of the device has been (or is being) released: see @ref DeviceRelease.
  * This parameter is @ref PassedWithoutOwnership.
  *
+ * @param reason
+ * An error code explaining why the device was lost.
+ *
  * @param message
+ * A @ref LocalizableHumanReadableMessageString describing why the device was lost.
  * This parameter is @ref PassedWithoutOwnership.
  */
 typedef void (*WGPUDeviceLostCallback)(WGPUDevice const * device, WGPUDeviceLostReason reason, WGPUStringView message, WGPU_NULLABLE void* userdata1, WGPU_NULLABLE void* userdata2) WGPU_FUNCTION_ATTRIBUTE;
@@ -1779,68 +1840,6 @@ typedef struct WGPUAdapterInfo {
 })
 
 /**
- * Default values can be set using @ref WGPU_BIND_GROUP_ENTRY_INIT as initializer.
- */
-typedef struct WGPUBindGroupEntry {
-    WGPUChainedStruct * nextInChain;
-    /**
-     * Binding index in the bind group.
-     *
-     * The `INIT` macro sets this to `0`.
-     */
-    uint32_t binding;
-    /**
-     * Set this if the binding is a buffer object.
-     * Otherwise must be null.
-     *
-     * The `INIT` macro sets this to `NULL`.
-     */
-    WGPU_NULLABLE WGPUBuffer buffer;
-    /**
-     * If the binding is a buffer, this is the byte offset of the binding range.
-     * Otherwise ignored.
-     *
-     * The `INIT` macro sets this to `0`.
-     */
-    uint64_t offset;
-    /**
-     * If the binding is a buffer, this is the byte size of the binding range
-     * (@ref WGPU_WHOLE_SIZE means the binding ends at the end of the buffer).
-     * Otherwise ignored.
-     *
-     * The `INIT` macro sets this to @ref WGPU_WHOLE_SIZE.
-     */
-    uint64_t size;
-    /**
-     * Set this if the binding is a sampler object.
-     * Otherwise must be null.
-     *
-     * The `INIT` macro sets this to `NULL`.
-     */
-    WGPU_NULLABLE WGPUSampler sampler;
-    /**
-     * Set this if the binding is a texture view object.
-     * Otherwise must be null.
-     *
-     * The `INIT` macro sets this to `NULL`.
-     */
-    WGPU_NULLABLE WGPUTextureView textureView;
-} WGPUBindGroupEntry WGPU_STRUCTURE_ATTRIBUTE;
-
-/**
- * Initializer for @ref WGPUBindGroupEntry.
- */
-#define WGPU_BIND_GROUP_ENTRY_INIT _wgpu_MAKE_INIT_STRUCT(WGPUBindGroupEntry, { \
-    /*.nextInChain=*/NULL _wgpu_COMMA \
-    /*.binding=*/0 _wgpu_COMMA \
-    /*.buffer=*/NULL _wgpu_COMMA \
-    /*.offset=*/0 _wgpu_COMMA \
-    /*.size=*/WGPU_WHOLE_SIZE _wgpu_COMMA \
-    /*.sampler=*/NULL _wgpu_COMMA \
-    /*.textureView=*/NULL _wgpu_COMMA \
-})
-
-/**
  * Default values can be set using @ref WGPU_BLEND_COMPONENT_INIT as initializer.
  */
 typedef struct WGPUBlendComponent {
@@ -2027,6 +2026,47 @@ typedef struct WGPUCommandEncoderDescriptor {
 })
 
 /**
+ * Note: While Compatibility Mode is optional to implement, this extension struct
+ * is required to be supported (for both queries and requests) and behave as
+ * defined in the WebGPU spec.
+ *
+ * Default values can be set using @ref WGPU_COMPATIBILITY_MODE_LIMITS_INIT as initializer.
+ */
+typedef struct WGPUCompatibilityModeLimits {
+    WGPUChainedStruct chain;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxStorageBuffersInVertexStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxStorageTexturesInVertexStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxStorageBuffersInFragmentStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxStorageTexturesInFragmentStage;
+} WGPUCompatibilityModeLimits WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUCompatibilityModeLimits.
+ */
+#define WGPU_COMPATIBILITY_MODE_LIMITS_INIT _wgpu_MAKE_INIT_STRUCT(WGPUCompatibilityModeLimits, { \
+    /*.chain=*/_wgpu_MAKE_INIT_STRUCT(WGPUChainedStruct, { \
+        /*.next=*/NULL _wgpu_COMMA \
+        /*.sType=*/WGPUSType_CompatibilityModeLimits _wgpu_COMMA \
+    }) _wgpu_COMMA \
+    /*.maxStorageBuffersInVertexStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxStorageTexturesInVertexStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxStorageBuffersInFragmentStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxStorageTexturesInFragmentStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+})
+
+/**
  * This is an @ref ImplementationAllocatedStructChain root.
  * Arbitrary chains must be handled gracefully by the application!
  *
@@ -2145,6 +2185,49 @@ typedef struct WGPUExtent3D {
 })
 
 /**
+ * Chained in an @ref WGPUBindGroupEntry to set it to an @ref WGPUExternalTexture. This must have a corresponding @ref WGPUExternalTextureBindingLayout in the @ref WGPUBindGroupLayout.
+ *
+ * Default values can be set using @ref WGPU_EXTERNAL_TEXTURE_BINDING_ENTRY_INIT as initializer.
+ */
+typedef struct WGPUExternalTextureBindingEntry {
+    WGPUChainedStruct chain;
+    /**
+     * The `INIT` macro sets this to `NULL`.
+     */
+    WGPUExternalTexture externalTexture;
+} WGPUExternalTextureBindingEntry WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUExternalTextureBindingEntry.
+ */
+#define WGPU_EXTERNAL_TEXTURE_BINDING_ENTRY_INIT _wgpu_MAKE_INIT_STRUCT(WGPUExternalTextureBindingEntry, { \
+    /*.chain=*/_wgpu_MAKE_INIT_STRUCT(WGPUChainedStruct, { \
+        /*.next=*/NULL _wgpu_COMMA \
+        /*.sType=*/WGPUSType_ExternalTextureBindingEntry _wgpu_COMMA \
+    }) _wgpu_COMMA \
+    /*.externalTexture=*/NULL _wgpu_COMMA \
+})
+
+/**
+ * Chained in @ref WGPUBindGroupLayoutEntry to specify that the corresponding entries in an @ref WGPUBindGroup will contain an @ref WGPUExternalTexture.
+ *
+ * Default values can be set using @ref WGPU_EXTERNAL_TEXTURE_BINDING_LAYOUT_INIT as initializer.
+ */
+typedef struct WGPUExternalTextureBindingLayout {
+    WGPUChainedStruct chain;
+} WGPUExternalTextureBindingLayout WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUExternalTextureBindingLayout.
+ */
+#define WGPU_EXTERNAL_TEXTURE_BINDING_LAYOUT_INIT _wgpu_MAKE_INIT_STRUCT(WGPUExternalTextureBindingLayout, { \
+    /*.chain=*/_wgpu_MAKE_INIT_STRUCT(WGPUChainedStruct, { \
+        /*.next=*/NULL _wgpu_COMMA \
+        /*.sType=*/WGPUSType_ExternalTextureBindingLayout _wgpu_COMMA \
+    }) _wgpu_COMMA \
+})
+
+/**
  * Opaque handle to an asynchronous operation. See @ref Asynchronous-Operations for more information.
  *
  * Default values can be set using @ref WGPU_FUTURE_INIT as initializer.
@@ -2184,180 +2267,6 @@ typedef struct WGPUInstanceLimits {
 #define WGPU_INSTANCE_LIMITS_INIT _wgpu_MAKE_INIT_STRUCT(WGPUInstanceLimits, { \
     /*.nextInChain=*/NULL _wgpu_COMMA \
     /*.timedWaitAnyMaxCount=*/0 _wgpu_COMMA \
-})
-
-/**
- * Default values can be set using @ref WGPU_LIMITS_INIT as initializer.
- */
-typedef struct WGPULimits {
-    WGPUChainedStruct * nextInChain;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxTextureDimension1D;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxTextureDimension2D;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxTextureDimension3D;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxTextureArrayLayers;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxBindGroups;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxBindGroupsPlusVertexBuffers;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxBindingsPerBindGroup;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxDynamicUniformBuffersPerPipelineLayout;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxDynamicStorageBuffersPerPipelineLayout;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxSampledTexturesPerShaderStage;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxSamplersPerShaderStage;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxStorageBuffersPerShaderStage;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxStorageTexturesPerShaderStage;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxUniformBuffersPerShaderStage;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U64_UNDEFINED.
-     */
-    uint64_t maxUniformBufferBindingSize;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U64_UNDEFINED.
-     */
-    uint64_t maxStorageBufferBindingSize;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t minUniformBufferOffsetAlignment;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t minStorageBufferOffsetAlignment;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxVertexBuffers;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U64_UNDEFINED.
-     */
-    uint64_t maxBufferSize;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxVertexAttributes;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxVertexBufferArrayStride;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxInterStageShaderVariables;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxColorAttachments;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxColorAttachmentBytesPerSample;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxComputeWorkgroupStorageSize;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxComputeInvocationsPerWorkgroup;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxComputeWorkgroupSizeX;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxComputeWorkgroupSizeY;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxComputeWorkgroupSizeZ;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxComputeWorkgroupsPerDimension;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
-     */
-    uint32_t maxImmediateSize;
-} WGPULimits WGPU_STRUCTURE_ATTRIBUTE;
-
-/**
- * Initializer for @ref WGPULimits.
- */
-#define WGPU_LIMITS_INIT _wgpu_MAKE_INIT_STRUCT(WGPULimits, { \
-    /*.nextInChain=*/NULL _wgpu_COMMA \
-    /*.maxTextureDimension1D=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxTextureDimension2D=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxTextureDimension3D=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxTextureArrayLayers=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxBindGroups=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxBindGroupsPlusVertexBuffers=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxBindingsPerBindGroup=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxDynamicUniformBuffersPerPipelineLayout=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxDynamicStorageBuffersPerPipelineLayout=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxSampledTexturesPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxSamplersPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxStorageBuffersPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxStorageTexturesPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxUniformBuffersPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxUniformBufferBindingSize=*/WGPU_LIMIT_U64_UNDEFINED _wgpu_COMMA \
-    /*.maxStorageBufferBindingSize=*/WGPU_LIMIT_U64_UNDEFINED _wgpu_COMMA \
-    /*.minUniformBufferOffsetAlignment=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.minStorageBufferOffsetAlignment=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxVertexBuffers=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxBufferSize=*/WGPU_LIMIT_U64_UNDEFINED _wgpu_COMMA \
-    /*.maxVertexAttributes=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxVertexBufferArrayStride=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxInterStageShaderVariables=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxColorAttachments=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxColorAttachmentBytesPerSample=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxComputeWorkgroupStorageSize=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxComputeInvocationsPerWorkgroup=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxComputeWorkgroupSizeX=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxComputeWorkgroupSizeY=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxComputeWorkgroupSizeZ=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxComputeWorkgroupsPerDimension=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
-    /*.maxImmediateSize=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
 })
 
 /**
@@ -3540,67 +3449,86 @@ typedef struct WGPUTextureBindingLayout {
 })
 
 /**
- * Default values can be set using @ref WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT as initializer.
+ * Note: While Compatibility Mode is optional to implement, this extension struct
+ * is required to be accepted (but per the WebGPU spec, its contents are ignored
+ * on devices that have the @ref WGPUFeatureName_CoreFeaturesAndLimits feature).
+ *
+ * Default values can be set using @ref WGPU_TEXTURE_BINDING_VIEW_DIMENSION_INIT as initializer.
  */
-typedef struct WGPUTextureViewDescriptor {
-    WGPUChainedStruct * nextInChain;
-    /**
-     * This is a \ref NonNullInputString.
-     *
-     * The `INIT` macro sets this to @ref WGPU_STRING_VIEW_INIT.
-     */
-    WGPUStringView label;
-    /**
-     * The `INIT` macro sets this to @ref WGPUTextureFormat_Undefined.
-     */
-    WGPUTextureFormat format;
+typedef struct WGPUTextureBindingViewDimension {
+    WGPUChainedStruct chain;
     /**
      * The `INIT` macro sets this to @ref WGPUTextureViewDimension_Undefined.
      */
-    WGPUTextureViewDimension dimension;
-    /**
-     * The `INIT` macro sets this to `0`.
-     */
-    uint32_t baseMipLevel;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_MIP_LEVEL_COUNT_UNDEFINED.
-     */
-    uint32_t mipLevelCount;
-    /**
-     * The `INIT` macro sets this to `0`.
-     */
-    uint32_t baseArrayLayer;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_ARRAY_LAYER_COUNT_UNDEFINED.
-     */
-    uint32_t arrayLayerCount;
-    /**
-     * If set to @ref WGPUTextureAspect_Undefined,
-     * [defaults](@ref SentinelValues) to @ref WGPUTextureAspect_All.
-     *
-     * The `INIT` macro sets this to @ref WGPUTextureAspect_Undefined.
-     */
-    WGPUTextureAspect aspect;
-    /**
-     * The `INIT` macro sets this to @ref WGPUTextureUsage_None.
-     */
-    WGPUTextureUsage usage;
-} WGPUTextureViewDescriptor WGPU_STRUCTURE_ATTRIBUTE;
+    WGPUTextureViewDimension textureBindingViewDimension;
+} WGPUTextureBindingViewDimension WGPU_STRUCTURE_ATTRIBUTE;
 
 /**
- * Initializer for @ref WGPUTextureViewDescriptor.
+ * Initializer for @ref WGPUTextureBindingViewDimension.
  */
-#define WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT _wgpu_MAKE_INIT_STRUCT(WGPUTextureViewDescriptor, { \
-    /*.nextInChain=*/NULL _wgpu_COMMA \
-    /*.label=*/WGPU_STRING_VIEW_INIT _wgpu_COMMA \
-    /*.format=*/WGPUTextureFormat_Undefined _wgpu_COMMA \
-    /*.dimension=*/WGPUTextureViewDimension_Undefined _wgpu_COMMA \
-    /*.baseMipLevel=*/0 _wgpu_COMMA \
-    /*.mipLevelCount=*/WGPU_MIP_LEVEL_COUNT_UNDEFINED _wgpu_COMMA \
-    /*.baseArrayLayer=*/0 _wgpu_COMMA \
-    /*.arrayLayerCount=*/WGPU_ARRAY_LAYER_COUNT_UNDEFINED _wgpu_COMMA \
-    /*.aspect=*/WGPUTextureAspect_Undefined _wgpu_COMMA \
-    /*.usage=*/WGPUTextureUsage_None _wgpu_COMMA \
+#define WGPU_TEXTURE_BINDING_VIEW_DIMENSION_INIT _wgpu_MAKE_INIT_STRUCT(WGPUTextureBindingViewDimension, { \
+    /*.chain=*/_wgpu_MAKE_INIT_STRUCT(WGPUChainedStruct, { \
+        /*.next=*/NULL _wgpu_COMMA \
+        /*.sType=*/WGPUSType_TextureBindingViewDimension _wgpu_COMMA \
+    }) _wgpu_COMMA \
+    /*.textureBindingViewDimension=*/WGPUTextureViewDimension_Undefined _wgpu_COMMA \
+})
+
+/**
+ * When accessed by a shader, the red/green/blue/alpha channels are replaced
+ * by the value corresponding to the component specified in r, g, b, and a,
+ * respectively unlike the JS API which uses a string of length four, with
+ * each character mapping to the texture view's red/green/blue/alpha channels.
+ *
+ * Default values can be set using @ref WGPU_TEXTURE_COMPONENT_SWIZZLE_INIT as initializer.
+ */
+typedef struct WGPUTextureComponentSwizzle {
+    /**
+     * The value that replaces the red channel in the shader.
+     *
+     * If set to @ref WGPUComponentSwizzle_Undefined,
+     * [defaults](@ref SentinelValues) to @ref WGPUComponentSwizzle_R.
+     *
+     * The `INIT` macro sets this to @ref WGPUComponentSwizzle_Undefined.
+     */
+    WGPUComponentSwizzle r;
+    /**
+     * The value that replaces the green channel in the shader.
+     *
+     * If set to @ref WGPUComponentSwizzle_Undefined,
+     * [defaults](@ref SentinelValues) to @ref WGPUComponentSwizzle_G.
+     *
+     * The `INIT` macro sets this to @ref WGPUComponentSwizzle_Undefined.
+     */
+    WGPUComponentSwizzle g;
+    /**
+     * The value that replaces the blue channel in the shader.
+     *
+     * If set to @ref WGPUComponentSwizzle_Undefined,
+     * [defaults](@ref SentinelValues) to @ref WGPUComponentSwizzle_B.
+     *
+     * The `INIT` macro sets this to @ref WGPUComponentSwizzle_Undefined.
+     */
+    WGPUComponentSwizzle b;
+    /**
+     * The value that replaces the alpha channel in the shader.
+     *
+     * If set to @ref WGPUComponentSwizzle_Undefined,
+     * [defaults](@ref SentinelValues) to @ref WGPUComponentSwizzle_A.
+     *
+     * The `INIT` macro sets this to @ref WGPUComponentSwizzle_Undefined.
+     */
+    WGPUComponentSwizzle a;
+} WGPUTextureComponentSwizzle WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUTextureComponentSwizzle.
+ */
+#define WGPU_TEXTURE_COMPONENT_SWIZZLE_INIT _wgpu_MAKE_INIT_STRUCT(WGPUTextureComponentSwizzle, { \
+    /*.r=*/WGPUComponentSwizzle_Undefined _wgpu_COMMA \
+    /*.g=*/WGPUComponentSwizzle_Undefined _wgpu_COMMA \
+    /*.b=*/WGPUComponentSwizzle_Undefined _wgpu_COMMA \
+    /*.a=*/WGPUComponentSwizzle_Undefined _wgpu_COMMA \
 })
 
 /**
@@ -3633,39 +3561,65 @@ typedef struct WGPUVertexAttribute {
 })
 
 /**
- * Default values can be set using @ref WGPU_BIND_GROUP_DESCRIPTOR_INIT as initializer.
+ * Default values can be set using @ref WGPU_BIND_GROUP_ENTRY_INIT as initializer.
  */
-typedef struct WGPUBindGroupDescriptor {
+typedef struct WGPUBindGroupEntry {
     WGPUChainedStruct * nextInChain;
     /**
-     * This is a \ref NonNullInputString.
+     * Binding index in the bind group.
      *
-     * The `INIT` macro sets this to @ref WGPU_STRING_VIEW_INIT.
+     * The `INIT` macro sets this to `0`.
      */
-    WGPUStringView label;
+    uint32_t binding;
     /**
+     * Set this if the binding is a buffer object.
+     * Otherwise must be null.
+     *
      * The `INIT` macro sets this to `NULL`.
      */
-    WGPUBindGroupLayout layout;
+    WGPU_NULLABLE WGPUBuffer buffer;
     /**
-     * Array count for `entries`. The `INIT` macro sets this to 0.
+     * If the binding is a buffer, this is the byte offset of the binding range.
+     * Otherwise ignored.
+     *
+     * The `INIT` macro sets this to `0`.
      */
-    size_t entryCount;
+    uint64_t offset;
     /**
+     * If the binding is a buffer, this is the byte size of the binding range
+     * (@ref WGPU_WHOLE_SIZE means the binding ends at the end of the buffer).
+     * Otherwise ignored.
+     *
+     * The `INIT` macro sets this to @ref WGPU_WHOLE_SIZE.
+     */
+    uint64_t size;
+    /**
+     * Set this if the binding is a sampler object.
+     * Otherwise must be null.
+     *
      * The `INIT` macro sets this to `NULL`.
      */
-    WGPUBindGroupEntry const * entries;
-} WGPUBindGroupDescriptor WGPU_STRUCTURE_ATTRIBUTE;
+    WGPU_NULLABLE WGPUSampler sampler;
+    /**
+     * Set this if the binding is a texture view object.
+     * Otherwise must be null.
+     *
+     * The `INIT` macro sets this to `NULL`.
+     */
+    WGPU_NULLABLE WGPUTextureView textureView;
+} WGPUBindGroupEntry WGPU_STRUCTURE_ATTRIBUTE;
 
 /**
- * Initializer for @ref WGPUBindGroupDescriptor.
+ * Initializer for @ref WGPUBindGroupEntry.
  */
-#define WGPU_BIND_GROUP_DESCRIPTOR_INIT _wgpu_MAKE_INIT_STRUCT(WGPUBindGroupDescriptor, { \
+#define WGPU_BIND_GROUP_ENTRY_INIT _wgpu_MAKE_INIT_STRUCT(WGPUBindGroupEntry, { \
     /*.nextInChain=*/NULL _wgpu_COMMA \
-    /*.label=*/WGPU_STRING_VIEW_INIT _wgpu_COMMA \
-    /*.layout=*/NULL _wgpu_COMMA \
-    /*.entryCount=*/0 _wgpu_COMMA \
-    /*.entries=*/NULL _wgpu_COMMA \
+    /*.binding=*/0 _wgpu_COMMA \
+    /*.buffer=*/NULL _wgpu_COMMA \
+    /*.offset=*/0 _wgpu_COMMA \
+    /*.size=*/WGPU_WHOLE_SIZE _wgpu_COMMA \
+    /*.sampler=*/NULL _wgpu_COMMA \
+    /*.textureView=*/NULL _wgpu_COMMA \
 })
 
 /**
@@ -3903,62 +3857,6 @@ typedef struct WGPUDepthStencilState {
 })
 
 /**
- * Default values can be set using @ref WGPU_DEVICE_DESCRIPTOR_INIT as initializer.
- */
-typedef struct WGPUDeviceDescriptor {
-    WGPUChainedStruct * nextInChain;
-    /**
-     * This is a \ref NonNullInputString.
-     *
-     * The `INIT` macro sets this to @ref WGPU_STRING_VIEW_INIT.
-     */
-    WGPUStringView label;
-    /**
-     * Array count for `requiredFeatures`. The `INIT` macro sets this to 0.
-     */
-    size_t requiredFeatureCount;
-    /**
-     * The `INIT` macro sets this to `NULL`.
-     */
-    WGPUFeatureName const * requiredFeatures;
-    /**
-     * The `INIT` macro sets this to `NULL`.
-     */
-    WGPU_NULLABLE WGPULimits const * requiredLimits;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_QUEUE_DESCRIPTOR_INIT.
-     */
-    WGPUQueueDescriptor defaultQueue;
-    /**
-     * The `INIT` macro sets this to @ref WGPU_DEVICE_LOST_CALLBACK_INFO_INIT.
-     */
-    WGPUDeviceLostCallbackInfo deviceLostCallbackInfo;
-    /**
-     * Called when there is an uncaptured error on this device, from any thread.
-     * See @ref ErrorScopes.
-     *
-     * **Important:** This callback does not have a configurable @ref WGPUCallbackMode; it may be called at any time (like @ref WGPUCallbackMode_AllowSpontaneous). As such, calls into the `webgpu.h` API from this callback are unsafe. See @ref CallbackReentrancy.
-     *
-     * The `INIT` macro sets this to @ref WGPU_UNCAPTURED_ERROR_CALLBACK_INFO_INIT.
-     */
-    WGPUUncapturedErrorCallbackInfo uncapturedErrorCallbackInfo;
-} WGPUDeviceDescriptor WGPU_STRUCTURE_ATTRIBUTE;
-
-/**
- * Initializer for @ref WGPUDeviceDescriptor.
- */
-#define WGPU_DEVICE_DESCRIPTOR_INIT _wgpu_MAKE_INIT_STRUCT(WGPUDeviceDescriptor, { \
-    /*.nextInChain=*/NULL _wgpu_COMMA \
-    /*.label=*/WGPU_STRING_VIEW_INIT _wgpu_COMMA \
-    /*.requiredFeatureCount=*/0 _wgpu_COMMA \
-    /*.requiredFeatures=*/NULL _wgpu_COMMA \
-    /*.requiredLimits=*/NULL _wgpu_COMMA \
-    /*.defaultQueue=*/WGPU_QUEUE_DESCRIPTOR_INIT _wgpu_COMMA \
-    /*.deviceLostCallbackInfo=*/WGPU_DEVICE_LOST_CALLBACK_INFO_INIT _wgpu_COMMA \
-    /*.uncapturedErrorCallbackInfo=*/WGPU_UNCAPTURED_ERROR_CALLBACK_INFO_INIT _wgpu_COMMA \
-})
-
-/**
  * Struct holding a future to wait on, and a `completed` boolean flag.
  *
  * Default values can be set using @ref WGPU_FUTURE_WAIT_INFO_INIT as initializer.
@@ -4013,6 +3911,180 @@ typedef struct WGPUInstanceDescriptor {
     /*.requiredFeatureCount=*/0 _wgpu_COMMA \
     /*.requiredFeatures=*/NULL _wgpu_COMMA \
     /*.requiredLimits=*/NULL _wgpu_COMMA \
+})
+
+/**
+ * Default values can be set using @ref WGPU_LIMITS_INIT as initializer.
+ */
+typedef struct WGPULimits {
+    WGPUChainedStruct * nextInChain;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxTextureDimension1D;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxTextureDimension2D;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxTextureDimension3D;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxTextureArrayLayers;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxBindGroups;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxBindGroupsPlusVertexBuffers;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxBindingsPerBindGroup;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxDynamicUniformBuffersPerPipelineLayout;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxDynamicStorageBuffersPerPipelineLayout;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxSampledTexturesPerShaderStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxSamplersPerShaderStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxStorageBuffersPerShaderStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxStorageTexturesPerShaderStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxUniformBuffersPerShaderStage;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U64_UNDEFINED.
+     */
+    uint64_t maxUniformBufferBindingSize;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U64_UNDEFINED.
+     */
+    uint64_t maxStorageBufferBindingSize;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t minUniformBufferOffsetAlignment;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t minStorageBufferOffsetAlignment;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxVertexBuffers;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U64_UNDEFINED.
+     */
+    uint64_t maxBufferSize;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxVertexAttributes;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxVertexBufferArrayStride;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxInterStageShaderVariables;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxColorAttachments;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxColorAttachmentBytesPerSample;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxComputeWorkgroupStorageSize;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxComputeInvocationsPerWorkgroup;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxComputeWorkgroupSizeX;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxComputeWorkgroupSizeY;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxComputeWorkgroupSizeZ;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxComputeWorkgroupsPerDimension;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_LIMIT_U32_UNDEFINED.
+     */
+    uint32_t maxImmediateSize;
+} WGPULimits WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPULimits.
+ */
+#define WGPU_LIMITS_INIT _wgpu_MAKE_INIT_STRUCT(WGPULimits, { \
+    /*.nextInChain=*/NULL _wgpu_COMMA \
+    /*.maxTextureDimension1D=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxTextureDimension2D=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxTextureDimension3D=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxTextureArrayLayers=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxBindGroups=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxBindGroupsPlusVertexBuffers=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxBindingsPerBindGroup=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxDynamicUniformBuffersPerPipelineLayout=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxDynamicStorageBuffersPerPipelineLayout=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxSampledTexturesPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxSamplersPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxStorageBuffersPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxStorageTexturesPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxUniformBuffersPerShaderStage=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxUniformBufferBindingSize=*/WGPU_LIMIT_U64_UNDEFINED _wgpu_COMMA \
+    /*.maxStorageBufferBindingSize=*/WGPU_LIMIT_U64_UNDEFINED _wgpu_COMMA \
+    /*.minUniformBufferOffsetAlignment=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.minStorageBufferOffsetAlignment=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxVertexBuffers=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxBufferSize=*/WGPU_LIMIT_U64_UNDEFINED _wgpu_COMMA \
+    /*.maxVertexAttributes=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxVertexBufferArrayStride=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxInterStageShaderVariables=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxColorAttachments=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxColorAttachmentBytesPerSample=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxComputeWorkgroupStorageSize=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxComputeInvocationsPerWorkgroup=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxComputeWorkgroupSizeX=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxComputeWorkgroupSizeY=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxComputeWorkgroupSizeZ=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxComputeWorkgroupsPerDimension=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
+    /*.maxImmediateSize=*/WGPU_LIMIT_U32_UNDEFINED _wgpu_COMMA \
 })
 
 /**
@@ -4223,6 +4295,28 @@ typedef struct WGPUTexelCopyTextureInfo {
 })
 
 /**
+ * Default values can be set using @ref WGPU_TEXTURE_COMPONENT_SWIZZLE_DESCRIPTOR_INIT as initializer.
+ */
+typedef struct WGPUTextureComponentSwizzleDescriptor {
+    WGPUChainedStruct chain;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_TEXTURE_COMPONENT_SWIZZLE_INIT.
+     */
+    WGPUTextureComponentSwizzle swizzle;
+} WGPUTextureComponentSwizzleDescriptor WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUTextureComponentSwizzleDescriptor.
+ */
+#define WGPU_TEXTURE_COMPONENT_SWIZZLE_DESCRIPTOR_INIT _wgpu_MAKE_INIT_STRUCT(WGPUTextureComponentSwizzleDescriptor, { \
+    /*.chain=*/_wgpu_MAKE_INIT_STRUCT(WGPUChainedStruct, { \
+        /*.next=*/NULL _wgpu_COMMA \
+        /*.sType=*/WGPUSType_TextureComponentSwizzleDescriptor _wgpu_COMMA \
+    }) _wgpu_COMMA \
+    /*.swizzle=*/WGPU_TEXTURE_COMPONENT_SWIZZLE_INIT _wgpu_COMMA \
+})
+
+/**
  * Default values can be set using @ref WGPU_TEXTURE_DESCRIPTOR_INIT as initializer.
  */
 typedef struct WGPUTextureDescriptor {
@@ -4334,6 +4428,42 @@ typedef struct WGPUVertexBufferLayout {
 })
 
 /**
+ * Default values can be set using @ref WGPU_BIND_GROUP_DESCRIPTOR_INIT as initializer.
+ */
+typedef struct WGPUBindGroupDescriptor {
+    WGPUChainedStruct * nextInChain;
+    /**
+     * This is a \ref NonNullInputString.
+     *
+     * The `INIT` macro sets this to @ref WGPU_STRING_VIEW_INIT.
+     */
+    WGPUStringView label;
+    /**
+     * The `INIT` macro sets this to `NULL`.
+     */
+    WGPUBindGroupLayout layout;
+    /**
+     * Array count for `entries`. The `INIT` macro sets this to 0.
+     */
+    size_t entryCount;
+    /**
+     * The `INIT` macro sets this to `NULL`.
+     */
+    WGPUBindGroupEntry const * entries;
+} WGPUBindGroupDescriptor WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUBindGroupDescriptor.
+ */
+#define WGPU_BIND_GROUP_DESCRIPTOR_INIT _wgpu_MAKE_INIT_STRUCT(WGPUBindGroupDescriptor, { \
+    /*.nextInChain=*/NULL _wgpu_COMMA \
+    /*.label=*/WGPU_STRING_VIEW_INIT _wgpu_COMMA \
+    /*.layout=*/NULL _wgpu_COMMA \
+    /*.entryCount=*/0 _wgpu_COMMA \
+    /*.entries=*/NULL _wgpu_COMMA \
+})
+
+/**
  * Default values can be set using @ref WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT as initializer.
  */
 typedef struct WGPUBindGroupLayoutDescriptor {
@@ -4429,6 +4559,62 @@ typedef struct WGPUComputePipelineDescriptor {
 })
 
 /**
+ * Default values can be set using @ref WGPU_DEVICE_DESCRIPTOR_INIT as initializer.
+ */
+typedef struct WGPUDeviceDescriptor {
+    WGPUChainedStruct * nextInChain;
+    /**
+     * This is a \ref NonNullInputString.
+     *
+     * The `INIT` macro sets this to @ref WGPU_STRING_VIEW_INIT.
+     */
+    WGPUStringView label;
+    /**
+     * Array count for `requiredFeatures`. The `INIT` macro sets this to 0.
+     */
+    size_t requiredFeatureCount;
+    /**
+     * The `INIT` macro sets this to `NULL`.
+     */
+    WGPUFeatureName const * requiredFeatures;
+    /**
+     * The `INIT` macro sets this to `NULL`.
+     */
+    WGPU_NULLABLE WGPULimits const * requiredLimits;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_QUEUE_DESCRIPTOR_INIT.
+     */
+    WGPUQueueDescriptor defaultQueue;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_DEVICE_LOST_CALLBACK_INFO_INIT.
+     */
+    WGPUDeviceLostCallbackInfo deviceLostCallbackInfo;
+    /**
+     * Called when there is an uncaptured error on this device, from any thread.
+     * See @ref ErrorScopes.
+     *
+     * **Important:** This callback does not have a configurable @ref WGPUCallbackMode; it may be called at any time (like @ref WGPUCallbackMode_AllowSpontaneous). As such, calls into the `webgpu.h` API from this callback are unsafe. See @ref CallbackReentrancy.
+     *
+     * The `INIT` macro sets this to @ref WGPU_UNCAPTURED_ERROR_CALLBACK_INFO_INIT.
+     */
+    WGPUUncapturedErrorCallbackInfo uncapturedErrorCallbackInfo;
+} WGPUDeviceDescriptor WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUDeviceDescriptor.
+ */
+#define WGPU_DEVICE_DESCRIPTOR_INIT _wgpu_MAKE_INIT_STRUCT(WGPUDeviceDescriptor, { \
+    /*.nextInChain=*/NULL _wgpu_COMMA \
+    /*.label=*/WGPU_STRING_VIEW_INIT _wgpu_COMMA \
+    /*.requiredFeatureCount=*/0 _wgpu_COMMA \
+    /*.requiredFeatures=*/NULL _wgpu_COMMA \
+    /*.requiredLimits=*/NULL _wgpu_COMMA \
+    /*.defaultQueue=*/WGPU_QUEUE_DESCRIPTOR_INIT _wgpu_COMMA \
+    /*.deviceLostCallbackInfo=*/WGPU_DEVICE_LOST_CALLBACK_INFO_INIT _wgpu_COMMA \
+    /*.uncapturedErrorCallbackInfo=*/WGPU_UNCAPTURED_ERROR_CALLBACK_INFO_INIT _wgpu_COMMA \
+})
+
+/**
  * Default values can be set using @ref WGPU_RENDER_PASS_DESCRIPTOR_INIT as initializer.
  */
 typedef struct WGPURenderPassDescriptor {
@@ -4472,6 +4658,70 @@ typedef struct WGPURenderPassDescriptor {
     /*.depthStencilAttachment=*/NULL _wgpu_COMMA \
     /*.occlusionQuerySet=*/NULL _wgpu_COMMA \
     /*.timestampWrites=*/NULL _wgpu_COMMA \
+})
+
+/**
+ * Default values can be set using @ref WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT as initializer.
+ */
+typedef struct WGPUTextureViewDescriptor {
+    WGPUChainedStruct * nextInChain;
+    /**
+     * This is a \ref NonNullInputString.
+     *
+     * The `INIT` macro sets this to @ref WGPU_STRING_VIEW_INIT.
+     */
+    WGPUStringView label;
+    /**
+     * The `INIT` macro sets this to @ref WGPUTextureFormat_Undefined.
+     */
+    WGPUTextureFormat format;
+    /**
+     * The `INIT` macro sets this to @ref WGPUTextureViewDimension_Undefined.
+     */
+    WGPUTextureViewDimension dimension;
+    /**
+     * The `INIT` macro sets this to `0`.
+     */
+    uint32_t baseMipLevel;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_MIP_LEVEL_COUNT_UNDEFINED.
+     */
+    uint32_t mipLevelCount;
+    /**
+     * The `INIT` macro sets this to `0`.
+     */
+    uint32_t baseArrayLayer;
+    /**
+     * The `INIT` macro sets this to @ref WGPU_ARRAY_LAYER_COUNT_UNDEFINED.
+     */
+    uint32_t arrayLayerCount;
+    /**
+     * If set to @ref WGPUTextureAspect_Undefined,
+     * [defaults](@ref SentinelValues) to @ref WGPUTextureAspect_All.
+     *
+     * The `INIT` macro sets this to @ref WGPUTextureAspect_Undefined.
+     */
+    WGPUTextureAspect aspect;
+    /**
+     * The `INIT` macro sets this to @ref WGPUTextureUsage_None.
+     */
+    WGPUTextureUsage usage;
+} WGPUTextureViewDescriptor WGPU_STRUCTURE_ATTRIBUTE;
+
+/**
+ * Initializer for @ref WGPUTextureViewDescriptor.
+ */
+#define WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT _wgpu_MAKE_INIT_STRUCT(WGPUTextureViewDescriptor, { \
+    /*.nextInChain=*/NULL _wgpu_COMMA \
+    /*.label=*/WGPU_STRING_VIEW_INIT _wgpu_COMMA \
+    /*.format=*/WGPUTextureFormat_Undefined _wgpu_COMMA \
+    /*.dimension=*/WGPUTextureViewDimension_Undefined _wgpu_COMMA \
+    /*.baseMipLevel=*/0 _wgpu_COMMA \
+    /*.mipLevelCount=*/WGPU_MIP_LEVEL_COUNT_UNDEFINED _wgpu_COMMA \
+    /*.baseArrayLayer=*/0 _wgpu_COMMA \
+    /*.arrayLayerCount=*/WGPU_ARRAY_LAYER_COUNT_UNDEFINED _wgpu_COMMA \
+    /*.aspect=*/WGPUTextureAspect_Undefined _wgpu_COMMA \
+    /*.usage=*/WGPUTextureUsage_None _wgpu_COMMA \
 })
 
 /**
@@ -4933,6 +5183,11 @@ typedef void (*WGPUProcComputePassEncoderPushDebugGroup)(WGPUComputePassEncoder 
  */
 typedef void (*WGPUProcComputePassEncoderSetBindGroup)(WGPUComputePassEncoder computePassEncoder, uint32_t groupIndex, WGPU_NULLABLE WGPUBindGroup group, size_t dynamicOffsetCount, uint32_t const * dynamicOffsets) WGPU_FUNCTION_ATTRIBUTE;
 /**
+ * Proc pointer type for @ref wgpuComputePassEncoderSetImmediates:
+ * > @copydoc wgpuComputePassEncoderSetImmediates
+ */
+typedef void (*WGPUProcComputePassEncoderSetImmediates)(WGPUComputePassEncoder computePassEncoder, uint32_t offset, void const * data, size_t size) WGPU_FUNCTION_ATTRIBUTE;
+/**
  * Proc pointer type for @ref wgpuComputePassEncoderSetLabel:
  * > @copydoc wgpuComputePassEncoderSetLabel
  */
@@ -5106,6 +5361,23 @@ typedef void (*WGPUProcDeviceAddRef)(WGPUDevice device) WGPU_FUNCTION_ATTRIBUTE;
  * > @copydoc wgpuDeviceRelease
  */
 typedef void (*WGPUProcDeviceRelease)(WGPUDevice device) WGPU_FUNCTION_ATTRIBUTE;
+
+// Procs of ExternalTexture
+/**
+ * Proc pointer type for @ref wgpuExternalTextureSetLabel:
+ * > @copydoc wgpuExternalTextureSetLabel
+ */
+typedef void (*WGPUProcExternalTextureSetLabel)(WGPUExternalTexture externalTexture, WGPUStringView label) WGPU_FUNCTION_ATTRIBUTE;
+/**
+ * Proc pointer type for @ref wgpuExternalTextureAddRef:
+ * > @copydoc wgpuExternalTextureAddRef
+ */
+typedef void (*WGPUProcExternalTextureAddRef)(WGPUExternalTexture externalTexture) WGPU_FUNCTION_ATTRIBUTE;
+/**
+ * Proc pointer type for @ref wgpuExternalTextureRelease:
+ * > @copydoc wgpuExternalTextureRelease
+ */
+typedef void (*WGPUProcExternalTextureRelease)(WGPUExternalTexture externalTexture) WGPU_FUNCTION_ATTRIBUTE;
 
 // Procs of Instance
 /**
@@ -5299,6 +5571,11 @@ typedef void (*WGPUProcRenderBundleEncoderPushDebugGroup)(WGPURenderBundleEncode
  */
 typedef void (*WGPUProcRenderBundleEncoderSetBindGroup)(WGPURenderBundleEncoder renderBundleEncoder, uint32_t groupIndex, WGPU_NULLABLE WGPUBindGroup group, size_t dynamicOffsetCount, uint32_t const * dynamicOffsets) WGPU_FUNCTION_ATTRIBUTE;
 /**
+ * Proc pointer type for @ref wgpuRenderBundleEncoderSetImmediates:
+ * > @copydoc wgpuRenderBundleEncoderSetImmediates
+ */
+typedef void (*WGPUProcRenderBundleEncoderSetImmediates)(WGPURenderBundleEncoder renderBundleEncoder, uint32_t offset, void const * data, size_t size) WGPU_FUNCTION_ATTRIBUTE;
+/**
  * Proc pointer type for @ref wgpuRenderBundleEncoderSetIndexBuffer:
  * > @copydoc wgpuRenderBundleEncoderSetIndexBuffer
  */
@@ -5395,6 +5672,11 @@ typedef void (*WGPUProcRenderPassEncoderSetBindGroup)(WGPURenderPassEncoder rend
  * > @copydoc wgpuRenderPassEncoderSetBlendConstant
  */
 typedef void (*WGPUProcRenderPassEncoderSetBlendConstant)(WGPURenderPassEncoder renderPassEncoder, WGPUColor const * color) WGPU_FUNCTION_ATTRIBUTE;
+/**
+ * Proc pointer type for @ref wgpuRenderPassEncoderSetImmediates:
+ * > @copydoc wgpuRenderPassEncoderSetImmediates
+ */
+typedef void (*WGPUProcRenderPassEncoderSetImmediates)(WGPURenderPassEncoder renderPassEncoder, uint32_t offset, void const * data, size_t size) WGPU_FUNCTION_ATTRIBUTE;
 /**
  * Proc pointer type for @ref wgpuRenderPassEncoderSetIndexBuffer:
  * > @copydoc wgpuRenderPassEncoderSetIndexBuffer
@@ -5614,6 +5896,11 @@ typedef uint32_t (*WGPUProcTextureGetMipLevelCount)(WGPUTexture texture) WGPU_FU
  */
 typedef uint32_t (*WGPUProcTextureGetSampleCount)(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
 /**
+ * Proc pointer type for @ref wgpuTextureGetTextureBindingViewDimension:
+ * > @copydoc wgpuTextureGetTextureBindingViewDimension
+ */
+typedef WGPUTextureViewDimension (*WGPUProcTextureGetTextureBindingViewDimension)(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
+/**
  * Proc pointer type for @ref wgpuTextureGetUsage:
  * > @copydoc wgpuTextureGetUsage
  */
@@ -5821,6 +6108,9 @@ WGPU_EXPORT WGPUBufferMapState wgpuBufferGetMapState(WGPUBuffer buffer) WGPU_FUN
 WGPU_EXPORT uint64_t wgpuBufferGetSize(WGPUBuffer buffer) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT WGPUBufferUsage wgpuBufferGetUsage(WGPUBuffer buffer) WGPU_FUNCTION_ATTRIBUTE;
 /**
+ * @param mode
+ * The mapping mode (read or write).
+ *
  * @param offset
  * Byte offset relative to beginning of the buffer.
  *
@@ -5940,6 +6230,7 @@ WGPU_EXPORT void wgpuComputePassEncoderInsertDebugMarker(WGPUComputePassEncoder 
 WGPU_EXPORT void wgpuComputePassEncoderPopDebugGroup(WGPUComputePassEncoder computePassEncoder) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuComputePassEncoderPushDebugGroup(WGPUComputePassEncoder computePassEncoder, WGPUStringView groupLabel) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuComputePassEncoderSetBindGroup(WGPUComputePassEncoder computePassEncoder, uint32_t groupIndex, WGPU_NULLABLE WGPUBindGroup group, size_t dynamicOffsetCount, uint32_t const * dynamicOffsets) WGPU_FUNCTION_ATTRIBUTE;
+WGPU_EXPORT void wgpuComputePassEncoderSetImmediates(WGPUComputePassEncoder computePassEncoder, uint32_t offset, void const * data, size_t size) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuComputePassEncoderSetLabel(WGPUComputePassEncoder computePassEncoder, WGPUStringView label) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuComputePassEncoderSetPipeline(WGPUComputePassEncoder computePassEncoder, WGPUComputePipeline pipeline) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuComputePassEncoderAddRef(WGPUComputePassEncoder computePassEncoder) WGPU_FUNCTION_ATTRIBUTE;
@@ -6086,6 +6377,18 @@ WGPU_EXPORT void wgpuDeviceRelease(WGPUDevice device) WGPU_FUNCTION_ATTRIBUTE;
 /** @} */
 
 /**
+ * \defgroup WGPUExternalTextureMethods WGPUExternalTexture methods
+ * \brief Functions whose first argument has type WGPUExternalTexture.
+ *
+ * @{
+ */
+WGPU_EXPORT void wgpuExternalTextureSetLabel(WGPUExternalTexture externalTexture, WGPUStringView label) WGPU_FUNCTION_ATTRIBUTE;
+WGPU_EXPORT void wgpuExternalTextureAddRef(WGPUExternalTexture externalTexture) WGPU_FUNCTION_ATTRIBUTE;
+WGPU_EXPORT void wgpuExternalTextureRelease(WGPUExternalTexture externalTexture) WGPU_FUNCTION_ATTRIBUTE;
+
+/** @} */
+
+/**
  * \defgroup WGPUInstanceMethods WGPUInstance methods
  * \brief Functions whose first argument has type WGPUInstance.
  *
@@ -6203,6 +6506,7 @@ WGPU_EXPORT void wgpuRenderBundleEncoderInsertDebugMarker(WGPURenderBundleEncode
 WGPU_EXPORT void wgpuRenderBundleEncoderPopDebugGroup(WGPURenderBundleEncoder renderBundleEncoder) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderBundleEncoderPushDebugGroup(WGPURenderBundleEncoder renderBundleEncoder, WGPUStringView groupLabel) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderBundleEncoderSetBindGroup(WGPURenderBundleEncoder renderBundleEncoder, uint32_t groupIndex, WGPU_NULLABLE WGPUBindGroup group, size_t dynamicOffsetCount, uint32_t const * dynamicOffsets) WGPU_FUNCTION_ATTRIBUTE;
+WGPU_EXPORT void wgpuRenderBundleEncoderSetImmediates(WGPURenderBundleEncoder renderBundleEncoder, uint32_t offset, void const * data, size_t size) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderBundleEncoderSetIndexBuffer(WGPURenderBundleEncoder renderBundleEncoder, WGPUBuffer buffer, WGPUIndexFormat format, uint64_t offset, uint64_t size) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderBundleEncoderSetLabel(WGPURenderBundleEncoder renderBundleEncoder, WGPUStringView label) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderBundleEncoderSetPipeline(WGPURenderBundleEncoder renderBundleEncoder, WGPURenderPipeline pipeline) WGPU_FUNCTION_ATTRIBUTE;
@@ -6235,6 +6539,7 @@ WGPU_EXPORT void wgpuRenderPassEncoderSetBindGroup(WGPURenderPassEncoder renderP
  * The RGBA blend constant. Represents an `f32` color using @ref DoubleAsSupertype.
  */
 WGPU_EXPORT void wgpuRenderPassEncoderSetBlendConstant(WGPURenderPassEncoder renderPassEncoder, WGPUColor const * color) WGPU_FUNCTION_ATTRIBUTE;
+WGPU_EXPORT void wgpuRenderPassEncoderSetImmediates(WGPURenderPassEncoder renderPassEncoder, uint32_t offset, void const * data, size_t size) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderPassEncoderSetIndexBuffer(WGPURenderPassEncoder renderPassEncoder, WGPUBuffer buffer, WGPUIndexFormat format, uint64_t offset, uint64_t size) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderPassEncoderSetLabel(WGPURenderPassEncoder renderPassEncoder, WGPUStringView label) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuRenderPassEncoderSetPipeline(WGPURenderPassEncoder renderPassEncoder, WGPURenderPipeline pipeline) WGPU_FUNCTION_ATTRIBUTE;
@@ -6431,6 +6736,7 @@ WGPU_EXPORT WGPUTextureFormat wgpuTextureGetFormat(WGPUTexture texture) WGPU_FUN
 WGPU_EXPORT uint32_t wgpuTextureGetHeight(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT uint32_t wgpuTextureGetMipLevelCount(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT uint32_t wgpuTextureGetSampleCount(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
+WGPU_EXPORT WGPUTextureViewDimension wgpuTextureGetTextureBindingViewDimension(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT WGPUTextureUsage wgpuTextureGetUsage(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT uint32_t wgpuTextureGetWidth(WGPUTexture texture) WGPU_FUNCTION_ATTRIBUTE;
 WGPU_EXPORT void wgpuTextureSetLabel(WGPUTexture texture, WGPUStringView label) WGPU_FUNCTION_ATTRIBUTE;

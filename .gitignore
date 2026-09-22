@@ -16,25 +16,25 @@
 *.wasm
 node_modules
 
-!/build/assets/**/*.obj
+/build/*
+/examples/build/*
+!/build/.gitkeep
+!/examples/build/.gitkeep
 
-/build/shaders/*/*.wgsl
-/build/shaders/*/*.spv
-/build/shaders/*/*.metal
-/build/shaders/*/*.msl
-/build/shaders/*/*.frag
-/build/shaders/*/*.vert
-/build/shaders/*/*.dxil
-/build/*.exe
-/build/*.js
-/build/.shader_hash
+!/gpu/lib/d3d12ma/d3d12ma.lib
 
-libs/vma/build
+gpu/lib/vma/build
+gpu/lib/vma/*.h
+!/gpu/lib/vma/vma_windows_x86_64.lib
+!/gpu/lib/vma/libvma_linux_x86_64.a
+!/gpu/lib/vma/libvma_macosx_x86_64.a
 
-!/libs/d3d12ma/d3d12ma.lib
-!/libs/vma/vma_windows_x86_64.lib
-!/libs/vma/libvma_linux_x86_64.a
-!/libs/vma/libvma_macosx_x86_64.a
+utils/imgui/build
+!/utils/imgui/imgui_windows_x86_64.lib
+!/utils/imgui/libimgui_linux_x86_64.a
+!/utils/imgui/libimgui_macosx_x86_64.a
+
+examples/temp
 
 # IDE/Editor
 .vscode

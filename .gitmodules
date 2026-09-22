@@ -1,3 +1,4 @@
-[submodule "build/assets"]
-	path = build/assets
+[submodule "examples/build/assets"]
+	path = examples/build/assets
 	url = https://github.com/Capati/odin-gpu-assets
+	ignore = dirty

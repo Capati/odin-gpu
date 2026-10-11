@@ -26,12 +26,12 @@ struct KernelContext_0
 };
 
 
-#line 42 "utils/microui/shaders/microui.slang"
+#line 42 "utils/microui/mu_renderer.slang"
 [[fragment]] pixelOutput_0 fs_main(pixelInput_0 _S1 [[stage_in]], float4 position_0 [[position]], texture2d<float, access::sample> r_color_texture_1 [[texture(1)]], sampler r_color_sampler_1 [[sampler(2)]])
 {
 
 #line 42
-    KernelContext_0 kernelContext_0;
+    thread KernelContext_0 kernelContext_0;
 
 #line 42
     (&kernelContext_0)->r_color_texture_0 = r_color_texture_1;
@@ -40,7 +40,7 @@ struct KernelContext_0
     (&kernelContext_0)->r_color_sampler_0 = r_color_sampler_1;
 
 #line 42
-    pixelOutput_0 _S2 = { (((&kernelContext_0)->r_color_texture_0).sample((r_color_sampler_1), (_S1.uv_0))) * _S1.color_0 };
+    pixelOutput_0 _S2 = { ((r_color_texture_1).sample((r_color_sampler_1), (_S1.uv_0))) * _S1.color_0 };
 
     return _S2;
 }

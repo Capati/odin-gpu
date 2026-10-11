@@ -3,7 +3,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 5 "utils/microui/shaders/microui.slang"
+#line 5 "utils/microui/mu_renderer.slang"
 struct vs_main_Result_0
 {
     float4 position_0 [[position]];

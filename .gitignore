@@ -41,6 +41,8 @@ utils/imgui/build
 
 examples/temp
 
+!/utils/tobj/**/*.obj
+
 # IDE/Editor
 .vscode
 !.vscode/launch.json

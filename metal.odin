@@ -1,2 +1,0 @@
-#+build darwin
-package gpu

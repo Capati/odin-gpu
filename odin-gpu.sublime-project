@@ -1,294 +1,1368 @@
 {
     "folders": [
         {
-            "path": ".",
-        },
+            "path": "."
+        }
     ],
     "build_systems": [
         {
             "name": "Odin Run (Debug)",
-            "working_dir": "${project_path}",
+            "working_dir": "${project_path}/examples",
             "file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
             "variants": [
                 {
-                    "name": "Info",
+                    "name": "Build surface_stress",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\info", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "surface_stress", "run"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/info", "run"
-                        ],
+                        "cmd": ["./build.sh", "surface_stress", "run"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/info", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "surface_stress", "run"]
+                    }
                 },
                 {
-                    "name": "Blend Linear",
+                    "name": "Build GLTF Viewer 2",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\blend", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_viewer2"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/blend", "run"
-                        ],
+                        "cmd": ["./build.sh", "gltf_viewer2"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/blend", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "gltf_viewer2"]
+                    }
                 },
                 {
-                    "name": "Blend sRGB",
+                    "name": "Build surface_stress [release]",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\blend", "run", "USE_SRGB"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "surface_stress", "release"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/blend", "run", "USE_SRGB"
-                        ],
+                        "cmd": ["./build.sh", "surface_stress", "release"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/blend", "run", "USE_SRGB"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "surface_stress", "release"]
+                    }
                 },
                 {
-                    "name": "Clear Screen",
+                    "name": "Build Wasm Layout",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\clear_screen", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "layout", "web"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/clear_screen", "run"
-                        ],
+                        "cmd": ["./build.sh", "layout", "web"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/clear_screen", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "layout", "web"]
+                    }
                 },
                 {
-                    "name": "Triangle",
+                    "name": "Build Temp",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\triangle", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "temp"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/triangle", "run"
-                        ],
+                        "cmd": ["./build.sh", "temp"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/triangle", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "temp"]
+                    }
                 },
                 {
-                    "name": "Square",
+                    "name": "Build Temp [release]",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\square", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "temp", "release"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/square", "run"
-                        ],
+                        "cmd": ["./build.sh", "temp", "release"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/square", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "temp", "release"]
+                    }
                 },
                 {
-                    "name": "Stencil Triangles",
+                    "name": "Build Temp (Web)",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\stencil_triangles", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "temp", "web"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/stencil_triangles", "run"
-                        ],
+                        "cmd": ["./build.sh", "temp", "web"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/stencil_triangles", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "temp", "web"]
+                    }
                 },
                 {
-                    "name": "Cube",
+                    "name": "Run Temp",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\cube", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "temp", "run"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/cube", "run"
-                        ],
+                        "cmd": ["./build.sh", "temp", "run"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/cube", "run"
-                        ],
+                        "cmd": ["./build.sh", "temp", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Clear Screen",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "clear_screen"]
                     },
+                    "linux": {
+                        "cmd": ["./build.sh", "clear_screen"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "clear_screen"]
+                    }
                 },
                 {
-                    "name": "Rotating Cube",
+                    "name": "Build Clear Screen [release]",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\rotating_cube", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "clear_screen", "release"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/rotating_cube", "run"
-                        ],
+                        "cmd": ["./build.sh", "clear_screen", "release"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/rotating_cube", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "clear_screen", "release"]
+                    }
                 },
                 {
-                    "name": "Two Cubes",
+                    "name": "Build Clear Screen (Web)",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\two_cubes", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "clear_screen", "web"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/two_cubes", "run"
-                        ],
+                        "cmd": ["./build.sh", "clear_screen", "web"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/two_cubes", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "clear_screen", "web"]
+                    }
                 },
                 {
-                    "name": "Fractal Cube",
+                    "name": "Run Clear Screen",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\fractal_cube", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "clear_screen", "run"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/fractal_cube", "run"
-                        ],
+                        "cmd": ["./build.sh", "clear_screen", "run"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/fractal_cube", "run"
-                        ],
+                        "cmd": ["./build.sh", "clear_screen", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Pristine Grid",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "pristine_grid"]
                     },
+                    "linux": {
+                        "cmd": ["./build.sh", "pristine_grid"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "pristine_grid"]
+                    }
                 },
                 {
-                    "name": "Cube Textured",
+                    "name": "Build Pristine Grid [release]",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\cube_textured", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "pristine_grid", "release"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/cube_textured", "run"
-                        ],
+                        "cmd": ["./build.sh", "pristine_grid", "release"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/cube_textured", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "pristine_grid", "release"]
+                    }
                 },
                 {
-                    "name": "OBJ Model",
+                    "name": "Build Pristine Grid (Web)",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\obj_model", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "pristine_grid", "web"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/obj_model", "run"
-                        ],
+                        "cmd": ["./build.sh", "pristine_grid", "web"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/obj_model", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "pristine_grid", "web"]
+                    }
                 },
                 {
-                    "name": "Cubemap",
+                    "name": "Run Pristine Grid",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\cubemap", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "pristine_grid", "run"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/cubemap", "run"
-                        ],
+                        "cmd": ["./build.sh", "pristine_grid", "run"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/cubemap", "run"
-                        ],
+                        "cmd": ["./build.sh", "pristine_grid", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Minimal",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "minimal"]
                     },
+                    "linux": {
+                        "cmd": ["./build.sh", "minimal"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "minimal"]
+                    }
                 },
                 {
-                    "name": "Microui",
+                    "name": "Build Minimal [release]",
                     "windows": {
-                        "cmd": [
-                            "cmd", "/c", "build.bat", "examples\\microui", "run"
-                        ],
+                        "cmd": ["cmd", "/c", "build.bat", "minimal", "release"]
                     },
                     "linux": {
-                        "cmd": [
-                            "./build.sh", "examples/microui", "run"
-                        ],
+                        "cmd": ["./build.sh", "minimal", "release"]
                     },
                     "osx": {
-                        "cmd": [
-                            "./build.sh", "examples/microui", "run"
-                        ],
-                    },
+                        "cmd": ["./build.sh", "minimal", "release"]
+                    }
                 },
-            ],
+                {
+                    "name": "Build Minimal (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "minimal", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "minimal", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "minimal", "web"]
+                    }
+                },
+                {
+                    "name": "Run Minimal",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "minimal", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "minimal", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "minimal", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Triangle",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "triangle"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "triangle"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "triangle"]
+                    }
+                },
+                {
+                    "name": "Build Triangle [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "triangle", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "triangle", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "triangle", "release"]
+                    }
+                },
+                {
+                    "name": "Build Triangle (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "triangle", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "triangle", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "triangle", "web"]
+                    }
+                },
+                {
+                    "name": "Run Triangle",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "triangle", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "triangle", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "triangle", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Square",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "square"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "square"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "square"]
+                    }
+                },
+                {
+                    "name": "Build Square [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "square", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "square", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "square", "release"]
+                    }
+                },
+                {
+                    "name": "Build Square (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "square", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "square", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "square", "web"]
+                    }
+                },
+                {
+                    "name": "Run Square",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "square", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "square", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "square", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Blend",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "blend"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "blend"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "blend"]
+                    }
+                },
+                {
+                    "name": "Build Blend [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "blend", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "blend", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "blend", "release"]
+                    }
+                },
+                {
+                    "name": "Build Blend (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "blend", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "blend", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "blend", "web"]
+                    }
+                },
+                {
+                    "name": "Run Blend",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "blend", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "blend", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "blend", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Blend sRGB",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "blend", "USE_SRGB"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "blend", "USE_SRGB"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "blend", "USE_SRGB"]
+                    }
+                },
+                {
+                    "name": "Build Blend sRGB (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "blend", "web", "USE_SRGB"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "blend", "web", "USE_SRGB"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "blend", "web", "USE_SRGB"]
+                    }
+                },
+                {
+                    "name": "Run Blend sRGB",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "blend", "run", "USE_SRGB"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "blend", "run", "USE_SRGB"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "blend", "run", "USE_SRGB"]
+                    }
+                },
+
+                {
+                    "name": "Build Vertex Buffer",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "vertex_buffer"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "vertex_buffer"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "vertex_buffer"]
+                    }
+                },
+                {
+                    "name": "Build Vertex Buffer [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "vertex_buffer", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "vertex_buffer", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "vertex_buffer", "release"]
+                    }
+                },
+                {
+                    "name": "Build Vertex Buffer (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "vertex_buffer", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "vertex_buffer", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "vertex_buffer", "web"]
+                    }
+                },
+                {
+                    "name": "Run Vertex Buffer",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "vertex_buffer", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "vertex_buffer", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "vertex_buffer", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Coordinate System",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "coordinate_system"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "coordinate_system"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "coordinate_system"]
+                    }
+                },
+                {
+                    "name": "Build Coordinate System [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "coordinate_system", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "coordinate_system", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "coordinate_system", "release"]
+                    }
+                },
+                {
+                    "name": "Build Coordinate System (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "coordinate_system", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "coordinate_system", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "coordinate_system", "web"]
+                    }
+                },
+                {
+                    "name": "Run Coordinate System",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "coordinate_system", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "coordinate_system", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "coordinate_system", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Out-of-bounds Viewport",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "out_of_bounds_viewport"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport"]
+                    }
+                },
+                {
+                    "name": "Build Out-of-bounds Viewport [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "out_of_bounds_viewport", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport", "release"]
+                    }
+                },
+                {
+                    "name": "Build Out-of-bounds Viewport (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "out_of_bounds_viewport", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport", "web"]
+                    }
+                },
+                {
+                    "name": "Run Out-of-bounds Viewport",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "out_of_bounds_viewport", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "out_of_bounds_viewport", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Pseudorandom Number Generation",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "prng"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "prng"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "prng"]
+                    }
+                },
+                {
+                    "name": "Build Pseudorandom Number Generation [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "prng", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "prng", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "prng", "release"]
+                    }
+                },
+                {
+                    "name": "Build Pseudorandom Number Generation (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "prng", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "prng", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "prng", "web"]
+                    }
+                },
+                {
+                    "name": "Run Pseudorandom Number Generation",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "prng", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "prng", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "prng", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Textured Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "textured_cube"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "textured_cube"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "textured_cube"]
+                    }
+                },
+                {
+                    "name": "Build Textured Cube [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "textured_cube", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "textured_cube", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "textured_cube", "release"]
+                    }
+                },
+                {
+                    "name": "Build Textured Cube (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "textured_cube", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "textured_cube", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "textured_cube", "web"]
+                    }
+                },
+                {
+                    "name": "Run Textured Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "textured_cube", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "textured_cube", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "textured_cube", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Rotating Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "rotating_cube"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "rotating_cube"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "rotating_cube"]
+                    }
+                },
+                {
+                    "name": "Build Rotating Cube [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "rotating_cube", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "rotating_cube", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "rotating_cube", "release"]
+                    }
+                },
+                {
+                    "name": "Build Rotating Cube (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "rotating_cube", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "rotating_cube", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "rotating_cube", "web"]
+                    }
+                },
+                {
+                    "name": "Run Rotating Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "rotating_cube", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "rotating_cube", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "rotating_cube", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Two Cubes",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "two_cubes"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "two_cubes"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "two_cubes"]
+                    }
+                },
+                {
+                    "name": "Build Two Cubes [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "two_cubes", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "two_cubes", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "two_cubes", "release"]
+                    }
+                },
+                {
+                    "name": "Build Two Cubes (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "two_cubes", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "two_cubes", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "two_cubes", "web"]
+                    }
+                },
+                {
+                    "name": "Run Two Cubes",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "two_cubes", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "two_cubes", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "two_cubes", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Instanced Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "instanced_cube"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "instanced_cube"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "instanced_cube"]
+                    }
+                },
+                {
+                    "name": "Build Instanced Cube [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "instanced_cube", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "instanced_cube", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "instanced_cube", "release"]
+                    }
+                },
+                {
+                    "name": "Build Instanced Cube (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "instanced_cube", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "instanced_cube", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "instanced_cube", "web"]
+                    }
+                },
+                {
+                    "name": "Run Instanced Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "instanced_cube", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "instanced_cube", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "instanced_cube", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Cubemap",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cubemap"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cubemap"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cubemap"]
+                    }
+                },
+                {
+                    "name": "Build Cubemap [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cubemap", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cubemap", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cubemap", "release"]
+                    }
+                },
+                {
+                    "name": "Build Cubemap (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cubemap", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cubemap", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cubemap", "web"]
+                    }
+                },
+                {
+                    "name": "Run Cubemap",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cubemap", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cubemap", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cubemap", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build 3D Texture",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "texture_3d"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "texture_3d"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "texture_3d"]
+                    }
+                },
+                {
+                    "name": "Build 3D Texture [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "texture_3d", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "texture_3d", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "texture_3d", "release"]
+                    }
+                },
+                {
+                    "name": "Build 3D Texture (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "texture_3d", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "texture_3d", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "texture_3d", "web"]
+                    }
+                },
+                {
+                    "name": "Run 3D Texture",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "texture_3d", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "texture_3d", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "texture_3d", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Points",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "points"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "points"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "points"]
+                    }
+                },
+                {
+                    "name": "Build Points [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "points", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "points", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "points", "release"]
+                    }
+                },
+                {
+                    "name": "Build Points (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "points", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "points", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "points", "web"]
+                    }
+                },
+                {
+                    "name": "Run Points",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "points", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "points", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "points", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build GLTF Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_cube"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_cube"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_cube"]
+                    }
+                },
+                {
+                    "name": "Build GLTF Cube [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_cube", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_cube", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_cube", "release"]
+                    }
+                },
+                {
+                    "name": "Build GLTF Cube (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_cube", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_cube", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_cube", "web"]
+                    }
+                },
+                {
+                    "name": "Run GLTF Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_cube", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_cube", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_cube", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build GLTF Viewer",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_viewer"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_viewer"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_viewer"]
+                    }
+                },
+                {
+                    "name": "Build GLTF Viewer [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_viewer", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_viewer", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_viewer", "release"]
+                    }
+                },
+                {
+                    "name": "Build GLTF Viewer (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_viewer", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_viewer", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_viewer", "web"]
+                    }
+                },
+                {
+                    "name": "Run GLTF Viewer",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "gltf_viewer", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "gltf_viewer", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "gltf_viewer", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Stencil Triangles",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "stencil_triangles"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "stencil_triangles"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "stencil_triangles"]
+                    }
+                },
+                {
+                    "name": "Build Stencil Triangles [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "stencil_triangles", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "stencil_triangles", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "stencil_triangles", "release"]
+                    }
+                },
+                {
+                    "name": "Build Stencil Triangles (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "stencil_triangles", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "stencil_triangles", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "stencil_triangles", "web"]
+                    }
+                },
+                {
+                    "name": "Run Stencil Triangles",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "stencil_triangles", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "stencil_triangles", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "stencil_triangles", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cube"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cube"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cube"]
+                    }
+                },
+                {
+                    "name": "Build Cube [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cube", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cube", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cube", "release"]
+                    }
+                },
+                {
+                    "name": "Build Cube (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cube", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cube", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cube", "web"]
+                    }
+                },
+                {
+                    "name": "Run Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "cube", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "cube", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "cube", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build MicroUI",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "microui"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "microui"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "microui"]
+                    }
+                },
+                {
+                    "name": "Build MicroUI [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "microui", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "microui", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "microui", "release"]
+                    }
+                },
+                {
+                    "name": "Build MicroUI (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "microui", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "microui", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "microui", "web"]
+                    }
+                },
+                {
+                    "name": "Run MicroUI",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "microui", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "microui", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "microui", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build ImGui",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "imgui"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "imgui"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "imgui"]
+                    }
+                },
+                {
+                    "name": "Build ImGui [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "imgui", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "imgui", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "imgui", "release"]
+                    }
+                },
+                {
+                    "name": "Build ImGui (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "imgui", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "imgui", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "imgui", "web"]
+                    }
+                },
+                {
+                    "name": "Run ImGui",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "imgui", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "imgui", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "imgui", "run"]
+                    }
+                },
+                {
+                    "name": "Build Probe",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "probe"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "probe"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "probe"]
+                    }
+                },
+                {
+                    "name": "Build Probe [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "probe", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "probe", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "probe", "release"]
+                    }
+                },
+                {
+                    "name": "Run Probe",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "probe", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "probe", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "probe", "run"]
+                    }
+                },
+                {
+                    "name": "Build OBJ Model",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "obj_model"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "obj_model"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "obj_model"]
+                    }
+                },
+                {
+                    "name": "Build OBJ Model [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "obj_model", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "obj_model", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "obj_model", "release"]
+                    }
+                },
+                {
+                    "name": "Build OBJ Model (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "obj_model", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "obj_model", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "obj_model", "web"]
+                    }
+                },
+                {
+                    "name": "Run OBJ Model",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "obj_model", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "obj_model", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "obj_model", "run"]
+                    }
+                }
+            ]
         }
     ],
     "settings": {
         "auto_complete": false,
         "LSP": {
             "odin": {
-                "enabled": true,
-            },
-        },
-    },
+                "enabled": true
+            }
+        }
+    }
 }

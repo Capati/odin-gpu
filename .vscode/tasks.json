@@ -5,20 +5,68 @@
             "label": "Run",
             "type": "shell",
             "windows": {
-                "command": "cmd /c build.bat examples\\${input:exampleName} run"
+                "command": "cmd /c build.bat ${input:exampleName} run"
             },
             "linux": {
-                "command": "./build.sh ${input:exampleName} run"
+                "command": ".//build.sh /${input:exampleName} run"
             },
             "osx": {
-                "command": "./build.sh ${input:exampleName} run"
+                "command": ".//build.sh /${input:exampleName} run"
             },
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}/examples"
             },
             "group": {
                 "kind": "build",
                 "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "windows": {
+                "command": "cmd /c build.bat ${input:exampleName}"
+            },
+            "linux": {
+                "command": ".//build.sh /${input:exampleName}"
+            },
+            "osx": {
+                "command": ".//build.sh /${input:exampleName}"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/examples"
+            },
+            "group": {
+                "kind": "build",
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build (release)",
+            "type": "shell",
+            "windows": {
+                "command": "cmd /c build.bat ${input:exampleName} release"
+            },
+            "linux": {
+                "command": ".//build.sh /${input:exampleName} release"
+            },
+            "osx": {
+                "command": ".//build.sh /${input:exampleName} release"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/examples"
+            },
+            "group": {
+                "kind": "build",
             },
             "presentation": {
                 "reveal": "always",
@@ -35,17 +83,31 @@
             "options": [
                 "blend",
                 "clear_screen",
+                "coordinate_system",
                 "cube",
-                "cube_textured",
                 "cubemap",
-                "fractal_cube",
-                "info",
+                "gltf_cube",
+                "gltf_viewer",
+                "imgui",
+                "instanced_cube",
+                "microui",
+                "minimal",
                 "obj_model",
+                "out_of_bounds_viewport",
+                "points",
+                "pristine_grid",
+                "prng",
+                "probe",
                 "rotating_cube",
                 "square",
                 "stencil_triangles",
+                "surface_stress",
+                "temp",
+                "texture_3d",
+                "textured_cube",
                 "triangle",
                 "two_cubes",
+                "vertex_buffer",
             ]
         }
     ]

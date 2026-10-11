@@ -10,6 +10,7 @@ load_obj_filename :: proc(
 ) -> (
     models: []Model,
     materials: []Material,
+    mtl_err: Maybe(Error),
     err: Maybe(Error),
 ) {
     unimplemented("[load_obj_filename] not supported in WASM environment", loc)

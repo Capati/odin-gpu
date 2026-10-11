@@ -1,3 +1,10 @@
+/* -------------------------------------------------------------------------- *
+ * Tiny OBJ Loader
+ *
+ * Ref:
+ * https://github.com/Twinklebear/tobj
+ * https://github.com/syoyo/tinyobjloader
+ * -------------------------------------------------------------------------- */
 package tobj
 
 // Core
@@ -18,6 +25,8 @@ Error :: enum {
     Unrecognized_Character,
     Parse_Value_Error,
     Position_Parse_Error,
+    Scaling_By_Zero_Error,
+    Color_Parse_Error,
     Normal_Parse_Error,
     Texcoord_Parse_Error,
     Face_Parse_Error,
@@ -77,14 +86,14 @@ Mesh :: struct {
 Load_Options :: struct {
     // Triangulate all faces.
     //
-    // * Points (one point) and lines (two points) are blown up to zero area
+    // - Points (one point) and lines (two points) are blown up to zero area
     //   triangles via point duplication. Except if `ignore_points` or
     //   `ignore_lines` is/are set to `true`, resp.
     //
-    // * The resulting `Mesh`'s `face_arities` will be empty as all faces are
+    // - The resulting `Mesh`'s `face_arities` will be empty as all faces are
     //   guranteed to have arity `3`.
     //
-    // * Only polygons that are trivially convertible to triangle fans are
+    // - Only polygons that are trivially convertible to triangle fans are
     //   supported. Arbitrary polygons may not behave as expected. The best
     //   solution would be to convert your mesh to solely consist of triangles
     //   in your modeling software.
@@ -107,7 +116,7 @@ Load_Options :: struct {
     ignore_lines:  bool,
 }
 
-// Typical `Load_Options` for using meshes in a GPU/relatime context.
+// Typical `Load_Options` for using meshes in a GPU/realtime context.
 //
 // Faces are *triangulated* and *degenerate faces* (points & lines) are *discarded*.
 DEFAULT_LOAD_OPTIONS :: Load_Options {
@@ -125,6 +134,11 @@ Model :: struct {
     name: string,
 }
 
+// Named enum for the `-imfchan` texture option channel selector.
+Texture_Imfchan :: enum u8 {
+    R, G, B, M, L, Z,
+}
+
 // Supported texture options.
 Texture_Options :: struct {
     blendu:  bool,
@@ -140,9 +154,7 @@ Texture_Options :: struct {
     texres:  Maybe(int),
     clamp:   bool,
     bm:      Maybe(f32),
-    imfchan: Maybe(enum u8 {
-        R, G, B, M, L, Z,
-    }),
+    imfchan: Maybe(Texture_Imfchan),
 }
 
 // Default texture options peer specs.
@@ -274,7 +286,8 @@ Material_Loader_Callback_Info :: struct {
     userdata: rawptr,
 }
 
-// Load the various objects specified in the `OBJ` reader and any associated `MTL` file.
+// Load the various objects specified in the `OBJ` reader and any associated `MTL`
+// file.
 //
 // Inputs:
 //
@@ -286,8 +299,12 @@ Material_Loader_Callback_Info :: struct {
 // Returns:
 //
 // - `models` - All the models loaded from the file.
-// - `materials` - All materials from referenced material libraries.
-// - `err` - A error that may occur while loading `OBJ` and `MTL` files., `nil` otherwise.
+// - `materials` - All materials from referenced material libraries. If a
+//   referenced `MTL` file failed to load, `materials` will be empty and the
+//   underlying error is available for the caller to inspect via `mtl_err`.
+// - `mtl_err` - Set if a referenced `MTL` file failed to load. `nil` if no
+//   `mtllib` was referenced, or it loaded successfully.
+// - `err` - A error that may occur while loading `OBJ` files, `nil` otherwise.
 load_obj_reader :: proc(
     reader: ^bufio.Reader,
     material_loader_info: Material_Loader_Callback_Info = {},
@@ -297,12 +314,14 @@ load_obj_reader :: proc(
 ) -> (
     models: []Model,
     materials: []Material,
+    mtl_err: Maybe(Error),
     err: Maybe(Error),
 ) {
     context.allocator = allocator
 
     ta := context.temp_allocator
-    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == ta)
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(
+        ignore = allocator == ta || context.allocator == ta)
 
     tmp_models: Tmp_Models
 
@@ -316,24 +335,24 @@ load_obj_reader :: proc(
     tmp_models.normal.allocator = ta
     tmp_models.faces.allocator = ta
 
+    tmp_models.name = strings.clone("unnamed_object", allocator)
+
     defer if err != nil {
-        models_destroy(tmp_models.models[:])
+        for f in tmp_models.faces {
+            if poly, ok := f.(Polygon); ok {
+                delete(poly, allocator)
+            }
+        }
+        models_destroy(tmp_models.models[:], allocator)
+        delete(tmp_models.name, allocator)
     }
 
     tmp_materials: Tmp_Materials
-
-    // This materials list is owned by the caller
     tmp_materials.materials.allocator = allocator
-
-    // Other data are exported later
     tmp_materials.mat_map.allocator = ta
 
     defer if err != nil {
-        materials_destroy(tmp_materials.materials[:])
-        // Clean up material map keys
-        for key in tmp_materials.mat_map {
-            delete(key)
-        }
+        materials_destroy(tmp_materials.materials[:], allocator)
     }
 
     for {
@@ -364,12 +383,32 @@ load_obj_reader :: proc(
     // tell us when it's done, so if we're parsing an object push the last one
     // on the list as well
     if len(tmp_models.faces) > 0 {
-        mesh := export_faces(&tmp_models, load_options) or_return
+        mesh, mesh_err := export_faces(&tmp_models, load_options)
+        if mesh_err != nil {
+            mesh_destroy(mesh)
+            err = mesh_err
+            return
+        }
         append(&tmp_models.models, Model{ mesh, tmp_models.name })
+        tmp_models.name = ""
+    } else if tmp_models.explicit {
+        // File ends with a named object that never got faces. Still emit it
+        // so the object isn't silently dropped.
+        append(&tmp_models.models, Model{
+            mesh = Mesh{ material_id = tmp_models.mat_id },
+            name = tmp_models.name,
+        })
+        tmp_models.name = ""
+    } else {
+        // Nothing was parsed under the pending name and it was never moved
+        // into a Model -- free it.
+        delete(tmp_models.name, allocator)
+        tmp_models.name = ""
     }
 
     models = tmp_models.models[:]
     materials = tmp_materials.materials[:]
+    mtl_err = tmp_materials.mtl_err
 
     return
 }
@@ -397,12 +436,26 @@ load_mtl_reader :: proc(
     context.allocator = allocator
 
     ta := context.temp_allocator
-    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == ta)
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(
+        ignore = allocator == ta || context.allocator == ta)
 
     tmp_materials: Tmp_Materials
     tmp_materials.materials.allocator = allocator
     tmp_materials.mat_map.allocator = allocator
     cur_mat: Material
+
+    defer if err != nil {
+        materials_destroy(tmp_materials.materials[:], allocator)
+        delete(cur_mat.name, allocator)
+        for param, value in cur_mat.unknown_param {
+            delete(param, allocator)
+            delete(value, allocator)
+        }
+        delete(cur_mat.unknown_param)
+        // Map keys alias the Material.name allocations freed above; only the
+        // map's own storage needs deleting.
+        delete(tmp_materials.mat_map)
+    }
 
     for {
         line, line_err := bufio.reader_read_string(reader, '\n', ta)
@@ -441,11 +494,7 @@ load_mtl_reader :: proc(
 // - `load_options` - Governs on-the-fly processing of the mesh during loading.
 // - `allocator` - The allocator used to allocate data for models and materials.
 //
-// Returns:
-//
-// - `models` - All the models loaded from the file.
-// - `materials` - All materials from referenced material libraries.
-// - `err` - A error that may occur while loading `OBJ` and `MTL` files., `nil` otherwise.
+// Returns: see `load_obj_reader`.
 load_obj_bytes :: proc(
     data: []byte,
     material_loader_info: Material_Loader_Callback_Info = {},
@@ -455,6 +504,7 @@ load_obj_bytes :: proc(
 ) -> (
     models: []Model,
     materials: []Material,
+    mtl_err: Maybe(Error),
     err: Maybe(Error),
 ) {
     reader: bufio.Reader
@@ -502,6 +552,16 @@ model_destroy :: proc(model: Model, allocator := context.allocator) {
     delete(model.name)
 }
 
+mesh_destroy :: proc(mesh: Mesh, allocator := context.allocator) {
+    context.allocator = allocator
+    delete(mesh.positions)
+    delete(mesh.vertex_color)
+    delete(mesh.normals)
+    delete(mesh.texcoords)
+    delete(mesh.indices)
+    delete(mesh.face_arities)
+}
+
 models_destroy :: proc(models: []Model, allocator := context.allocator) {
     for &m in models {
         model_destroy(m, allocator)
@@ -534,14 +594,7 @@ materials_destroy :: proc(materials: []Material, allocator := context.allocator)
 
 material_load_result_destroy :: proc(result: MTL_Load_Result, allocator := context.allocator) {
     context.allocator = allocator
-
-    // Free all materials
     materials_destroy(result.materials)
-
-    // Free all material map keys
-    for key in result.mat_map {
-        delete(key)
-    }
     delete(result.mat_map)
 }
 
@@ -561,7 +614,8 @@ Tmp_Models :: struct {
     normal:   [dynamic]f32,
     faces:    [dynamic]Face,
     name:     string,
-    mat_id:   uint,
+    mat_id:   Maybe(uint),
+    explicit: bool,
 }
 
 Tmp_Materials :: struct {
@@ -596,7 +650,8 @@ parse_obj_line :: proc(
 
     switch tokens[0] {
     // Ignore empty/comment line
-    case "#", "": return
+    case "#", "":
+        return
 
     // Vertex
     case "v":
@@ -604,9 +659,40 @@ parse_obj_line :: proc(
             return .Position_Parse_Error
         }
 
-        // Add vertex colors if present
+        // Optionally 0, 1, or 3 more float values follow the required x y z:
+        //   0 -> just coordinates
+        //   1 -> w value that scales the x, y, z just parsed
+        //   3 -> r g b vertex color values
+        // w and rgb must not appear together.
+        rest: []string
         if len(tokens) > 4 {
-            parse_f32_n(tokens[4:], &models.colors, 3, loc)
+            rest = tokens[4:]
+        }
+        switch len(rest) {
+        case 0:
+            // Just coordinates, nothing more to do.
+        case 1:
+            w, w_ok := parse_f32(rest[0])
+            if !w_ok {
+                return .Position_Parse_Error
+            }
+            if w == 0 {
+                return .Scaling_By_Zero_Error
+            }
+            // Apply to the x, y, z just appended.
+            n := len(models.pos)
+            models.pos[n - 3] /= w
+            models.pos[n - 2] /= w
+            models.pos[n - 1] /= w
+        case 3:
+            color, color_ok := parse_float3(rest)
+            if !color_ok {
+                return .Color_Parse_Error
+            }
+            append(&models.colors, color[0], color[1], color[2])
+        case:
+            // Too many or too few (2) trailing values.
+            return .Color_Parse_Error
         }
 
     // Vertex texture
@@ -636,34 +722,57 @@ parse_obj_line :: proc(
 
     // Objects and groups
     case "o", "g":
-        // If we were already parsing an object then a new object name signals
-        // the end of the current one, so push it onto our list of objects
-        if len(models.faces) > 0 {
-            mesh := export_faces(models, load_options) or_return
-            append(&models.models, Model{ mesh, models.name })
+        // A new object name ends the current one. Flush it even if it
+        // collected no faces at all.
+        push := len(models.faces) > 0 || models.explicit
+        mesh, mesh_err := export_faces(models, load_options)
+        if mesh_err != nil {
+            mesh_destroy(mesh)
+            err = mesh_err
+            return
         }
-        name_view := tokens[1]
+        if push {
+            append(&models.models, Model{ mesh, models.name })
+        } else {
+            // The implicit "unnamed_object" with no content: nothing captured
+            // the name in a Model, free it before overwriting.
+            delete(models.name, allocator)
+        }
+        models.name = "" // ownership moved into the Model above (or freed)
+
+        name_view := ""
+        if len(tokens) > 1 {
+            name_view = tokens[1] // guard against a bare `o`/`g` line
+        }
         if len(name_view) > 0 {
             models.name = strings.clone(name_view, allocator)
         } else {
             models.name = strings.clone("unnamed_object", allocator)
         }
+        models.explicit = true
 
     // Material
     case "mtllib":
         if material_loader_info.callback != nil {
             mtllib := tokens[1]
-            mat := material_loader_info.callback(
-                mtllib, material_loader_info.userdata, allocator, loc) or_return
-            // Merge the loaded material lib with any currently loaded ones,
-            // offsetting the indices of the appended materials by our current length
-            mat_offset := uint(len(materials.materials))
-            append(&materials.materials, ..mat.materials[:])
-            for k, v in mat.mat_map {
-                materials.mat_map[k] = v + mat_offset
+            mat, load_err := material_loader_info.callback(
+                mtllib, material_loader_info.userdata, allocator, loc)
+            if load_err != nil {
+                // A bad/missing MTL file does not abort the OBJ load. Record the
+                // error and keep parsing with whatever materials (possibly none) we
+                // already have.
+                materials.mtl_err = load_err
+            } else {
+                // Merge the loaded material lib with any currently loaded ones,
+                // offsetting the indices of the appended materials by our current length
+                mat_offset := uint(len(materials.materials))
+                append(&materials.materials, ..mat.materials[:])
+                for k, v in mat.mat_map {
+                    materials.mat_map[k] = v + mat_offset
+                }
+                delete(mat.mat_map)
+                delete(mat.materials)
             }
-            delete(mat.mat_map)
-            delete(mat.materials)
         } else {
             log.warn("Material loader not set")
         }
@@ -678,9 +787,15 @@ parse_obj_line :: proc(
         if new_mat, new_mat_found := materials.mat_map[mat_name]; new_mat_found {
             // As materials are returned per-model, a new material within an object
             // has to emit a new model with the same name but different material
-            if models.mat_id != new_mat && len(models.faces) > 0 {
-                mesh := export_faces(models, load_options) or_return
-                append(&models.models, Model{ mesh, models.name })
+            cur_mat_id, has_cur := models.mat_id.(uint)
+            if (!has_cur || cur_mat_id != new_mat) && len(models.faces) > 0 {
+                mesh, mesh_err := export_faces(models, load_options)
+                if mesh_err != nil {
+                    mesh_destroy(mesh)
+                    err = mesh_err
+                    return
+                }
+                append(&models.models, Model{ mesh, strings.clone(models.name, allocator) })
             }
             models.mat_id = new_mat
         } else {
@@ -719,7 +834,7 @@ parse_mtl_line :: proc(
 
     // Vertex
     case "newmtl":
-        // If we were passing a material save it out to our vector
+        // If we were passing a material save it out to our list
         if len(cur_mat.name) != 0 {
             materials.mat_map[cur_mat.name] = len(materials.materials)
             append(&materials.materials, cur_mat^)
@@ -794,11 +909,11 @@ parse_mtl_line :: proc(
         cur_mat.specular_texture = parse_texture(line_trimmed, allocator) or_return
 
     // Normal texture
-    case "map_Bump":
+    case "map_Bump", "map_bump":
         cur_mat.normal_texture = parse_texture(line_trimmed, allocator) or_return
 
     // Shininess texture
-    case "map_Ns":
+    case "map_Ns", "map_ns", "map_NS":
         cur_mat.shininess_texture = parse_texture(line_trimmed, allocator) or_return
 
     // Normal texture
@@ -941,12 +1056,12 @@ parse_texture :: proc(
             }
             lower := strings.to_lower(remaining[pos], ta)
             switch lower {
-            case "r": texture.imfchan = .R
-            case "g": texture.imfchan = .G
-            case "b": texture.imfchan = .B
-            case "m": texture.imfchan = .M
-            case "l": texture.imfchan = .L
-            case "z": texture.imfchan = .Z
+            case "r": texture.imfchan = Texture_Imfchan.R
+            case "g": texture.imfchan = Texture_Imfchan.G
+            case "b": texture.imfchan = Texture_Imfchan.B
+            case "m": texture.imfchan = Texture_Imfchan.M
+            case "l": texture.imfchan = Texture_Imfchan.L
+            case "z": texture.imfchan = Texture_Imfchan.Z
             case:
                 log.errorf("Invalid -imfchan value: '%s'", remaining[pos])
                 err = .Material_Parse_Error
@@ -1127,28 +1242,43 @@ export_faces :: proc(
     texcoord := models.texcoord[:]
     normal := models.normal[:]
 
+    // Free whatever Polygon slices remain, then always clear `models.faces` so
+    // the caller doesn't hold a stale array either way.
+    defer {
+        for f in models.faces {
+            if poly, is_poly := f.(Polygon); is_poly {
+                delete(poly)
+            }
+        }
+        clear(&models.faces)
+    }
+
     for &f in models.faces {
         switch &v in f {
         case Point:
+            // ignore_points == true means the point is discarded entirely:
+            // no vertex data and no face_arities entry.
             if !load_options.ignore_points {
                 add_vertex(&mesh, &index_map, v, pos, color, texcoord, normal) or_return
                 if load_options.triangulate {
                     add_vertex(&mesh, &index_map, v, pos, color, texcoord, normal) or_return
                     add_vertex(&mesh, &index_map, v, pos, color, texcoord, normal) or_return
+                } else {
+                    append(&mesh.face_arities, 1)
                 }
-            } else {
-                append(&mesh.face_arities, 1)
             }
 
         case Line:
+            // Same reasoning as Point above: ignore_lines discards the line
+            // entirely rather than recording a degenerate face_arities entry.
             if !load_options.ignore_lines {
                 add_vertex(&mesh, &index_map, v.x, pos, color, texcoord, normal) or_return
                 add_vertex(&mesh, &index_map, v.y, pos, color, texcoord, normal) or_return
                 if load_options.triangulate {
                     add_vertex(&mesh, &index_map, v.y, pos, color, texcoord, normal) or_return
+                } else {
+                    append(&mesh.face_arities, 2)
                 }
-            } else {
-                append(&mesh.face_arities, 2)
             }
 
         case Triangle:
@@ -1186,11 +1316,9 @@ export_faces :: proc(
 
                 for i in 2..<len(v) {
                     c := v[i]
-
                     add_vertex(&mesh, &index_map, a, pos, color, texcoord, normal) or_return
                     add_vertex(&mesh, &index_map, b, pos, color, texcoord, normal) or_return
                     add_vertex(&mesh, &index_map, c, pos, color, texcoord, normal) or_return
-
                     b = c
                 }
             } else {
@@ -1199,12 +1327,13 @@ export_faces :: proc(
                 }
                 append(&mesh.face_arities, u32(len(v)))
             }
-            // Free the polygon slice since it was allocated in parse_face
+            // Free the polygon slice since it was allocated in parse_face.
+            // Clear the union entry to nil so the deferred cleanup loop above
+            // (which runs even on the success path) doesn't double-free it.
             delete(v)
+            f = nil
         }
     }
-
-    clear(&models.faces)
 
     return
 }
@@ -1315,7 +1444,12 @@ parse_face :: proc(
 
 // Parse the float information from the tokens. `tokens` is an slice over the
 // float strings. Returns `false` if parsing failed.
-parse_f32_n :: proc(tokens: []string, vals: ^[dynamic]f32, n: $N, loc := #caller_location) -> (ok: bool) {
+parse_f32_n :: proc(
+    tokens: []string,
+    vals: ^[dynamic]f32,
+    n: $N,
+    loc := #caller_location,
+) -> (ok: bool) {
     assert(n > 0, "Invalid number of values")
 
     initial_len := len(vals)

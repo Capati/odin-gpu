@@ -3,8 +3,7 @@ package tobj
 
 // Core
 import "core:bufio"
-import "core:log"
-import os "core:os/os2"
+import "core:os"
 
 // Load the various objects specified in the `OBJ` file and any associated `MTL` file.
 //
@@ -29,11 +28,11 @@ load_obj_filename :: proc(
 ) -> (
     models: []Model,
     materials: []Material,
+    mtl_err: Maybe(Error),
     err: Maybe(Error),
 ) {
     file_handle, open_err := os.open(filename)
     if open_err != nil {
-        log.errorf("load_obj - failed to open '%s' due to [%v]", filename, open_err)
         err = .Open_File_Failed
         return
     }
@@ -75,7 +74,6 @@ load_mtl_filename :: proc(
 ) {
     file_handle, open_err := os.open(filename)
     if open_err != nil {
-        log.errorf("load_mtl - failed to open '%s' due to [%v]", filename, open_err)
         err = .Open_File_Failed
         return
     }

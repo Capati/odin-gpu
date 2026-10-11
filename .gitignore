@@ -22,6 +22,10 @@ node_modules
 !/build/.gitkeep
 !/examples/build/.gitkeep
 
+# test harness outputs
+/tests/build/*
+!/tests/build/.gitkeep
+
 !/gpu/lib/d3d12ma/d3d12ma.lib
 
 gpu/lib/vma/build

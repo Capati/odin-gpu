@@ -1,5 +1,17 @@
-# See
-# https://github.com/github/linguist/blob/249bbd1c2ffc631ca2ec628da26be5800eec3d48/docs/overrides.md#vendored-code
+# moved vendored code
+gpu/lib/** linguist-vendored
 
-resources/** linguist-vendored
-libs/** linguist-vendored
+# test corpus, would skew language stats
+utils/gltf/assets/** linguist-vendored
+
+# ported backends
+utils/imgui/** linguist-vendored
+wasm/third-party/** linguist-vendored
+
+# keep-compiled shaders: binaries + generated text
+*.dxbc binary linguist-vendored
+*.dxil binary linguist-vendored
+*.spv binary linguist-vendored
+*.wgsl linguist-generated linguist-vendored
+*.glsl linguist-generated linguist-vendored
+*.metal linguist-generated linguist-vendored

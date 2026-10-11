@@ -15,6 +15,7 @@
 *.map
 *.wasm
 node_modules
+/temp
 
 /build/*
 /examples/build/*

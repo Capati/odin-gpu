@@ -1,9 +1,6 @@
 # moved vendored code
 gpu/lib/** linguist-vendored
 
-# test corpus, would skew language stats
-utils/gltf/assets/** linguist-vendored
-
 # ported backends
 utils/imgui/** linguist-vendored
 wasm/third-party/** linguist-vendored

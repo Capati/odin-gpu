@@ -1,104 +1,206 @@
 # Examples
 
+Small examples ordered by complexity. Run any of them with:
+
+```shell
+build.bat|sh <name> run
+```
+
 ## Table of Contents
 
 - [Info](#info)
+- [Minimal](#minimal)
 - [Clear Screen](#clear-screen)
-- [Triangle](#triangle)
+- [Hello Triangle](#hello-triangle)
 - [Square](#square)
 - [Blend](#blend)
-- [Stencil Triangles](#stencil-triangles)
-- [Cube](#cube)
+- [Vertex Buffer](#vertex-buffer)
+- [Coordinate System](#coordinate-system)
+- [Colored Cube](#colored-cube)
 - [Rotating Cube](#rotating-cube)
 - [Two Cubes](#two-cubes)
+- [Instanced Cube](#instanced-cube)
+- [Textured Cube](#textured-cube)
 - [Fractal Cube](#fractal-cube)
-- [Cube Textured](#cube-textured)
-- [OBJ Model](#obj-model)
 - [Cubemap](#cubemap)
+- [3D Texture](#3d-texture)
+- [Points](#points)
+- [Pseudorandom Number Generation](#pseudorandom-number-generation)
+- [Out-of-bounds Viewport](#out-of-bounds-viewport)
+- [Stencil Triangles](#stencil-triangles)
+- [Pristine Grid](#pristine-grid)
 - [MicroUI](#microui)
+- [ImGui Example](#imgui-example)
+- [glTF Cube](#gltf-cube)
+- [OBJ Model](#obj-model)
+- [glTF Viewer](#gltf-viewer)
 
-## [Info](./info)
+### Info
 
-Print current version and selected adapter information.
+Prints the library version and the selected adapter information.
 
-## [Clear Screen](./clear_screen)
+### Minimal
 
-This example demonstrates how to clear the screen.
+Minimalistic render pipeline demonstrating how to render a full-screen
+colored quad.
 
-![Clear Screen](./clear_screen/clear_screen.png)
+### Clear Screen
 
-## [Triangle](./triangle)
+This example shows how to set up a color target to clear the screen.
 
-This example demonstrates how to render a colored triangle with smooth color interpolation between
-vertices.
+### Hello Triangle
 
-![Triangle](./triangle/triangle.png)
+This example shows rendering a basic triangle using a vertex buffer that
+holds positions and colors.
 
-## [Square](./square)
+### Square
 
-This example demonstrates how to render a colored square with smooth color interpolation between
-vertices.
+This example shows how to render a static colored square with only using
+vertex buffers.
 
-![Square](./square/square.png)
-
-## [Blend](./blend)
+### Blend
 
 This example shows blending in sRGB or linear space.
 
-![Blend](./blend/blend.png)
+### Vertex Buffer
 
-## [Stencil Triangles](./stencil_triangles)
+Generates procedural triangle geometry with subdivision and renders it using
+a vertex buffer. Shows how to create and upload vertex data to the GPU.
 
-This example shows using the stencil buffer for masking.
+### Coordinate System
 
-![Stencil Triangles](./stencil_triangles/stencil_triangles.png)
+Illustrates the coordinate systems used in WebGPU. WebGPU's coordinate
+systems match DirectX and Metal's coordinate systems in a graphics pipeline.
+Y-axis is up in normalized device coordinate (NDC): point(-1.0, -1.0) in NDC
+is located at the bottom-left corner of NDC. This example has several options
+for changing relevant pipeline state, and displaying meshes with WebGPU or
+Vulkan style coordinates.
 
-## [Cube](./cube)
+### Colored Cube
 
 This example demonstrates how to render a colored cube.
 
-![Cube](./cube/cube.png)
+### Rotating Cube
 
-## [Rotating Cube](./rotating_cube)
+This example shows how to bind and sample textures.
 
-This example shows how to upload uniform data every frame to render a rotating object.
+### Two Cubes
 
-![Rotating Cube](./rotating_cube/rotating_cube.png)
+This example shows some of the alignment requirements involved when updating
+and binding multiple slices of a uniform buffer. It renders two rotating
+cubes which have transform matrices at different offsets in a uniform buffer.
 
-## [Two Cubes](./two_cubes)
+### Instanced Cube
 
-This example shows some of the alignment requirements involved when updating and binding multiple
-slices of a uniform buffer. It renders two rotating cubes which have transform matrices at
-different offsets in a uniform buffer.
+This example shows the use of instancing.
 
-![Two Cubes](./two_cubes/two_cubes.png)
+### Textured Cube
 
-## [Fractal Cube](./fractal_cube)
+This example shows how to generate a texture on the GPU (a Mandelbrot
+fractal, rendered into an R8_Unorm texture) and sample it onto a cube,
+using a false-color gradient to visualize escape-time values.
 
-This example uses the previous frame's rendering result as the source texture for the next frame.
+### Fractal Cube
 
-![Fractal Cube](./fractal_cube/fractal_cube.png)
+Renders a rotating cube that samples the previous frame, producing a fractal
+feedback effect.
 
-## [Cube Textured](./cube_textured)
+### Cubemap
 
-This example demonstrates how to render a textured cube.
+This example shows how to render and sample from a cubemap texture.
 
-![Cube Textured](./cube_textured/cube_textured.png)
+The example uses a simplified approach: instead of rendering a cube geometry, it
+draws a fullscreen triangle and uses the inverse view-projection matrix to
+compute the cubemap sampling direction in the fragment shader.
 
-## [OBJ Model](./obj_model)
+This means:
 
-This example demonstrates how to load a `OBJ` model using tobj (tinyobjloader).
+- No vertex buffers needed
+- No depth texture needed
+- Only 3 vertices drawn instead of 36
 
-![Cubemap](./obj_model/obj_model.png)
+### 3D Texture
 
-## [Cubemap](./cubemap)
+Demonstrates 3D texture loading and generation using Perlin noise. A 3D noise
+texture is procedurally generated on the CPU using fractal Perlin noise and
+uploaded to the GPU as a 3D texture. The depth slice through the volume is
+animated over time, showing a smoothly changing cross-section of the noise field
+rendered on a lit quad.
 
-This example shows how to render and sample from a cubemap texture. 
+Features:
 
-![Cubemap](./cubemap/cubemap.png)
+- Procedural 3D Perlin noise generation (fractal noise with 6 octaves)
+- 3D texture creation and upload (R8Unorm, 128x128x128)
+- Animated depth slice through the 3D volume
+- Phong lighting (diffuse + specular)
+- GUI button to regenerate the noise texture
+- Camera interaction (LookAt orbit) via mouse
 
-## [MicroUI](./microui)
+### Points
 
-This example demonstrates how to use MicroUI with a custom renderer.
+This example shows how to render points of various sizes using a quad and
+instancing.
 
-![MicroUI](./microui/microui.png)
+### Pseudorandom Number Generation
+
+An example demonstrating pseudorandom number generation on the GPU. A
+32-bit PCG hash is used which is fast enough to be useful for real-time,
+while also being high-quality enough for almost any graphics use-case.
+
+A pseudorandom number generator (PRNG), also known as a deterministic random
+bit generator (DRBG), is an algorithm for generating a sequence of numbers
+whose properties approximate the properties of sequences of random numbers.
+
+### Out-of-bounds Viewport
+
+The spec doesn't let you set the viewport's values to be out-of-bounds.
+Therefore, the viewport's values need to be clamped to the screen-size, which
+means the viewport values can't be defined in a way that makes the viewport
+go off the screen. This example shows how to render a viewport out-of-bounds.
+
+### Stencil Triangles
+
+This example renders two different sized triangles to display three same sized triangles, by
+demonstrating the use of stencil buffers.
+
+First it draws a small "mask" triangle, which sets the stencil buffer at every pixel to 1.
+
+Then, it draws a larger "outer" triangle which only touches pixels where the stencil buffer is less
+than 1.
+
+### Pristine Grid
+
+A simple WebGPU implementation of the "Pristine Grid" technique described in
+this wonderful little blog post:
+
+https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8
+
+### MicroUI
+
+Renders a MicroUI user interface using the utils/microui renderer.
+
+### ImGui Example
+
+This example demonstrates how to use Dear ImGui to create graphical user interfaces.
+
+### glTF Cube
+
+Loads the first mesh primitive from a small glTF 2.0 asset through the
+framework's pure-Odin glTF helper and renders its POSITION/NORMAL attributes
+and indices. Materials and scene-node transforms are intentionally kept out
+of this first loader example.
+
+### OBJ Model
+
+Loads a Wavefront OBJ model through the `tobj` utility package and renders it
+with per-vertex normals and colors. The camera is a framework orbit camera: drag
+to orbit, wheel to zoom.
+
+### glTF Viewer
+
+Instanced glTF renderer: scene graph, per-mesh instancing, animation,
+preset cameras + orbit camera.
+
+TODO:
+
+- IBL

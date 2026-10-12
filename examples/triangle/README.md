@@ -1,22 +1,18 @@
-# Triangle
+# Hello Triangle
 
-This example demonstrates how to render a colored triangle with smooth color interpolation between
-vertices.
+This example shows rendering a basic triangle using a vertex buffer that
+holds positions and colors.
 
-## Features
+Ref: 
 
-- Renders a colorful triangle on screen using vertex and fragment shaders
-- Uses a vertex buffer to store triangle vertices (position and color data)
-- Implements a complete render pipeline with vertex and fragment shaders
+- https://github.com/webgpu/webgpu-samples/tree/main/sample/helloTriangle
 
 ## Running
-
-To build and run this example:
 
 ```shell
 build.bat|sh triangle run
 ```
 
-## Screenshots
+## Screenshot
 
-![Triangle](./triangle.png)
+![Hello Triangle](triangle.png)

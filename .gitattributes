@@ -1,7 +1,6 @@
-# moved vendored code
+resources/** linguist-vendored
+utils/gltf/resources/** linguist-vendored
 gpu/lib/** linguist-vendored
-
-# ported backends
 utils/imgui/** linguist-vendored
 wasm/third-party/** linguist-vendored
 

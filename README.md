@@ -15,7 +15,7 @@
 A modern graphics API wrapper for [Odin Language][], inspired by the [WebGPU][] specification. This
 library provides abstractions over Vulkan, DirectX 11/12, Metal, OpenGL, and WebGPU backends.
 
-Currently I'm working on [renderlink][] as a "proof of concept" for this library.
+Tested in Odin version: `dev-2026-10`
 
 ## Status
 
@@ -25,13 +25,16 @@ Currently I'm working on [renderlink][] as a "proof of concept" for this library
 
 ## Overview
 
-The current goal is to follow the WebGPU specification closely, using it as a foundation for a
-modern API. However, it`s not intended to be a strict clone of the spec, if something doesn't fit
-well with the intended usage, we'll change it.
+The goal is to follow the WebGPU spec in a one-to-one manner not only in the native backend but in
+WebGPU itself as well. In case of any deviations due to constraints of native backends, the
+implementation of WebGPU should work the same way; deviations should exist under the hood of native
+backends and never affect the spec implementation.
 
-The early API stages will probably match WebGPU pretty closely. Over time, naming, structure, and
-even core concepts may shift as things stabilize for better patterns. A future refactor is not only
-possible, it's expected.
+Current development focus is the Vulkan backend and WebGPU/WASM support. The other backends are
+parked until the Vulkan implementation stabilizes (see Backends below).
+
+Currently I'm working on [renderlink][] as a "proof of concept" for this library. You can also
+check [all examples](./examples).
 
 ## Backends
 
@@ -40,11 +43,11 @@ possible, it's expected.
 | **Core API** |
 | Core API Layout | In Progress | Basic types exist, API not yet stable |
 | **Backends** |
-| Vulkan     | In Progress | Should be the main backend, requires 1.3 |
+| Vulkan     | In Progress | Should be the main backend |
 | DirectX 12 | Not Started | Windows support |
-| DirectX 11 | In Progress | Fallback Windows support, requires 11.1 |
+| DirectX 11 | Parked | Fallback Windows support |
 | Metal      | Not Started | Might rely on MoltenVK first |
-| OpenGL     | In Progress | Fallback backend on Linux and Windows, requires 4.5 |
+| OpenGL     | Parked | Fallback backend on Linux and Windows |
 | WebGPU     | In Progress | WASM support |
 | WebGL     | Not Started | Fallback WASM support, limited features |
 | **Advanced** |
@@ -56,17 +59,21 @@ possible, it's expected.
 Just copy or clone this repository to your dependencies folder.
 
 ```text
-├── build          # Examples output folder
+├── gpu            # Core API
+│   ├── lib        # Vendored allocator/bindings (vma, d3d12ma, egl, gl)
+│   └── parked     # D3D11/D3D12/Metal/OpenGL backends, returning later
 ├── examples       # Collection of examples to show usage
-├── libs           # External dependencies
-│   ├── d3d12ma    # Memory allocator for the D3D12 backend
-│   ├── egl        # Bindings to EGL on Linux for the OpenGL backend
-│   └── vma        # Memory allocator for the Vulkan backend
-├── shared         # Code reused across multiple packages
+│   └── build      # Examples output folder + assets submodule
 ├── utils          # Additional renderer and utility packages
+│   ├── gltf       # glTF loader (+ tools/bench, tools/compare)
+│   ├── imgui      # ImGui renderer
+│   ├── sdl2/sdl3  # Surface creation helpers
 │   ├── microui    # Micro UI renderer
 │   └── tobj       # OBJ loader
-└── wasm           # WebGPU support
+├── tests          # Example harness, surface stress runner, shared build dir
+├── wasm           # Browser shell (webgpu.js, index.html)
+├── resources      # Vendored WebGPU headers
+└── CHANGELOG.md   # Release notes
 ```
 
 ## Current Implementation
@@ -113,7 +120,7 @@ bind_group_layout := gpu.device_create_bind_group_layout(
         },
     },
 )
-defer gpu.release(bind_group_layout)
+defer gpu.bind_group_layout_release(bind_group_layout)
 
 // 2. Use it to create the pipeline layout
 pipeline_layout := gpu.device_create_pipeline_layout(
@@ -123,7 +130,7 @@ pipeline_layout := gpu.device_create_pipeline_layout(
         bind_group_layouts = {bind_group_layout},
     },
 )
-defer gpu.release(pipeline_layout)
+defer gpu.pipeline_layout_release(layout)
 
 // 3. Create the render pipeline with the explicit layout
 render_pipeline := gpu.device_create_render_pipeline(
@@ -161,3 +168,12 @@ Contributions and feedback are always welcome!
 [Odin Language]: https://odin-lang.org/
 [WebGPU]: https://www.w3.org/TR/webgpu/
 [renderlink]: https://github.com/Capati/renderlink/
+
+The bytes per row and rows per image can be hard to figure out so here are some examples:
+
+| Resolution | Format | Bytes per block | Pixels per block | Bytes per row                          | Rows per image               |
+|------------|--------|-----------------|------------------|----------------------------------------|------------------------------|
+| 256x256    | RGBA8  | 4               | 1 * 1 * 1        | 256 * 4 = Some(1024)                   | None                         |
+| 32x16x8    | RGBA8  | 4               | 1 * 1 * 1        | 32 * 4 = 128 padded to 256 = Some(256) | None                         |
+| 256x256    | BC3    | 16              | 4 * 4 * 1        | 16 * (256 / 4) = 1024 = Some(1024)     | None                         |
+| 64x64x8    | BC3    | 16              | 4 * 4 * 1        | 16 * (64 / 4) = 256 = Some(256)        | 64 / 4 = 16 = Some(16)       |

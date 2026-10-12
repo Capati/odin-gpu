@@ -1,15 +1,23 @@
 # Stencil Triangles
 
-This example shows using the stencil buffer for masking.
+This example renders two different sized triangles to display three same sized triangles, by
+demonstrating the use of stencil buffers.
+
+First it draws a small "mask" triangle, which sets the stencil buffer at every pixel to 1.
+
+Then, it draws a larger "outer" triangle which only touches pixels where the stencil buffer is less
+than 1.
+
+Ref:
+
+- https://github.com/gfx-rs/wgpu/tree/trunk/examples/features/src/stencil_triangles
 
 ## Running
-
-To build and run this example:
 
 ```shell
 build.bat|sh stencil_triangles run
 ```
 
-## Screenshots
+## Screenshot
 
-![Stencil Triangles](./stencil_triangles.png)
+![Stencil Triangles](stencil_triangles.png)

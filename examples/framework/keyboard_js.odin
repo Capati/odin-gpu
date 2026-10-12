@@ -1,5 +1,5 @@
 #+build js
-package framework
+package application
 
 to_key :: proc "contextless" (key: string) -> Key {
     switch key {

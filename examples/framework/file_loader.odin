@@ -1,5 +1,5 @@
 #+build !js
-package framework
+package application
 
 // Core
 import "core:log"

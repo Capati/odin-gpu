@@ -1,11 +1,11 @@
 #+build js
-package framework
+package application
 
 // Core
 import "core:time"
 import "core:sys/wasm/js"
 
-CANVAS_ID_DEFAULT :: #config(CANVAS_ID, "#canvas")
+DEFAULT_CANVAS_ID :: #config(CANVAS_ID, "#canvas")
 
 OS :: struct {
     start_time:  time.Time,
@@ -14,45 +14,45 @@ OS :: struct {
 }
 
 os_init :: proc(title: string, width, height: u32) {
-	ctx.os.canvas_id = CANVAS_ID_DEFAULT
-	ctx.os.start_time = time.now()
-	id := string(ctx.os.canvas_id[1:]) // remove the #
-    assert(js.add_window_event_listener(.Key_Down, nil, key_callback))
-	assert(js.add_window_event_listener(.Key_Up, nil, key_callback))
-	assert(js.add_window_event_listener(.Mouse_Down, nil, mouse_button_callback))
-	assert(js.add_window_event_listener(.Mouse_Up, nil, mouse_button_callback))
-	assert(js.add_event_listener(id, .Mouse_Move, nil, mouse_move_callback))
-	assert(js.add_window_event_listener(.Wheel, nil, scroll_callback))
-	assert(js.add_window_event_listener(.Resize,   nil, size_callback))
+	g_ctx.os.canvas_id = DEFAULT_CANVAS_ID
+	g_ctx.os.start_time = time.now()
+	id := string(g_ctx.os.canvas_id[1:]) // remove the #
+    ensure(js.add_window_event_listener(.Key_Down, nil, key_callback))
+	ensure(js.add_window_event_listener(.Key_Up, nil, key_callback))
+	ensure(js.add_window_event_listener(.Mouse_Down, nil, mouse_button_callback))
+	ensure(js.add_window_event_listener(.Mouse_Up, nil, mouse_button_callback))
+	ensure(js.add_event_listener(id, .Mouse_Move, nil, mouse_move_callback))
+	ensure(js.add_window_event_listener(.Wheel, nil, scroll_callback))
+	ensure(js.add_window_event_listener(.Resize, nil, size_callback))
 }
 
-os_fini :: proc() {
-	id := string(ctx.os.canvas_id[1:]) // remove the #
+os_quit :: proc() {
+	id := string(g_ctx.os.canvas_id[1:]) // remove the #
 	js.remove_window_event_listener(.Key_Down, nil, key_callback)
 	js.remove_window_event_listener(.Key_Up, nil, key_callback)
 	js.remove_window_event_listener(.Mouse_Down, nil, mouse_button_callback)
 	js.remove_window_event_listener(.Mouse_Up, nil, mouse_button_callback)
 	js.remove_event_listener(id, .Mouse_Move, nil, mouse_move_callback)
 	js.remove_window_event_listener(.Wheel, nil, scroll_callback)
-	js.remove_window_event_listener(.Resize,   nil, size_callback)
-    destroy()
+	js.remove_window_event_listener(.Resize, nil, size_callback)
 }
 
 // NOTE: frame loop is done by the runtime.js repeatedly calling `step`.
-run :: proc() {
-	ctx.os.initialized = true
+os_run :: proc() {
+	g_ctx.os.initialized = true
 }
 
 @(private="file", export)
 step :: proc(dt: f32) -> bool {
-	context = ctx.custom_ctx
+	context = g_ctx.custom_ctx
 
-	if !ctx.os.initialized {
+	if !g_ctx.os.initialized {
 		return true
 	}
 
-    if iterate_proc != nil {
-        if res := iterate_proc(ctx.appstate, dt); res != .Continue {
+    if g_ctx.desc.iterate_cb != nil {
+        if !g_ctx.desc.iterate_cb(&g_ctx, dt) {
+            quit()
             return false
         }
     }
@@ -72,34 +72,40 @@ get_dpi :: proc() -> f32 {
 }
 
 get_time :: proc() -> f32 {
-    return f32(time.duration_seconds(time.since(ctx.os.start_time)))
+    return f32(time.duration_seconds(time.since(g_ctx.os.start_time)))
+}
+
+hide_window :: proc() {
 }
 
 @(private="file")
 key_callback :: proc(event: js.Event) {
     key := to_key(event.key.key)
 
+    action: Input_Action
+    #partial switch event.kind {
+    case .Mouse_Down: action = .Pressed
+    case .Mouse_Up:   action = .Released
+    case:             action = .None
+    }
+
     ev := Key_Event{
         key      = key,
         scancode = Scancode(to_scancode(event.key.code)),
+        action   = action,
         ctrl     = event.key.ctrl,
         shift    = event.key.shift,
         alt      = event.key.alt,
     }
 
-    #partial switch event.kind {
-    case .Key_Down:
-        dispatch_event(Key_Pressed_Event(ev))
-    case .Key_Up:
-        dispatch_event(Key_Released_Event(ev))
-    }
+    dispatch_event(ev)
 }
 
 @(private="file")
 mouse_button_callback :: proc(event: js.Event) {
     dpi := js.device_pixel_ratio()
 
-    pos := [2]f32 {
+    pos := [2]f32{
         cast(f32)(f64(event.mouse.offset.x) * dpi),
         cast(f32)(f64(event.mouse.offset.y) * dpi),
     }
@@ -109,43 +115,32 @@ mouse_button_callback :: proc(event: js.Event) {
     case 0: button = .Left
     case 1: button = .Middle
     case 2: button = .Right
-    case: button = .Left // fallback
+    case:   button = .Unknown
     }
 
+    action: Input_Action
     #partial switch event.kind {
-    case .Mouse_Down, .Click:
-        dispatch_event(Mouse_Button_Pressed_Event{button = button, pos = pos})
-    case .Mouse_Up:
-        dispatch_event(Mouse_Button_Released_Event{button = button, pos = pos})
+    case .Mouse_Down: action = .Pressed
+    case .Mouse_Up:   action = .Released
+    case:             action = .None
     }
+
+    dispatch_event(Mouse_Button_Event{
+        button = button,
+        pos    = pos,
+        action = action,
+    })
 }
 
 @(private="file")
 mouse_move_callback :: proc(event: js.Event) {
     dpi := js.device_pixel_ratio()
 
-    // Determine which buttons are currently pressed using button bit set
-    button: Mouse_Button = .Unknown
-    action: Input_Action = .None
-
-    if 0 in event.mouse.buttons {  // Left button
-        button = .Left
-        action = .Pressed
-    } else if 2 in event.mouse.buttons {  // Right button
-        button = .Right
-        action = .Pressed
-    } else if 1 in event.mouse.buttons {  // Middle button
-        button = .Middle
-        action = .Pressed
-    }
-
-    dispatch_event(Mouse_Moved_Event{
+    dispatch_event(Mouse_Motion_Event{
         pos = {
-			cast(f32)(f64(event.mouse.offset.x) * dpi),
-			cast(f32)(f64(event.mouse.offset.y) * dpi),
-		},
-        button = button,
-        action = action,
+            cast(f32)(f64(event.mouse.offset.x) * dpi),
+            cast(f32)(f64(event.mouse.offset.y) * dpi),
+        },
     })
 }
 
@@ -160,5 +155,7 @@ scroll_callback :: proc(event: js.Event) {
 @(private="file")
 size_callback :: proc(event: js.Event) {
     w, h := get_framebuffer_size()
+    g_ctx.width = w
+    g_ctx.height = h
     dispatch_event(Resize_Event{ w, h })
 }

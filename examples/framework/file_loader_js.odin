@@ -1,12 +1,12 @@
 #+build js
-package framework
+package application
 
 // Core
 import "base:runtime"
 import "core:mem"
 import "core:log"
 
-LOAD_FILE_BUFFER_SIZE :: #config(RL_LOAD_FILE_BUFFER_SIZE, 1 * mem.Megabyte)
+LOAD_FILE_BUFFER_SIZE :: #config(RL_LOAD_FILE_BUFFER_SIZE, 8 * mem.Megabyte)
 
 foreign import "js_utils"
 

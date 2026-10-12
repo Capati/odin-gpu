@@ -1,5 +1,5 @@
 #+build darwin
-package framework
+package application
 
 // Core
 import NS "core:sys/darwin/Foundation"
@@ -17,7 +17,7 @@ window_get_gpu_surface :: proc(instance: gpu.Instance, loc := #caller_location) 
 
     nativeWindow->contentView()->setLayer(metalLayer)
 
-    descriptor := gpu.Surface_Descriptor {
+    descriptor := gpu.SurfaceDescriptor {
         label = "Metal Layer",
         target = gpu.SurfaceSourceMetalLayer{layer = metalLayer},
     }

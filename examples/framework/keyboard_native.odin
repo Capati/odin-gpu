@@ -1,8 +1,16 @@
 #+build !js
-package framework
+package application
 
 // Vendor
 import "vendor:glfw"
+
+to_input_action :: proc(action: i32) -> Input_Action {
+    switch action {
+    case glfw.PRESS: return .Pressed
+    case glfw.RELEASE: return .Released
+    }
+    return .None
+}
 
 to_key :: proc "contextless" (key: i32) -> Key {
     switch key {

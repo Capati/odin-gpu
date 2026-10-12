@@ -2,8 +2,8 @@
 layout(row_major) uniform;
 layout(row_major) buffer;
 
-#line 8 0
-struct SLANG_ParameterGroup_Uniforms_natural_0
+#line 7 0
+struct SLANG_ParameterGroup_Uniforms_0
 {
     mat4x4 mvpMat_0;
 };
@@ -11,12 +11,12 @@ struct SLANG_ParameterGroup_Uniforms_natural_0
 
 #line 7
 layout(binding = 0)
-layout(std140) uniform block_SLANG_ParameterGroup_Uniforms_natural_0
+layout(std140) uniform block_SLANG_ParameterGroup_Uniforms_0
 {
     mat4x4 mvpMat_0;
 }Uniforms_0;
 
-#line 12220 1
+#line 13092 1
 layout(location = 0)
 out vec4 entryPointParam_vs_main_color_0;
 

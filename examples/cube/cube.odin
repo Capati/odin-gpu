@@ -1,109 +1,81 @@
+/*
+Example - Colored Cube
+
+This example demonstrates how to render a colored cube.
+*/
 package cube
 
 // Core
 import "core:log"
 import "core:mem"
+
 import la "core:math/linalg"
 
 // Local packages
-import gpu "../../"
+import "../../gpu"
 import app "../framework"
-import "shaders"
 
 CLIENT_WIDTH    :: 640
 CLIENT_HEIGHT   :: 480
 EXAMPLE_TITLE   :: "Cube"
-DEPTH_FORMAT    :: gpu.Texture_Format.Depth24_Plus
+DEPTH_FORMAT    :: gpu.Texture_Format.Depth24Plus
 COLOR_DARK_GRAY :: gpu.Color{0.6, 0.6, 0.6, 1.0}
 
-Application :: struct {
-    using gc:        app.GPU_Context,
-
-    render_pipeline: gpu.Render_Pipeline,
-    vertex_buffer:   gpu.Buffer,
-    uniform_buffer:  gpu.Buffer,
-    bind_group:      gpu.Bind_Group,
-    depth_view:      gpu.Texture_View,
+State :: struct {
+    render_pipeline:   gpu.Render_Pipeline,
+    vertex_buffer:     gpu.Buffer,
+    uniform_buffer:    gpu.Buffer,
+    bind_group:        gpu.Bind_Group,
+    bind_group_layout: gpu.Bind_Group_Layout,
+    depth_view:        gpu.Texture_View,
 
     // Cache the render pass descriptor
-    rpass:           struct {
+    rpass: struct {
         colors:                   [1]gpu.Render_Pass_Color_Attachment,
         depth_stencil_attachment: gpu.Render_Pass_Depth_Stencil_Attachment,
         descriptor:               gpu.Render_Pass_Descriptor,
     },
 }
 
-init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
-    // Allocate new application state
-    appstate^ = new(Application)
-    self := appstate^
-    self.gc = app.get_gpu_context()
+state: State
 
-    self.vertex_buffer = gpu.device_create_buffer_with_data(
-        self.device,
-        {
-            label = "Vertex buffer",
-            usage = {.Vertex},
-        },
-        vertex_data[:],
-    )
+init_pipeline :: proc(ctx: ^app.Application) {
+    SHADER_NAME :: "cube"
 
-    // Load and create a shader module
-    vertex_source := shaders.load(self.device, .Vertex)
-    vertex_shader := gpu.device_create_shader_module(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Vertex Shader",
-            code = vertex_source,
-            stage = .Vertex,
-        },
-    )
-    defer gpu.release(vertex_shader)
+    // Load shaders
+    vert_shader_module := app.load_shader(ctx.device, #directory, SHADER_NAME + ".vert")
+    defer gpu.shader_module_release(vert_shader_module)
 
-    fragment_source := shaders.load(self.device, .Fragment)
-    fragment_shader := gpu.device_create_shader_module(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Fragment Shader",
-            code = fragment_source,
-            stage = .Fragment,
-        },
-    )
-    defer gpu.release(fragment_shader)
+    frag_shader_module := app.load_shader(ctx.device, #directory, SHADER_NAME + ".frag")
+    defer gpu.shader_module_release(frag_shader_module)
 
-    bind_group_layout := gpu.device_create_bind_group_layout(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Bind Group Layout",
-            entries = {
-                {
-                    binding = 0,
-                    visibility = {.Vertex},
-                    type = gpu.Buffer_Binding_Layout {
-                        type = .Uniform,
-                        has_dynamic_offset = false,
-                        min_binding_size = size_of(la.Matrix4f32),
-                    },
+    state.bind_group_layout = gpu.device_create_bind_group_layout(ctx.device, {
+        label = EXAMPLE_TITLE + " Bind Group Layout",
+        entries = {
+            {
+                binding = 0,
+                visibility = {.Vertex},
+                type = gpu.Buffer_Binding_Layout{
+                    type = .Uniform,
+                    has_dynamic_offset = false,
+                    min_binding_size = size_of(la.Matrix4f32),
                 },
             },
         },
-    )
-    defer gpu.release(bind_group_layout)
+    })
 
-    pipeline_layout := gpu.device_create_pipeline_layout(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Pipeline Layout",
-            bind_group_layouts = {bind_group_layout},
-        },
-    )
-    defer gpu.release(pipeline_layout)
+    pipeline_layout := gpu.device_create_pipeline_layout(ctx.device, {
+        label = EXAMPLE_TITLE + " Pipeline Layout",
+        bind_group_layouts = {state.bind_group_layout},
+    })
+    defer gpu.pipeline_layout_release(pipeline_layout)
 
-    pipeline_descriptor := gpu.Render_Pipeline_Descriptor {
+    // Create the triangle pipeline
+    state.render_pipeline = gpu.device_create_render_pipeline(ctx.device, {
         label = EXAMPLE_TITLE + " Render Pipeline",
         layout = pipeline_layout,
         vertex = {
-            module = vertex_shader,
+            module = vert_shader_module,
             entry_point = "vs_main",
             buffers = {
                 {
@@ -121,17 +93,21 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
             },
         },
         fragment = &{
-            module = fragment_shader,
+            module = frag_shader_module,
             entry_point = "fs_main",
             targets = {
                 {
-                    format = self.config.format,
+                    format = ctx.config.format,
                     blend = &gpu.BLEND_STATE_NORMAL,
                     write_mask = gpu.COLOR_WRITES_ALL,
                 },
             },
         },
-        primitive = {topology = .Triangle_List, front_face = .Ccw, cull_mode = .Back},
+        primitive = {
+            topology = .Triangle_List,
+            front_face = .CCW,
+            cull_mode = .Back,
+        },
         // Enable depth testing so that the fragment closest to the camera
         // is rendered in front.
         depth_stencil = &{
@@ -151,25 +127,31 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
                     depth_fail_op = .Keep,
                     pass_op = .Keep,
                 },
-                read_mask = 0xFFFFFFFF,
-                write_mask = 0xFFFFFFFF,
+                read_mask = max(u32),
+                write_mask = max(u32),
             },
         },
         multisample = {
             count = 1, // 1 means no sampling
             mask  = max(u32),
         },
+    })
+}
+
+init_vertex_buffer :: proc(ctx: ^app.Application) {
+    vertex_buffer_desc := gpu.Buffer_Data_Descriptor {
+        label = "Cube - Vertex buffer",
+        usage = {.Vertex},
     }
+    state.vertex_buffer = gpu.device_create_buffer_with_data(
+        ctx.device, vertex_buffer_desc, vertex_data)
+}
 
-    // Create the triangle pipeline
-    self.render_pipeline =
-        gpu.device_create_render_pipeline(self.device, pipeline_descriptor)
-
-    aspect := f32(self.config.width) / f32(self.config.height)
+init_uniform_buffer :: proc(ctx: ^app.Application) {
+    aspect := f32(ctx.config.width) / f32(ctx.config.height)
     mvp_mat := app.create_view_projection_matrix(aspect)
 
-    self.uniform_buffer = gpu.device_create_buffer_with_data(
-        self.device,
+    state.uniform_buffer = gpu.device_create_buffer_with_data(ctx.device,
         {
             label = "Uniform buffer",
             usage = {.Uniform, .Copy_Dst},
@@ -177,46 +159,24 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
         gpu.to_bytes(mvp_mat),
     )
 
-    self.bind_group = gpu.device_create_bind_group(
-        self.device,
-        {
-            layout = bind_group_layout,
-            entries = {
-                {
-                    binding = 0,
-                    resource = gpu.Buffer_Binding {
-                        buffer = self.uniform_buffer,
-                        size = gpu.buffer_get_size(self.uniform_buffer),
-                    },
+    state.bind_group = gpu.device_create_bind_group(ctx.device, {
+        layout = state.bind_group_layout,
+        entries = {
+            {
+                binding = 0,
+                resource = gpu.Buffer_Binding{
+                    buffer = state.uniform_buffer,
+                    size = gpu.WHOLE_SIZE,
                 },
             },
         },
-    )
-
-    self.rpass.colors[0] = {
-        view = nil, // Assigned later
-        ops = {
-            load = .Clear,
-            store = .Store,
-            clear_value = COLOR_DARK_GRAY,
-        },
-    }
-
-    self.rpass.descriptor = {
-        label                    = "Render pass descriptor",
-        color_attachments        = self.rpass.colors[:],
-        depth_stencil_attachment = &self.rpass.depth_stencil_attachment,
-    }
-
-    create_depth_framebuffer(self)
-
-    return .Continue
+    })
 }
 
-create_depth_framebuffer :: proc(self: ^Application) {
-    adapter_features := gpu.adapter_get_features(self.adapter)
+init_depth_framebuffer :: proc(ctx: ^app.Application) {
+    adapter_features := gpu.adapter_get_features(ctx.adapter)
     format_features :=
-        gpu.texture_format_guaranteed_format_features(DEPTH_FORMAT, adapter_features)
+        gpu.texture_format_guaranteed_format_features(DEPTH_FORMAT, adapter_features[:])
 
     // Check if render attachment is supported
     assert(.Render_Attachment in format_features.allowed_usages,
@@ -224,104 +184,122 @@ create_depth_framebuffer :: proc(self: ^Application) {
 
     width, height := app.get_framebuffer_size()
 
-    texture_descriptor := gpu.Texture_Descriptor {
+    texture := gpu.device_create_texture(ctx.device, {
         size            = { width, height, 1 },
         mip_level_count = 1,
         sample_count    = 1,
         dimension       = .D2,
         format          = DEPTH_FORMAT,
         usage           = { .Copy_Src, .Copy_Dst, .Render_Attachment },
-    }
+    })
+    defer gpu.texture_release(texture)
 
-    texture := gpu.device_create_texture(self.device, texture_descriptor)
-    defer gpu.release(texture)
-
-    self.depth_view = gpu.texture_create_view(texture)
+    state.depth_view = gpu.texture_create_view(texture)
 
     // Setup depth stencil attachment
-    self.rpass.depth_stencil_attachment = {
-        view = self.depth_view,
+    state.rpass.depth_stencil_attachment = {
+        view              = state.depth_view,
         depth_ops = {
+            clear_value = 1.0,
             load        = .Clear,
             store       = .Store,
-            clear_value = 1.0,
+        },
+        stencil_ops = {
+            load        = .Clear,
+            store       = .Store,
+            clear_value = 0.0,
         },
     }
 }
 
-iterate :: proc(self: ^Application, dt: f32) -> (res: app.App_Result) {
+init :: proc(ctx: ^app.Application) -> (ok: bool) {
+    init_pipeline(ctx)
+    init_vertex_buffer(ctx)
+    init_uniform_buffer(ctx)
+
+    state.rpass.colors[0] = {
+        view        = {}, // Assigned later
+        depth_slice = gpu.DEPTH_SLICE_UNDEFINED,
+        ops         = { .Clear, .Store, COLOR_DARK_GRAY },
+    }
+
+    state.rpass.descriptor = {
+        label                    = "Render pass descriptor",
+        color_attachments        = state.rpass.colors[:],
+        depth_stencil_attachment = &state.rpass.depth_stencil_attachment,
+    }
+
+    init_depth_framebuffer(ctx)
+
+    return true
+}
+
+iterate :: proc(ctx: ^app.Application, dt: f32) -> (ok: bool) {
     frame := app.get_current_frame()
     if frame.skip { return }
     defer app.release_current_frame(&frame)
 
-    // Creates an empty Command_Encoder
-    encoder := gpu.device_create_command_encoder(self.device)
-    defer gpu.release(encoder)
+    encoder := gpu.device_create_command_encoder(ctx.device)
+    defer gpu.command_encoder_release(encoder)
 
-    // Begins recording of a render pass
-    self.rpass.colors[0].view = frame.view
-    render_pass := gpu.command_encoder_begin_render_pass(encoder, self.rpass.descriptor)
-    defer gpu.release(render_pass)
+    state.rpass.colors[0].view = frame.view
+    render_pass := gpu.command_encoder_begin_render_pass(encoder, state.rpass.descriptor)
+    defer gpu.render_pass_release(render_pass)
 
     // Sets the active render pipeline
-    gpu.render_pass_set_pipeline(render_pass, self.render_pipeline)
+    gpu.render_pass_set_pipeline(render_pass, state.render_pipeline)
     // Sets the active bind group
-    gpu.render_pass_set_bind_group(render_pass, 0, self.bind_group)
+    gpu.render_pass_set_bind_group(render_pass, 0, state.bind_group)
     // Bind the vertex buffer (contain position & colors)
-    gpu.render_pass_set_vertex_buffer(render_pass, 0, self.vertex_buffer)
+    gpu.render_pass_set_vertex_buffer(render_pass, 0, state.vertex_buffer)
     // Draws primitives in the range of vertices
-    gpu.render_pass_draw(render_pass, {0, u32(len(vertex_data))})
+    gpu.render_pass_draw(render_pass, u32(len(vertex_data)), 1, 0, 0)
     // Record the end of the render pass
     gpu.render_pass_end(render_pass)
 
     cmdbuf := gpu.command_encoder_finish(encoder)
-    defer gpu.release(cmdbuf)
+    defer gpu.command_buffer_release(cmdbuf)
 
-    gpu.queue_submit(self.queue, {cmdbuf})
-    gpu.surface_present(self.surface)
+    gpu.queue_submit(ctx.queue, {cmdbuf})
+    gpu.surface_present(ctx.surface)
 
-    return .Continue
-}
-
-event :: proc(self: ^Application, event: app.Event) -> (ok: bool) {
-    #partial switch &ev in event {
-        case app.Resize_Event:
-            resize(self, ev.width, ev.height)
-    }
     return true
 }
 
-quit :: proc(self: ^Application, res: app.App_Result) {
-    gpu.release(self.depth_view)
-    gpu.release(self.bind_group)
-    gpu.release(self.uniform_buffer)
-    gpu.release(self.vertex_buffer)
-    gpu.release(self.render_pipeline)
-
-    free(self)
+event :: proc(ctx: ^app.Application, event: app.Event) {
+    #partial switch ev in event {
+        case app.Resize_Event:
+            resize(ctx, ev.width, ev.height)
+    }
 }
 
-resize :: proc(self: ^Application, width, height: u32) {
-    gpu.texture_view_release(self.depth_view)
-    create_depth_framebuffer(self)
+quit :: proc(ctx: ^app.Application) {
+    gpu.texture_view_release(state.depth_view)
+    gpu.bind_group_layout_release(state.bind_group_layout)
+    gpu.bind_group_release(state.bind_group)
+    gpu.buffer_release(state.uniform_buffer)
+    gpu.buffer_release(state.vertex_buffer)
+    gpu.render_pipeline_release(state.render_pipeline)
+}
+
+resize :: proc(ctx: ^app.Application, width, height: u32) {
+    gpu.texture_view_release(state.depth_view)
+    init_depth_framebuffer(ctx)
 
     // Update uniform buffer with new aspect ratio
     aspect := f32(width) / f32(height)
     new_matrix := app.create_view_projection_matrix(aspect)
-    gpu.queue_write_buffer(
-        self.queue,
-        self.uniform_buffer,
-        0,
-        gpu.to_bytes(new_matrix),
-    )
+    gpu.queue_write_buffer_bytes(
+        ctx.queue, state.uniform_buffer, 0, gpu.to_bytes(new_matrix))
 }
 
 main :: proc() {
     when ODIN_DEBUG {
-        context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
+        context.logger = log.create_console_logger(
+            lowest = .Debug,
+            opt = { .Level, .Terminal_Color })
         defer log.destroy_console_logger(context.logger)
 
-        // TODO(Capati): WASM requires additional flags for the tracking allocator?
         when ODIN_OS != .JS {
             track: mem.Tracking_Allocator
             mem.tracking_allocator_init(&track, context.allocator)
@@ -329,9 +307,9 @@ main :: proc() {
 
             defer {
                 if len(track.allocation_map) > 0 {
-                    log.warnf("=== %v allocations not freed: ===", len(track.allocation_map))
+                    log.errorf("=== %v allocations not freed: ===", len(track.allocation_map))
                     for _, entry in track.allocation_map {
-                        log.debugf("- %v bytes @ %v", entry.size, entry.location)
+                        log.warnf("- %v bytes @ %v", entry.size, entry.location)
                     }
                 }
                 mem.tracking_allocator_destroy(&track)
@@ -339,12 +317,12 @@ main :: proc() {
         }
     }
 
-    // Set main callbacks
-    app.init_proc = cast(app.App_Init_Proc)init
-    app.quit_proc = cast(app.App_Quit_Proc)quit
-    app.iterate_proc = cast(app.App_Iterate_Proc)iterate
-    app.event_proc = cast(app.App_Event_Proc)event
-
     // Initialize framework and run application
-    app.init(EXAMPLE_TITLE, CLIENT_WIDTH, CLIENT_HEIGHT)
+    app.run(app.Application_Descriptor{
+        title      = EXAMPLE_TITLE,
+        init_cb    = init,
+        iterate_cb = iterate,
+        quit_cb    = quit,
+        event_cb   = event,
+    })
 }

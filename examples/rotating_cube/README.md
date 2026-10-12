@@ -1,19 +1,19 @@
 # Rotating Cube
 
-This example shows how to upload uniform data every frame to render a rotating object.
+This example shows how to bind and sample textures.
 
-## Features
+Ref:
 
-- How to create and update uniform buffers
+- https://github.com/samdauwe/webgpu-native-examples/blob/master/src/examples/textured_cube.c
+- https://github.com/webgpu/webgpu-samples/tree/main/sample/texturedCube
+- https://github.com/gfx-rs/wgpu-rs/tree/master/examples/cube
 
 ## Running
-
-To build and run this example:
 
 ```shell
 build.bat|sh rotating_cube run
 ```
 
-## Screenshots
+## Screenshot
 
-![Rotating Cube](./rotating_cube.png)
+![Rotating Cube](rotating_cube.png)

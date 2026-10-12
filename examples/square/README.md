@@ -1,22 +1,19 @@
 # Square
 
-This example demonstrates how to render a colored square with smooth color interpolation between
-vertices.
+This example shows how to render a static colored square with only using
+vertex buffers.
 
-## Features
+Ref:
 
-- Renders a colored square on screen using vertex and fragment shaders
-- Uses separate vertex buffers for position and color data
-- Implements a triangle strip topology
+- https://github.com/cx20/webgpu-test/tree/master/examples/webgpu_wgsl/square
+- https://github.com/samdauwe/webgpu-native-examples/blob/master/src/examples/square.c
 
 ## Running
-
-To build and run this example:
 
 ```shell
 build.bat|sh square run
 ```
 
-## Screenshots
+## Screenshot
 
-![Square](./square.png)
+![Square](square.png)

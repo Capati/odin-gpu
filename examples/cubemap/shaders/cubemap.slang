@@ -1,16 +1,28 @@
+// Cubemap sampling example.
+//
+// A fullscreen triangle covers clip space, and the fragment shader uses the
+// inverse view-projection matrix to turn each pixel into a cubemap sampling
+// direction, so no vertex buffers or depth attachment are needed.
+//
+// Ref: https://github.com/webgpu/webgpu-samples/tree/main/sample/cubemap
+
 struct Uniforms {
-    float4x4 modelViewProjectionMatrix;
+    float4x4 viewDirectionProjectionInverse;
 };
 
+#if defined(__SPIRV__) || defined(__GLSL__)
+    #define VERTEX_ID_SEMANTIC SV_VulkanVertexID
+#else
+    #define VERTEX_ID_SEMANTIC SV_VertexID
+#endif
+
 struct VertexInput {
-    float4 position : POSITION;
-    float2 uv : TEXCOORD0;
+    uint vertexIndex : VERTEX_ID_SEMANTIC;
 };
 
 struct VertexOutput {
     float4 position : SV_Position;
-    float2 fragUV : TEXCOORD0;
-    float4 fragPosition : TEXCOORD1;
+    float4 direction : DIRECTION;
 };
 
 [[vk::binding(0, 0)]]
@@ -19,48 +31,40 @@ ConstantBuffer<Uniforms> uniforms : register(b0);
 [shader("vertex")]
 VertexOutput vs_main(VertexInput input) {
     VertexOutput output;
-    output.position = mul(uniforms.modelViewProjectionMatrix, input.position);
-    output.fragUV = input.uv;
-    output.fragPosition = 0.5 * (input.position + float4(1.0, 1.0, 1.0, 1.0));
+
+    // A triangle large enough to cover all of clip space.
+    float2 pos[3] = {
+        float2(-1.0, -1.0),
+        float2(-1.0,  3.0),
+        float2( 3.0, -1.0),
+    };
+    float2 p = pos[input.vertexIndex];
+
+    // The position is returned twice: once for SV_Position, once so the
+    // fragment shader receives values going from -1,-1 to 1,1 across the
+    // entire screen.
+    output.position  = float4(p, 0.0, 1.0);
+    output.direction = float4(p, -1.0, 1.0);
     return output;
 }
 
-struct FragmentInput {
-    float4 position : SV_Position;
-    float2 fragUV : TEXCOORD0;
-    float4 fragPosition : TEXCOORD1;
-};
-
-#if defined(USE_COMBINED_SAMPLER)
-
 [[vk::binding(1, 0)]]
-SamplerCube mySampler : register(t1);
-
-#else
-
-[[vk::binding(1, 0)]]
-TextureCube myTexture : register(t1);
+SamplerState mySampler : register(s1);
 
 [[vk::binding(2, 0)]]
-SamplerState mySampler : register(s2);
+TextureCube<float4> myTexture : register(t2);
 
-#endif
+struct FragmentOutput {
+    float4 color : SV_Target0;
+};
 
 [shader("fragment")]
-float4 fs_main(FragmentInput input) : SV_Target {
-    // Our camera and the skybox cube are both centered at (0, 0, 0)
-    // so we can use the cube geometry position to get viewing vector to sample
-    // the cube texture. The magnitude of the vector doesn't matter.
-    float3 cubemapVec = input.fragPosition.xyz - float3(0.5, 0.5, 0.5);
+FragmentOutput fs_main(VertexOutput input) {
+    FragmentOutput output;
 
-    // When viewed from the inside, cubemaps are left-handed (z away from viewer),
-    // but common camera matrix convention results in a right-handed world space
-    // (z toward viewer), so we have to flip it.
-    cubemapVec.z = -cubemapVec.z;
-
-#if defined(USE_COMBINED_SAMPLER)
-    return mySampler.Sample(cubemapVec);
-#else
-    return myTexture.Sample(mySampler, cubemapVec);
-#endif
+    // Orient the direction to the view, then remove the perspective.
+    float4 t = mul(uniforms.viewDirectionProjectionInverse, input.direction);
+    float3 uvw = normalize(t.xyz / t.w);
+    output.color = myTexture.Sample(mySampler, uvw);
+    return output;
 }

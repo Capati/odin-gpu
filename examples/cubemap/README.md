@@ -1,20 +1,28 @@
 # Cubemap
 
-This example shows how to render and sample from a cubemap texture. 
+This example shows how to render and sample from a cubemap texture.
 
-## Features
+The example uses a simplified approach: instead of rendering a cube geometry, it
+draws a fullscreen triangle and uses the inverse view-projection matrix to
+compute the cubemap sampling direction in the fragment shader.
 
-- Cubemap image available under a Creative Commons Attribution 3.0 Unported License at
-  https://www.humus.name/index.php?page=Textures&ID=58
+This means:
+
+- No vertex buffers needed
+- No depth texture needed
+- Only 3 vertices drawn instead of 36
+
+Ref:
+
+- https://github.com/samdauwe/webgpu-native-examples/blob/master/src/examples/cubemap.c
+- https://github.com/webgpu/webgpu-samples/tree/main/sample/cubemap
 
 ## Running
-
-To build and run this example:
 
 ```shell
 build.bat|sh cubemap run
 ```
 
-## Screenshots
+## Screenshot
 
-![Cubemap](./cubemap.png)
+![Cubemap](cubemap.png)

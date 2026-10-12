@@ -47,28 +47,40 @@ os_run :: proc() {
     context = g_ctx.custom_ctx
     defer quit()
 
-    last_time := glfw.GetTime()
     target_fps := g_ctx.desc.target_fps
+
+    budget: time.Duration
+    if target_fps > 0 {
+        budget = time.Second / time.Duration(target_fps)
+    }
+
+    last_tick := time.tick_now()
     for !glfw.WindowShouldClose(g_ctx.os.window) {
+        // When minimized, don't spin: block on events until restored.
+        if g_ctx.is_minimized {
+            glfw.WaitEventsTimeout(0.1)
+            last_tick = time.tick_now()
+            continue
+        }
+
+        frame_start := time.tick_now()
+
         glfw.PollEvents()
 
-        current_time := glfw.GetTime()
-        delta := f32(current_time - last_time)
-        last_time = current_time
+        delta := f32(time.duration_seconds(time.tick_since(last_tick)))
+        last_tick = time.tick_now()
 
         if !iterate_frame(delta) {
             glfw.SetWindowShouldClose(g_ctx.os.window, true)
             break
         }
 
-        // Time-based frame pacing (opt-in via target_fps; 0 = uncapped).
-        // Sleeps the remainder of the frame budget so mailbox doesn't spin
-        // the GPU at full rate. Web gets this free from the browser compositor.
+        // CPU frame pacing after present, before the next poll, so input
+        // sampled at the top is as fresh as possible.
         if target_fps > 0 {
-            budget := 1.0 / f64(target_fps)
-            elapsed := glfw.GetTime() - current_time
-            if wait := budget - elapsed; wait > 0 {
-                time.sleep(auto_cast (wait * 1_000_000_000))
+            for wait := budget - time.tick_since(frame_start); wait > 0; {
+                glfw.WaitEventsTimeout(time.duration_seconds(wait))
+                wait = budget - time.tick_since(frame_start)
             }
         }
     }

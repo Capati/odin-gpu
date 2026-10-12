@@ -46,9 +46,13 @@ Application_Descriptor :: struct {
     event_cb:          App_Event_Proc,
     required_features: []gpu.Feature_Name,
     required_limits:   gpu.Limits,
-    // Target frame rate for time-based frame pacing. The loop sleeps the remainder of each
-    // frame budget after iterating. 0 (default) means uncapped.
+    // Target frame rate for CPU frame pacing. 0 (default) means uncapped.
     target_fps:        u32,
+    // Requested present mode. Fifo is guaranteed.
+    present_mode:      gpu.Present_Mode,
+    // Desired maximum number of frames in flight, always clamped by the
+    // backend.
+    max_frame_latency: u32,
 }
 
 Application :: struct {
@@ -169,11 +173,8 @@ run :: proc(
     // Get the default queue
     g_ctx.queue = gpu.device_get_queue(g_ctx.device)
 
-    // Get optimal present mode
-    present_mode := gpu.Present_Mode.Fifo
-    if slice.contains(g_ctx.caps.present_modes, gpu.Present_Mode.Mailbox) {
-        present_mode = .Mailbox // TODO
-    }
+    // Resolve requested present mode.
+    present_mode := resolve_present_mode(g_ctx.desc.present_mode, g_ctx.caps.present_modes)
 
     // Use first available format as the preferred one
     preferred_format := g_ctx.caps.formats[0]
@@ -192,6 +193,11 @@ run :: proc(
         g_ctx.height = height
     }
 
+    // Frame latency defaults to 2 (balanced latency/throughput); 0 means default.
+    frame_latency := max(g_ctx.desc.max_frame_latency, 1) if
+        g_ctx.desc.max_frame_latency != 0 else 2
+    log.infof("Present mode %v, max frame latency %d", present_mode, frame_latency)
+
     // Create final surface configuration
     g_ctx.config = gpu.Surface_Configuration {
         device                        = g_ctx.device,
@@ -200,7 +206,7 @@ run :: proc(
         width                         = width,
         height                        = height,
         present_mode                  = present_mode,
-        desired_maximum_frame_latency = 2,
+        desired_maximum_frame_latency = frame_latency,
         alpha_mode                    = .Opaque,
     }
 
@@ -226,6 +232,44 @@ run :: proc(
     g_ctx.initialized = true
 
     os_run()
+}
+
+// Resolves the requested present mode against supported modes. Fifo is the default
+// and is guaranteed by the spec. Auto modes degrade to the first supported
+// concrete mode.
+@(private)
+resolve_present_mode :: proc(
+    requested: gpu.Present_Mode,
+    supported: []gpu.Present_Mode,
+) -> gpu.Present_Mode {
+    // Browsers ignore present mode; skip validation when nothing is reported.
+    if len(supported) == 0 {
+        return .Fifo
+    }
+
+    candidates: [4]gpu.Present_Mode
+    n := 0
+    #partial switch requested {
+    case .Auto_Vsync:
+        candidates = {.Fifo_Relaxed, .Fifo, {}, {}}
+        n = 2
+    case .Auto_No_Vsync:
+        candidates = {.Immediate, .Mailbox, .Fifo, {}}
+        n = 3
+    case:
+        candidates = {requested, .Fifo, {}, {}}
+        n = 2
+    }
+    for i in 0 ..< n {
+        if slice.contains(supported, candidates[i]) {
+            if candidates[i] != requested {
+                log.warnf("Present mode %v unsupported, using %v", requested, candidates[i])
+            }
+            return candidates[i]
+        }
+    }
+    log.warnf("Requested present mode %v unsupported, falling back to Fifo", requested)
+    return .Fifo
 }
 
 device_lost_callback :: proc "contextless" (

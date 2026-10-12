@@ -817,6 +817,14 @@ test_comments_and_blank_lines_ignored :: proc(t: ^testing.T) {
 // Fixture tests
 // -----------------------------------------------------------------------------
 
+// Fixture paths are anchored to this file's directory so the tests pass
+// regardless of the working directory they are invoked from.
+@(private = "file")
+fixture_path :: proc(filename: string) -> string {
+    path, _ := filepath.join({#directory, "obj", filename}, context.temp_allocator)
+    return path
+}
+
 default_material_loader :: proc(
     filename: string,
     userdata: rawptr,
@@ -826,14 +834,12 @@ default_material_loader :: proc(
     res: MTL_Load_Result,
     err: Maybe(Error),
 ) {
-    mtl_path, _ := filepath.join({"obj", filename}, allocator)
-    defer delete(mtl_path, allocator)
-    return load_mtl(mtl_path, allocator, loc)
+    return load_mtl(fixture_path(filename), allocator, loc)
 }
 
 @(test)
 test_cornell_box_loads :: proc(t: ^testing.T) {
-    models, materials, mtl_err, err := load_obj("obj/cornell_box.obj", {
+    models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"), {
         callback = default_material_loader,
     })
     defer models_destroy(models)
@@ -861,7 +867,7 @@ test_cornell_box_loads :: proc(t: ^testing.T) {
 
 @(test)
 test_cornell_box_texture_filenames_with_spaces :: proc(t: ^testing.T) {
-    models, materials, mtl_err, err := load_obj("obj/cornell_box.obj", {
+    models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"), {
         callback = default_material_loader,
     })
     defer models_destroy(models)
@@ -889,7 +895,7 @@ test_cornell_box_inline_hash_comment_does_not_break_values :: proc(t: ^testing.T
     // `Ka 0 0 0 #there's a comment inline` and `Ks 0 0 0 # this is a
     // comment in line` -- the trailing tokens after the numeric triple
     // must be ignored rather than causing a parse error.
-    models, materials, mtl_err, err := load_obj("obj/cornell_box.obj", {
+    models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"), {
         callback = default_material_loader,
     })
     defer models_destroy(models)
@@ -917,7 +923,7 @@ test_cornell_box_inline_hash_comment_does_not_break_values :: proc(t: ^testing.T
 
 @(test)
 test_cornell_box_crazy_unknown_param :: proc(t: ^testing.T) {
-    models, materials, mtl_err, err := load_obj("obj/cornell_box.obj", {
+    models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"), {
         callback = default_material_loader,
     })
     defer models_destroy(models)
@@ -940,7 +946,7 @@ test_cornell_box_crazy_unknown_param :: proc(t: ^testing.T) {
 test_cornell_box_map_ns_uppercase_variant :: proc(t: ^testing.T) {
     // cornell_box2.mtl's "green" material uses `map_NS` (all caps) rather
     // than `map_Ns` -- must still populate shininess_texture.
-    models, materials, mtl_err, err := load_obj("obj/cornell_box.obj", {
+    models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"), {
         callback = default_material_loader,
     })
     defer models_destroy(models)
@@ -959,7 +965,7 @@ test_cornell_box_map_ns_uppercase_variant :: proc(t: ^testing.T) {
 
 @(test)
 test_cornell_box_light_material_dissolve_and_ior :: proc(t: ^testing.T) {
-    models, materials, mtl_err, err := load_obj("obj/cornell_box.obj", {
+    models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"), {
         callback = default_material_loader,
     })
     defer models_destroy(models)
@@ -980,7 +986,7 @@ test_cornell_box_light_material_dissolve_and_ior :: proc(t: ^testing.T) {
 
 @(test)
 test_cornell_box_floor_face_counts :: proc(t: ^testing.T) {
-    models, materials, mtl_err, err := load_obj("obj/cornell_box.obj", {
+    models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"), {
         callback = default_material_loader,
     })
     defer models_destroy(models)
@@ -1000,7 +1006,7 @@ test_cornell_box_floor_face_counts :: proc(t: ^testing.T) {
 
 @(test)
 test_triangle_fixture :: proc(t: ^testing.T) {
-    models, materials, _, err := load_obj("obj/triangle.obj")
+    models, materials, _, err := load_obj(fixture_path("triangle.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1013,7 +1019,7 @@ test_triangle_fixture :: proc(t: ^testing.T) {
 
 @(test)
 test_triangle_colored_fixture :: proc(t: ^testing.T) {
-    models, materials, _, err := load_obj("obj/triangle_colored.obj")
+    models, materials, _, err := load_obj(fixture_path("triangle_colored.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1029,7 +1035,7 @@ test_triangle_colored_fixture :: proc(t: ^testing.T) {
 @(test)
 test_triangle_scaled_fixture :: proc(t: ^testing.T) {
     // Every vertex has `w = 0.5`, so positions are doubled.
-    models, materials, _, err := load_obj("obj/triangle_scaled.obj")
+    models, materials, _, err := load_obj(fixture_path("triangle_scaled.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1042,7 +1048,7 @@ test_triangle_scaled_fixture :: proc(t: ^testing.T) {
 
 @(test)
 test_triangle_scaled_by_zero_fixture_is_error :: proc(t: ^testing.T) {
-    models, materials, _, err := load_obj("obj/triangle_scaled_by_zero.obj")
+    models, materials, _, err := load_obj(fixture_path("triangle_scaled_by_zero.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1055,7 +1061,7 @@ test_triangle_scaled_by_zero_fixture_is_error :: proc(t: ^testing.T) {
 test_triangle_two_additional_floats_is_error :: proc(t: ^testing.T) {
     // `v x y z 0.5 1` -- 2 trailing values, neither the w-form nor the
     // 3-value color form.
-    models, materials, _, err := load_obj("obj/triangle_with_two_additional_floats.obj")
+    models, materials, _, err := load_obj(fixture_path("triangle_with_two_additional_floats.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1066,7 +1072,7 @@ test_triangle_two_additional_floats_is_error :: proc(t: ^testing.T) {
 
 @(test)
 test_empty_name_triangle_fixture :: proc(t: ^testing.T) {
-    models, materials, _, err := load_obj("obj/empty_name_triangle.obj")
+    models, materials, _, err := load_obj(fixture_path("empty_name_triangle.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1077,7 +1083,7 @@ test_empty_name_triangle_fixture :: proc(t: ^testing.T) {
 
 @(test)
 test_invalid_index_fixture_is_error :: proc(t: ^testing.T) {
-    models, materials, _, err := load_obj("obj/invalid_index.obj")
+    models, materials, _, err := load_obj(fixture_path("invalid_index.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1090,7 +1096,7 @@ test_invalid_index_fixture_is_error :: proc(t: ^testing.T) {
 test_lines_fixture_triangulated :: proc(t: ^testing.T) {
     load_options := Load_Options{ triangulate = true }
 
-    models, materials, _, err := load_obj("obj/lines.obj", load_options = load_options)
+    models, materials, _, err := load_obj(fixture_path("lines.obj"), load_options = load_options)
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1124,7 +1130,7 @@ test_lines_fixture_triangulated :: proc(t: ^testing.T) {
 test_lines_fixture_raw :: proc(t: ^testing.T) {
     load_options := Load_Options{} // keep lines, no triangulation
 
-    models, _, _, err := load_obj("obj/lines.obj", load_options = load_options)
+    models, _, _, err := load_obj(fixture_path("lines.obj"), load_options = load_options)
     defer models_destroy(models)
 
     testing.expect(t, err == nil, "expected no error")
@@ -1150,7 +1156,7 @@ test_lines_fixture_raw :: proc(t: ^testing.T) {
 test_lines_fixture_default_options_drops_all_lines :: proc(t: ^testing.T) {
     // DEFAULT_LOAD_OPTIONS has ignore_lines = true, so an obj made
     // entirely of lines should yield a model with an empty mesh.
-    models, materials, _, err := load_obj("obj/lines.obj")
+    models, materials, _, err := load_obj(fixture_path("lines.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1166,7 +1172,7 @@ test_lines_fixture_default_options_drops_all_lines :: proc(t: ^testing.T) {
 test_quad_fixture_three_objects :: proc(t: ^testing.T) {
     load_options := Load_Options{ triangulate = true }
 
-    models, materials, _, err := load_obj("obj/quad.obj", load_options = load_options)
+    models, materials, _, err := load_obj(fixture_path("quad.obj"), load_options = load_options)
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1181,7 +1187,7 @@ test_quad_fixture_three_objects :: proc(t: ^testing.T) {
 test_quad_fixture_quad_object_two_triangles :: proc(t: ^testing.T) {
     load_options := Load_Options{ triangulate = true }
 
-    models, materials, _, err := load_obj("obj/quad.obj", load_options = load_options)
+    models, materials, _, err := load_obj(fixture_path("quad.obj"), load_options = load_options)
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1201,7 +1207,7 @@ test_quad_fixture_quad_object_two_triangles :: proc(t: ^testing.T) {
 test_quad_fixture_quad_face_object_reuses_shared_pool :: proc(t: ^testing.T) {
     load_options := Load_Options{ triangulate = true }
 
-    models, materials, _, err := load_obj("obj/quad.obj", load_options = load_options)
+    models, materials, _, err := load_obj(fixture_path("quad.obj"), load_options = load_options)
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1219,7 +1225,7 @@ test_quad_fixture_quad_face_object_reuses_shared_pool :: proc(t: ^testing.T) {
 test_quad_fixture_tri_v_vn_object :: proc(t: ^testing.T) {
     load_options := Load_Options{ triangulate = true }
 
-    models, materials, _, err := load_obj("obj/quad.obj", load_options = load_options)
+    models, materials, _, err := load_obj(fixture_path("quad.obj"), load_options = load_options)
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1237,7 +1243,7 @@ test_quad_colored_merge_fixture :: proc(t: ^testing.T) {
     load_options := Load_Options{ triangulate = true }
 
     models, materials, _, err :=
-        load_obj("obj/quad_colored_merge.obj", load_options = load_options)
+        load_obj(fixture_path("quad_colored_merge.obj"), load_options = load_options)
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1263,7 +1269,7 @@ test_quad_colored_merge_fixture :: proc(t: ^testing.T) {
 
 @(test)
 test_load_mtl_direct :: proc(t: ^testing.T) {
-    res, err := load_mtl("obj/cornell_box.mtl")
+    res, err := load_mtl(fixture_path("cornell_box.mtl"))
     defer material_load_result_destroy(res)
 
     testing.expect(t, err == nil, "expected no error")
@@ -1274,7 +1280,7 @@ test_load_mtl_direct :: proc(t: ^testing.T) {
 
 @(test)
 test_load_mtl_missing_file_is_error :: proc(t: ^testing.T) {
-    res, err := load_mtl("obj/does_not_exist.mtl")
+    res, err := load_mtl(fixture_path("does_not_exist.mtl"))
     defer material_load_result_destroy(res)
 
     got_err, has_err := err.?
@@ -1284,7 +1290,7 @@ test_load_mtl_missing_file_is_error :: proc(t: ^testing.T) {
 
 @(test)
 test_load_obj_missing_file_is_error :: proc(t: ^testing.T) {
-    models, materials, _, err := load_obj("obj/does_not_exist.obj")
+    models, materials, _, err := load_obj(fixture_path("does_not_exist.obj"))
     defer models_destroy(models)
     defer materials_destroy(materials)
 
@@ -1302,7 +1308,7 @@ test_no_leaks_cornell_box :: proc(t: ^testing.T) {
     {
         context.allocator = mem.tracking_allocator(&track)
 
-        models, materials, mtl_err, err := load_obj("obj/cornell_box.obj")
+        models, materials, mtl_err, err := load_obj(fixture_path("cornell_box.obj"))
         testing.expect(t, err == nil, "expected no error")
         testing.expect(t, mtl_err == nil, "expected no mtl error")
 
@@ -1323,7 +1329,7 @@ test_no_leaks_quad :: proc(t: ^testing.T) {
         context.allocator = mem.tracking_allocator(&track)
 
         load_options := Load_Options{ triangulate = true }
-        models, materials, _, err := load_obj("obj/quad.obj", load_options = load_options)
+        models, materials, _, err := load_obj(fixture_path("quad.obj"), load_options = load_options)
         testing.expect(t, err == nil, "expected no error")
 
         models_destroy(models)
@@ -1345,7 +1351,7 @@ test_no_leaks_invalid_index_error_path :: proc(t: ^testing.T) {
     {
         context.allocator = mem.tracking_allocator(&track)
 
-        models, materials, _, err := load_obj("obj/invalid_index.obj")
+        models, materials, _, err := load_obj(fixture_path("invalid_index.obj"))
         testing.expect(t, err != nil, "expected an error")
 
         models_destroy(models)

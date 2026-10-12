@@ -1,20 +1,13 @@
 # Clear Screen
 
-This example demonstrates how to clear the screen.
-
-## Features
-
-- Clears the screen with a color that changes over time using sine and cosine.
-- Uses a render pass to define how the frame is cleared and presented.
+This example shows how to set up a color target to clear the screen.
 
 ## Running
-
-To build and run this example:
 
 ```shell
 build.bat|sh clear_screen run
 ```
 
-## Screenshots
+## Screenshot
 
-![Clear Screen](./clear_screen.png)
+![Clear Screen](clear_screen.png)

@@ -1,3 +1,8 @@
+/*
+Example - Clear Screen
+
+This example shows how to set up a color target to clear the screen.
+*/
 package clear_screen
 
 // Core
@@ -6,15 +11,14 @@ import "core:math"
 import "core:mem"
 
 // Local packages
-import gpu "../../"
+import "../../gpu"
 import app "../framework"
 
-CLIENT_WIDTH  :: 640
+TITLE :: "Clear Screen"
+CLIENT_WIDTH :: 640
 CLIENT_HEIGHT :: 480
-EXAMPLE_TITLE :: "Clear Screen"
 
-Application :: struct {
-    using gc:    app.GPU_Context,
+State :: struct {
     clear_value: gpu.Color,
     rpass:       struct {
         colors:     [1]gpu.Render_Pass_Color_Attachment,
@@ -22,36 +26,28 @@ Application :: struct {
     },
 }
 
-init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
-    // Allocate new application state
-    appstate^ = new(Application)
-    self := appstate^
-    self.gc = app.get_gpu_context()
+state: State
 
-    self.clear_value = { 1.0, 0.0, 0.0, 1.0 }
-
-    self.rpass.colors[0] = {
-        view = nil, // Assigned later
-        ops = {
-            load = .Clear,
-            store = .Store,
-            clear_value = self.clear_value,
-        },
+init :: proc(ctx: ^app.Application) -> (ok: bool) {
+    state.clear_value = {0.0, 0.0, 0.0, 1.0}
+    state.rpass.colors[0] = {
+        view        = {}, // Assigned later
+        depth_slice = gpu.DEPTH_SLICE_UNDEFINED,
+        ops         = { .Clear, .Store, state.clear_value },
     }
 
-    self.rpass.descriptor = {
+    state.rpass.descriptor = {
         label             = "Render pass descriptor",
-        color_attachments = self.rpass.colors[:],
+        color_attachments = state.rpass.colors[:],
     }
 
-    return .Continue
+    return true
 }
 
-quit :: proc(self: ^Application, res: app.App_Result) {
-    free(self)
+quit :: proc(ctx: ^app.Application) {
 }
 
-update :: proc(self: ^Application, dt: f32) {
+update :: proc(ctx: ^app.Application, dt: f32) {
     current_time := app.get_time()
     color := [4]f64 {
         math.sin(f64(current_time)) * 0.5 + 0.5,
@@ -59,21 +55,21 @@ update :: proc(self: ^Application, dt: f32) {
         0.0,
         1.0,
     }
-    self.rpass.colors[0].ops.clear_value = color
+    state.rpass.colors[0].ops.clear_value = color
 }
 
-iterate :: proc(self: ^Application, dt: f32) -> (res: app.App_Result) {
-    update(self, dt)
+iterate :: proc(ctx: ^app.Application, dt: f32) -> (ok: bool) {
+    update(ctx, dt)
 
     frame := app.get_current_frame()
-    if frame.skip { return }
+    if frame.skip {return}
     defer app.release_current_frame(&frame)
 
-    encoder := gpu.device_create_command_encoder(self.device)
+    encoder := gpu.device_create_command_encoder(ctx.device)
     defer gpu.command_encoder_release(encoder)
 
-    self.rpass.colors[0].view = frame.view
-    rpass := gpu.command_encoder_begin_render_pass(encoder, self.rpass.descriptor)
+    state.rpass.colors[0].view = frame.view
+    rpass := gpu.command_encoder_begin_render_pass(encoder, state.rpass.descriptor)
     defer gpu.render_pass_release(rpass)
 
     gpu.render_pass_end(rpass)
@@ -81,22 +77,23 @@ iterate :: proc(self: ^Application, dt: f32) -> (res: app.App_Result) {
     cmdbuf := gpu.command_encoder_finish(encoder)
     defer gpu.command_buffer_release(cmdbuf)
 
-    gpu.queue_submit(self.queue, { cmdbuf })
-    gpu.surface_present(self.surface)
+    gpu.queue_submit(ctx.queue, {cmdbuf})
+    gpu.surface_present(ctx.surface)
 
-    return .Continue
+    return true
 }
 
-event :: proc(self: ^Application, event: app.Event) -> (res: app.App_Result) {
-    return .Continue
+event :: proc(ctx: ^app.Application, event: app.Event) {
 }
 
 main :: proc() {
     when ODIN_DEBUG {
-        context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
+        context.logger = log.create_console_logger(
+            lowest = .Debug,
+            opt = {.Level, .Terminal_Color},
+        )
         defer log.destroy_console_logger(context.logger)
 
-        // TODO(Capati): WASM requires additional flags for the tracking allocator?
         when ODIN_OS != .JS {
             track: mem.Tracking_Allocator
             mem.tracking_allocator_init(&track, context.allocator)
@@ -104,9 +101,9 @@ main :: proc() {
 
             defer {
                 if len(track.allocation_map) > 0 {
-                    log.warnf("=== %v allocations not freed: ===", len(track.allocation_map))
+                    log.errorf("=== %v allocations not freed: ===", len(track.allocation_map))
                     for _, entry in track.allocation_map {
-                        log.debugf("- %v bytes @ %v", entry.size, entry.location)
+                        log.warnf("- %v bytes @ %v", entry.size, entry.location)
                     }
                 }
                 mem.tracking_allocator_destroy(&track)
@@ -114,12 +111,12 @@ main :: proc() {
         }
     }
 
-    // Set main callbacks
-    app.init_proc = cast(app.App_Init_Proc)init
-    app.quit_proc = cast(app.App_Quit_Proc)quit
-    app.iterate_proc = cast(app.App_Iterate_Proc)iterate
-    app.event_proc = cast(app.App_Event_Proc)event
-
     // Initialize framework and run application
-    app.init(EXAMPLE_TITLE, CLIENT_WIDTH, CLIENT_HEIGHT)
+    app.run(app.Application_Descriptor{
+        title      = TITLE,
+        init_cb    = init,
+        iterate_cb = iterate,
+        quit_cb    = quit,
+        event_cb   = event,
+    })
 }

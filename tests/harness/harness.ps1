@@ -94,8 +94,8 @@ $buildDir = Join-Path $examplesDir 'build'
 $gpuDir = Join-Path $repoRoot 'gpu'
 $logDir = Join-Path $buildDir 'harness'
 
-# `layout` is a JS-only demo; `surface_stress` has its own finite live-Vulkan runner.
-$exclude = @('build', 'framework', 'temp', 'assets', 'layout', 'surface_stress')
+# `layout` is a JS-only demo.
+$exclude = @('build', 'framework', 'temp', 'assets', 'layout')
 
 if (-not (Test-Path -LiteralPath $buildDir)) {
     New-Item -ItemType Directory -Path $buildDir | Out-Null

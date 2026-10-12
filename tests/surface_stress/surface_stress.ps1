@@ -3,9 +3,11 @@
 Builds and runs the multi-threaded Vulkan surface lifecycle stress test.
 
 .DESCRIPTION
-Runs a real window/swapchain test. Worker threads repeatedly unconfigure and
-reconfigure the Vulkan surface while the main thread acquires, renders, submits,
-and presents frames. The app exits on its own and reports an explicit PASS line.
+Standalone test under tests/surface_stress (no example framework): it creates
+its own window, device and surface directly. Worker threads repeatedly
+unconfigure and reconfigure the Vulkan surface while the main thread acquires,
+renders, submits, and presents frames. The app exits on its own and reports an
+explicit PASS line.
 #>
 [CmdletBinding()]
 param(
@@ -14,21 +16,20 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$examplesDir = Join-Path $repoRoot 'examples'
-$buildDir = Join-Path $examplesDir 'build'
-$logDir = Join-Path $buildDir 'harness'
+$testDir = $PSScriptRoot
+$buildDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'build'
 $target = 'surface_stress'
 $exe = Join-Path $buildDir "$target.exe"
-$stdout = Join-Path $logDir "$target.stdout.txt"
-$stderr = Join-Path $logDir "$target.stderr.txt"
+$stdout = Join-Path $buildDir "$target.stdout.txt"
+$stderr = Join-Path $buildDir "$target.stderr.txt"
 
 New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
-New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
 Write-Host '=== Build Vulkan surface stress target'
-Push-Location -LiteralPath $examplesDir
+Push-Location -LiteralPath $repoRoot
 try {
-    $buildOutput = cmd /c "build.bat $target" 2>&1
+    # Package path, not a file: tests/surface_stress is its own package.
+    $buildOutput = & odin build (Join-Path 'tests' 'surface_stress') -debug -out:$exe 2>&1
     $buildCode = $LASTEXITCODE
     $buildOutput | ForEach-Object { Write-Host $_ }
 }
@@ -41,7 +42,7 @@ if ($buildCode -ne 0 -or -not (Test-Path -LiteralPath $exe)) {
 
 Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
 Write-Host "=== Run $target (timeout ${TimeoutSeconds}s)"
-$process = Start-Process -FilePath $exe -WorkingDirectory $buildDir -PassThru `
+$process = Start-Process -FilePath $exe -WorkingDirectory $repoRoot -PassThru `
     -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue

@@ -276,7 +276,82 @@ vk_command_encoder_copy_texture_to_texture :: proc(
     copy_size: Extent_3D,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    impl := vk_command_encoder_get_impl(command_encoder, loc)
+    assert(impl.is_encoding, "Command encoder is finished", loc)
+    dst_impl := vk_texture_get_impl(destination.texture, loc)
+
+    // Move source and destination into copy layouts with explicit barriers.
+    // Derive them from this command buffer's tracker (it already holds the
+    // render-pass usage); the device tracker still has last frame's state.
+    record_copy_transition :: proc(
+        encoder_impl: ^VK_Command_Encoder_Impl,
+        encoder: Command_Encoder,
+        texture: Texture,
+        mip_level: u32,
+        base_layer, layer_count: u32,
+        aspect: Texture_Aspect,
+        uses: Texture_Uses,
+        loc := #caller_location,
+    ) {
+        selector := Texture_Selector {
+            mips   = Range(u32){mip_level, mip_level + 1},
+            layers = Range(u32){base_layer, base_layer + layer_count},
+        }
+        // Fold into the command-buffer tracker; the drain below turns the
+        // pass-end -> copy step into an explicit barrier.
+        texture_tracker_set_single(
+            &encoder_impl.cmdbuf.tracker.textures,
+            texture,
+            selector,
+            uses,
+            loc,
+        )
+        transitions := texture_tracker_drain_transitions(
+            &encoder_impl.cmdbuf.tracker.textures,
+            command_encoder_arena_allocator(encoder, loc),
+            loc,
+        )
+        for &transition in transitions {
+            cmd := command_allocator_allocate(
+                &encoder_impl.cmdbuf.commands, Transition_Texture_Cmd, loc)
+            cmd.texture = texture
+            cmd.selector = Image_Subresource_Range {
+                aspect            = aspect,
+                base_mip_level    = transition.selector.mips.start,
+                mip_level_count   = transition.selector.mips.end - transition.selector.mips.start,
+                base_array_layer  = transition.selector.layers.start,
+                array_layer_count =
+                    transition.selector.layers.end - transition.selector.layers.start,
+            }
+            // `from` is the pass-end state; don't re-read at record time.
+            cmd.state_from    = transition.usage.from
+            cmd.state_to      = transition.usage.to
+            cmd.force_barrier = transition.usage.from != TEXTURE_USES_UNKNOWN
+        }
+    }
+
+    // Layer coverage mirrors the record side: 3D packs depth slices into one
+    // layer, 2D arrays copy base_layer..base_layer+count (see the layerCount
+    // computation at the copy record site).
+    is_3d := dst_impl.dimension == .D3
+    src_layers := u32(1) if is_3d else copy_size.depth_or_array_layers
+    dst_layers := u32(1) if is_3d else copy_size.depth_or_array_layers
+    record_copy_transition(
+        impl, command_encoder,
+        source.texture, source.mip_level,
+        is_3d ? u32(0) : source.origin.z, src_layers,
+        source.aspect, {.Copy_Src}, loc)
+    record_copy_transition(
+        impl, command_encoder,
+        destination.texture, destination.mip_level,
+        is_3d ? u32(0) : destination.origin.z, dst_layers,
+        destination.aspect, {.Copy_Dst}, loc)
+
+    copy := command_allocator_allocate(
+        &impl.cmdbuf.commands, Copy_Texture_To_Texture_Cmd, loc)
+    copy.src = source
+    copy.dst = destination
+    copy.size = copy_size
 }
 
 vk_command_encoder_finish :: proc(

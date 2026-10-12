@@ -626,13 +626,16 @@ vk_record_render_pass :: proc(
 
     device_impl.fp.CmdEndRenderPass(cmdbuf.vk_cmdbuf)
 
-    // The render pass transitioned each swapchain image to its `final_layout`
-    // of `.PRESENT_SRC`, so no barrier is needed here. The device tracker still
-    // has to be told: the drain at the top of this function already committed
-    // it to the attachment state.
+    // No barrier needed here (the pass did COLOR->PRESENT itself). Only
+    // re-assert Present if no later command moved the image elsewhere.
     for &texture in present_textures {
-        device_texture_tracker_set_state(
-            &device_impl.trackers.textures, texture, {.Present}, rpass.loc)
+        texture_impl := vk_texture_get_impl(texture, rpass.loc)
+        end := texture_state_set_get_unchecked(
+            &cmdbuf.tracker.textures.end_set, texture_impl.tracker_index, rpass.loc)
+        if end.is_single && end.state == {.Present} {
+            device_texture_tracker_set_state(
+                &device_impl.trackers.textures, texture, {.Present}, rpass.loc)
+        }
     }
 }
 
@@ -800,7 +803,52 @@ vk_record_commands :: proc(
             unimplemented(loc = cmd.loc)
 
         case Copy_Texture_To_Texture_Cmd:
-            unimplemented(loc = cmd.loc)
+            src_impl := vk_texture_get_impl(cmd.src.texture, cmd.loc)
+            dst_impl := vk_texture_get_impl(cmd.dst.texture, cmd.loc)
+
+            is_3d := dst_impl.dimension == .D3
+
+            copy_region := vk.ImageCopy {
+                srcSubresource = vk.ImageSubresourceLayers {
+                    aspectMask     = vk_conv_to_image_aspect_flags(cmd.src.aspect, src_impl.format),
+                    mipLevel       = cmd.src.mip_level,
+                    baseArrayLayer = is_3d ? 0 : cmd.src.origin.z,
+                    layerCount     = 1,
+                },
+                srcOffset = vk.Offset3D {
+                    x = i32(cmd.src.origin.x),
+                    y = i32(cmd.src.origin.y),
+                    z = is_3d ? i32(cmd.src.origin.z) : 0,
+                },
+                dstSubresource = vk.ImageSubresourceLayers {
+                    aspectMask     = vk_conv_to_image_aspect_flags(cmd.dst.aspect, dst_impl.format),
+                    mipLevel       = cmd.dst.mip_level,
+                    baseArrayLayer = is_3d ? 0 : cmd.dst.origin.z,
+                    layerCount     = 1,
+                },
+                dstOffset = vk.Offset3D {
+                    x = i32(cmd.dst.origin.x),
+                    y = i32(cmd.dst.origin.y),
+                    z = is_3d ? i32(cmd.dst.origin.z) : 0,
+                },
+                extent = vk.Extent3D {
+                    width  = cmd.size.width,
+                    height = cmd.size.height,
+                    depth  = is_3d ? cmd.size.depth_or_array_layers : 1,
+                },
+            }
+
+            // Layouts are guaranteed by our own transitions: the encoder
+            // records Copy_Src/Copy_Dst transitions ahead of this command.
+            vk.CmdCopyImage(
+                cmdbuf.vk_cmdbuf,
+                src_impl.vk_image,
+                .TRANSFER_SRC_OPTIMAL,
+                dst_impl.vk_image,
+                .TRANSFER_DST_OPTIMAL,
+                1,
+                &copy_region,
+            )
 
         case Clear_Buffer_Cmd:
             vk_record_clear_buffer(device_impl, cmdbuf.vk_cmdbuf, cmd, cmd.loc)

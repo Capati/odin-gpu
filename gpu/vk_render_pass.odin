@@ -482,6 +482,40 @@ vk_render_pass_end :: proc(
         &cmdbuf.tracker.buffers, temp_allocator, loc)
     begin.texture_transitions = texture_tracker_drain_transitions(
         &cmdbuf.tracker.textures, temp_allocator, loc)
+
+    // The pass itself moves swapchain images to PRESENT, so record that
+    // silently (no barrier needed) for later commands in this buffer.
+    patch_swapchain_to_present :: proc(
+        cmdbuf: ^VK_Command_Buffer_Impl,
+        view: Texture_View,
+        loc := #caller_location,
+    ) {
+        if view == {} {
+            return
+        }
+        view_impl := vk_texture_view_get_impl(view, loc)
+        texture_impl := vk_texture_get_impl(view_impl.texture, loc)
+        if !texture_impl.is_swapchain {
+            return
+        }
+        present_provider := texture_state_provider_known_single(Texture_Uses{.Present})
+        texture_state_update(
+            texture_impl.full_range,
+            nil,
+            &cmdbuf.tracker.textures.end_set,
+            texture_impl.tracker_index,
+            &present_provider,
+            loc,
+        )
+    }
+
+    for &color in begin.color_attachments {
+        patch_swapchain_to_present(cmdbuf, color.view, loc)
+        patch_swapchain_to_present(cmdbuf, color.resolve_target, loc)
+    }
+    if ds, has_ds := begin.depth_stencil_attachment.?; has_ds {
+        patch_swapchain_to_present(cmdbuf, ds.view, loc)
+    }
 }
 
 vk_render_pass_end_occlusion_query :: proc(

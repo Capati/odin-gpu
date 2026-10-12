@@ -1,371 +1,409 @@
+/*
+Example - Two Cubes
+
+This example shows some of the alignment requirements involved when updating
+and binding multiple slices of a uniform buffer. It renders two rotating
+cubes which have transform matrices at different offsets in a uniform buffer.
+
+Ref:
+
+- https://github.com/samdauwe/webgpu-native-examples/blob/master/src/examples/two_cubes.c
+- https://github.com/webgpu/webgpu-samples/tree/main/sample/twoCubes
+*/
 package two_cubes
 
 // Core
-import "core:mem"
+import "base:runtime"
 import "core:log"
 import "core:math"
+import "core:mem"
+import "core:time"
 import la "core:math/linalg"
 
 // Local packages
-import gpu "../../"
+import "../../gpu"
 import app "../framework"
-import "shaders"
 
-CLIENT_WIDTH    :: 640
-CLIENT_HEIGHT   :: 480
-EXAMPLE_TITLE   :: "Two Cubes"
-DEPTH_FORMAT    :: gpu.Texture_Format.Depth24_Plus
-COLOR_DARK_GRAY :: gpu.Color{0.6, 0.6, 0.6, 1.0}
+TITLE :: "Two Cubes"
 
-Application :: struct {
-    using gc:           app.GPU_Context,
+NUMBER_OF_CUBES     :: 2
+UNIFORM_SIZE        :: size_of(la.Matrix4x4f32) // 64 bytes
+UNIFORM_STRIDE      :: 256 // min_uniform_buffer_offset_alignment
+UNIFORM_BUFFER_SIZE :: (NUMBER_OF_CUBES - 1) * UNIFORM_STRIDE + UNIFORM_SIZE
 
-    vertex_buffer:       gpu.Buffer,
-    index_buffer:        gpu.Buffer,
-    render_pipeline:     gpu.Render_Pipeline,
-    uniform_buffer:      gpu.Buffer,
-    uniform_bind_group1: gpu.Bind_Group,
-    uniform_bind_group2: gpu.Bind_Group,
-    projection_matrix:   la.Matrix4f32,
-    depth_texture:       app.Depth_Stencil_Texture,
-    offset:              u64,
-
-    // Cache the render pass descriptor
-    rpass: struct {
-        colors:                   [1]gpu.Render_Pass_Color_Attachment,
-        depth_stencil_attachment: gpu.Render_Pass_Depth_Stencil_Attachment,
-        descriptor:               gpu.Render_Pass_Descriptor,
+Cube :: struct {
+    uniform_buffer_bind_group: gpu.Bind_Group,
+    view_mtx: struct {
+        model: la.Matrix4x4f32,
+        model_view_projection: la.Matrix4x4f32,
+        tmp: la.Matrix4x4f32,
     },
 }
 
-init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
-    // Allocate new application state
-    appstate^ = new(Application)
-    self := appstate^
-    self.gc = app.get_gpu_context()
+State :: struct {
+    cube_mesh: app.Cube_Mesh,
+    cubes: [NUMBER_OF_CUBES]Cube,
+    vertex_buffer: gpu.Buffer,
+    uniform_buffer: gpu.Buffer,
+    view_matrices: struct {
+        projection: la.Matrix4x4f32,
+        view: la.Matrix4x4f32,
+    },
+    cube_bind_group_layout: gpu.Bind_Group_Layout,
+    cube_bind_group: gpu.Bind_Group,
+    pipeline: gpu.Render_Pipeline,
+    render_bundle: gpu.Render_Bundle,
+    depth_texture: app.Depth_Stencil_Texture,
+    start: time.Tick,
+    // Cache the render pass descriptor
+    rpass: struct {
+        colors: [1]gpu.Render_Pass_Color_Attachment,
+        depth_stencil_attachment: gpu.Render_Pass_Depth_Stencil_Attachment,
+        descriptor: gpu.Render_Pass_Descriptor,
+    },
+}
 
-    self.vertex_buffer = gpu.device_create_buffer_with_data(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Vertex Data",
-            usage = {.Vertex},
-        },
-        gpu.to_bytes(CUBE_VERTEX_DATA),
+state: State
+
+// Prepare the cube geometry
+init_cube_mesh :: proc(ctx: ^app.Application) {
+    app.cube_mesh_init(&state.cube_mesh)
+}
+
+// Create a vertex buffer from the cube data
+init_vertex_buffer :: proc(ctx: ^app.Application) {
+    state.vertex_buffer = gpu.device_create_buffer_with_data(
+        ctx.device, {
+        label = TITLE + " - Vertex buffer",
+        usage = {.Vertex, .Copy_Dst},
+    }, state.cube_mesh.vertex_array[:])
+}
+
+init_view_matrices :: proc(ctx: ^app.Application) {
+    aspect_ratio := f32(ctx.width) / f32(ctx.height)
+
+    // Projection matrix
+    state.view_matrices.projection = la.matrix4_perspective_f32(
+        fovy   = la.TAU / 5.0,
+        aspect = aspect_ratio,
+        near   = 1.0,
+        far    = 100.0,
     )
 
-    self.index_buffer = gpu.device_create_buffer_with_data(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Index Buffer",
-            usage = {.Index},
-        },
-        gpu.to_bytes(CUBE_INDICES_DATA),
-    )
+    // View matrix
+    state.view_matrices.view = la.matrix4_translate_f32({0.0, 0.0, -7.0})
 
-    vertex_buffer_layout := gpu.Vertex_Buffer_Layout {
-        array_stride = size_of(Vertex),
-        step_mode    = .Vertex,
-        attributes   = {
-            {format = .Float32x4, offset = 0, shader_location = 0},
-            {format = .Float32x4, offset = u64(offset_of(Vertex, color)), shader_location = 1},
+    START_X     :: -2.0
+    INCREMENT_X :: 4.0
+
+    for &cube, i in state.cubes {
+        x := START_X + INCREMENT_X * f32(i)
+
+        // Model matrix
+        cube.view_mtx.model = la.matrix4_translate_f32({x, 0.0, 0.0})
+
+        // Model view projection matrix
+        cube.view_mtx.model_view_projection = la.MATRIX4F32_IDENTITY
+
+        // Temporary matrix
+        cube.view_mtx.tmp = la.MATRIX4F32_IDENTITY
+    }
+}
+
+update_transformation_matrix :: proc() {
+    now := f32(time.duration_seconds(time.tick_since(state.start)))
+    sin_now, cos_now := math.sin(now), math.cos(now)
+
+    for &cube, i in state.cubes {
+        m := &cube.view_mtx
+
+        m.tmp = m.model
+
+        axis: la.Vector3f32
+        if i % 2 == 0 {
+            axis = {sin_now, cos_now, 0.0}
+        } else {
+            axis = {cos_now, sin_now, 0.0}
+        }
+        m.tmp = m.tmp * la.matrix4_rotate_f32(1.0, axis)
+
+        // projection * view * model
+        m.model_view_projection =
+            state.view_matrices.projection * state.view_matrices.view * m.tmp
+    }
+}
+
+update_uniform_buffers :: proc(ctx: ^app.Application) {
+    update_transformation_matrix()
+
+    for &cube, i in state.cubes {
+        gpu.queue_write_buffer(
+            queue  = ctx.queue,
+            buffer = state.uniform_buffer,
+            offset = u64(i) * UNIFORM_STRIDE,
+            data   = gpu.to_bytes(cube.view_mtx.model_view_projection),
+        )
+    }
+}
+
+init_uniform_buffers :: proc(ctx: ^app.Application) {
+    // Setup the view matrices for the camera
+    init_view_matrices(ctx)
+
+    state.uniform_buffer = gpu.device_create_buffer(ctx.device, {
+        label = TITLE + " - Uniform buffer",
+        usage = {.Uniform, .Copy_Dst},
+        size  = UNIFORM_BUFFER_SIZE,
+    })
+}
+
+init_depth_texture :: proc(ctx: ^app.Application) {
+    // Release current texture if any
+    if state.depth_texture.texture != {} {
+        app.depth_stencil_texture_uninit(&state.depth_texture)
+        state.depth_texture = {}
+    }
+    app.depth_stencil_texture_init(&state.depth_texture, ctx.device, {
+        format = app.DEFAULT_DEPTH_FORMAT,
+        width = ctx.width,
+        height = ctx.height,
+        sample_count = 1,
+    })
+}
+
+init_bind_group_layout :: proc(ctx: ^app.Application) {
+    state.cube_bind_group_layout = gpu.device_create_bind_group_layout(ctx.device, {
+        label = TITLE + " - Bind group layout",
+        entries = {
             {
-                format = .Float32x2,
-                offset = u64(offset_of(Vertex, tex_coords)),
-                shader_location = 2,
+                // Transform
+                binding = 0,
+                visibility = {.Vertex},
+                type = gpu.Buffer_Binding_Layout {
+                    type = .Uniform,
+                    has_dynamic_offset = false,
+                    min_binding_size = UNIFORM_SIZE,
+                },
             },
         },
-    }
+    })
+}
 
-    vertex_source := shaders.load(self.device, .Vertex)
-    vertex_shader := gpu.device_create_shader_module(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Vertex Shader",
-            code = vertex_source,
-            stage = .Vertex,
-        },
-    )
-    defer gpu.release(vertex_shader)
+init_bind_groups :: proc(ctx: ^app.Application) {
+    for &cube, i in state.cubes {
+        if cube.uniform_buffer_bind_group != {} {
+            gpu.bind_group_release(cube.uniform_buffer_bind_group)
+            cube.uniform_buffer_bind_group = {}
+        }
 
-    fragment_source := shaders.load(self.device, .Fragment)
-    fragment_shader := gpu.device_create_shader_module(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Fragment Shader",
-            code = fragment_source,
-            stage = .Fragment,
-        },
-    )
-    defer gpu.release(fragment_shader)
-
-    bind_group_layout := gpu.device_create_bind_group_layout(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Bind Group Layout",
+        cube.uniform_buffer_bind_group = gpu.device_create_bind_group(ctx.device, {
+            label  = TITLE + " - Cube uniform - Buffer bind group",
+            layout = state.cube_bind_group_layout,
             entries = {
                 {
                     binding = 0,
-                    visibility = {.Vertex},
-                    type = gpu.Buffer_Binding_Layout {
-                        type = .Uniform,
-                        has_dynamic_offset = false,
-                        min_binding_size = size_of(la.Matrix4f32),
+                    resource = gpu.Buffer_Binding{
+                        buffer = state.uniform_buffer,
+                        offset = u64(i) * UNIFORM_STRIDE,
+                        size   = UNIFORM_SIZE,
                     },
                 },
             },
-        },
-    )
-    defer gpu.release(bind_group_layout)
+        })
+    }
+}
 
-    pipeline_layout := gpu.device_create_pipeline_layout(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Pipeline Layout",
-            bind_group_layouts = {bind_group_layout},
-        },
-    )
-    defer gpu.release(pipeline_layout)
+init_pipelines :: proc(ctx: ^app.Application) {
+    SHADER_NAME :: "two_cubes"
 
-    self.render_pipeline = gpu.device_create_render_pipeline(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Render Pipeline",
-            layout = pipeline_layout,
-            vertex = {
-                module = vertex_shader,
-                entry_point = "vs_main",
-                buffers = {vertex_buffer_layout},
-            },
-            fragment = &{
-                module = fragment_shader,
-                entry_point = "fs_main",
-                targets = {
-                    {
-                        format = self.config.format,
-                        blend = &gpu.BLEND_STATE_NORMAL,
-                        write_mask = gpu.COLOR_WRITES_ALL,
-                    },
-                },
-            },
-            primitive = {
-                topology   = .Triangle_List,
-                front_face = .Ccw,
-                // Backface culling since the cube is solid piece of geometry.
-                // Faces pointing away from the camera will be occluded by faces
-                // pointing toward the camera.
-                cull_mode  = .Back,
-            },
-            // Enable depth testing so that the fragment closest to the camera
-            // is rendered in front.
-            depth_stencil = &{
-                depth_write_enabled = true,
-                depth_compare = .Less,
-                format = DEPTH_FORMAT,
-                stencil = {
-                    back = { compare = .Always },
-                    front = { compare = .Always },
-                    read_mask = 0xFFFFFFFF,
-                    write_mask = 0xFFFFFFFF,
-                },
-            },
-            multisample = gpu.MULTISAMPLE_STATE_DEFAULT,
-        },
-    )
+    // Load shaders
+    vert_shader_module := app.load_shader(ctx.device, #directory, SHADER_NAME + ".vert")
+    defer gpu.shader_module_release(vert_shader_module)
 
-    matrix_size := u64(size_of(la.Matrix4x4f32))
-    self.offset = 256
-    uniform_buffer_size := self.offset + matrix_size
+    frag_shader_module := app.load_shader(ctx.device, #directory, SHADER_NAME + ".frag")
+    defer gpu.shader_module_release(frag_shader_module)
 
-    self.uniform_buffer = gpu.device_create_buffer(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Uniform Buffer",
-            size  = uniform_buffer_size,
-            usage = {.Uniform, .Copy_Dst},
-        },
-    )
+    // Color blend state
+    blend_state := app.create_blend_state(enable_blend = true)
 
-    self.uniform_bind_group1 = gpu.device_create_bind_group(
-        self.device,
-        {
-            layout = bind_group_layout,
-            entries = {
+    // Depth stencil state
+    depth_stencil_state := app.create_depth_stencil_state({
+        format = app.DEFAULT_DEPTH_FORMAT,
+        depth_write_enabled = true,
+    })
+
+    pipeline_layout := gpu.device_create_pipeline_layout(ctx.device, {
+        label = TITLE + " - Pipeline layout",
+        bind_group_layouts = {state.cube_bind_group_layout},
+    })
+    defer gpu.pipeline_layout_release(pipeline_layout)
+
+    // Create pipeline
+    state.pipeline = gpu.device_create_render_pipeline(ctx.device, {
+        label = TITLE + " - Render Pipeline",
+        layout = pipeline_layout,
+        vertex = {
+            module = vert_shader_module,
+            entry_point = "vs_main",
+            buffers = {
                 {
-                    binding = 0,
-                    resource = gpu.Buffer_Binding {
-                        buffer = self.uniform_buffer,
-                        size = gpu.WHOLE_SIZE,
+                    array_stride = state.cube_mesh.vertex_size,
+                    step_mode = .Vertex,
+                    attributes = {
+                        // Position
+                        {
+                            format = .Float32x4,
+                            offset = state.cube_mesh.position_offset,
+                            shader_location = 0,
+                        },
+                        // Color
+                        {
+                            format = .Float32x4,
+                            offset = state.cube_mesh.color_offset,
+                            shader_location = 1,
+                        },
                     },
                 },
             },
         },
-    )
-
-    self.uniform_bind_group2 = gpu.device_create_bind_group(
-        self.device,
-        {
-            layout = bind_group_layout,
-            entries = {
+        fragment = &{
+            module = frag_shader_module,
+            entry_point = "fs_main",
+            targets = {
                 {
-                    binding = 0,
-                    resource = gpu.Buffer_Binding {
-                        buffer = self.uniform_buffer,
-                        offset = self.offset,
-                        size = gpu.WHOLE_SIZE,
-                    },
+                    format = ctx.render_format,
+                    blend = &blend_state,
+                    write_mask = gpu.COLOR_WRITES_ALL,
                 },
             },
         },
-    )
-
-    self.rpass.colors[0] = {
-        view = nil, /* Assigned later */
-        ops  = { .Clear, .Store, COLOR_DARK_GRAY },
-    }
-
-    self.rpass.descriptor = {
-        label                    = "Render pass descriptor",
-        color_attachments        = self.rpass.colors[:],
-        depth_stencil_attachment = &self.rpass.depth_stencil_attachment,
-    }
-
-    create_depth_stencil_texture(self, self.config.width, self.config.height)
-
-    set_projection_matrix(self, self.config.width, self.config.height)
-
-    return .Continue
+        primitive = {
+            topology = .Triangle_List,
+            front_face = .CCW,
+            cull_mode = .Back,
+        },
+        depth_stencil = &depth_stencil_state,
+        multisample = {
+            count = 1,
+            mask = max(u32),
+        },
+    })
 }
 
-update :: proc(self: ^Application) {
-    now := f32(app.get_time())
+init :: proc(ctx: ^app.Application) -> (ok: bool) {
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
-    translation1 := la.Vector3f32{2, 0, -5}
-    rotation_axis1 := la.Vector3f32{math.sin(now), math.cos(now), 0}
-    transformation_matrix1 := get_transformation_matrix(self, translation1, rotation_axis1)
-    gpu.queue_write_buffer(
-        self.queue,
-        self.uniform_buffer,
-        0,
-        gpu.to_bytes(transformation_matrix1),
-    )
-
-    translation2 := la.Vector3f32{-2, 0, -5}
-    rotation_axis2 := la.Vector3f32{math.cos(now), math.sin(now), 0}
-    transformation_matrix2 := get_transformation_matrix(self, translation2, rotation_axis2)
-    gpu.queue_write_buffer(
-        self.queue,
-        self.uniform_buffer,
-        self.offset,
-        gpu.to_bytes(transformation_matrix2),
-    )
-}
-
-iterate :: proc(self: ^Application, dt: f32) -> (res: app.App_Result) {
-    update(self)
-
-    frame := app.get_current_frame()
-    if frame.skip { return }
-    defer app.release_current_frame(&frame)
-
-    encoder := gpu.device_create_command_encoder(self.device)
-    defer gpu.release(encoder)
-
-    self.rpass.colors[0].view = frame.view
-    render_pass := gpu.command_encoder_begin_render_pass(encoder, self.rpass.descriptor)
-    defer gpu.release(render_pass)
-
-    gpu.render_pass_set_pipeline(render_pass, self.render_pipeline)
-    gpu.render_pass_set_vertex_buffer(render_pass, 0, self.vertex_buffer)
-    gpu.render_pass_set_index_buffer(render_pass, self.index_buffer, .Uint16)
-
-    // Bind the bind group (with the transformation matrix) for each cube, and draw.
-    gpu.render_pass_set_bind_group(render_pass, 0, self.uniform_bind_group1)
-    gpu.render_pass_draw_indexed(render_pass, {0, u32(len(CUBE_INDICES_DATA))}, 0)
-
-    gpu.render_pass_set_bind_group(render_pass, 0, self.uniform_bind_group2)
-    gpu.render_pass_draw_indexed(render_pass, {0, u32(len(CUBE_INDICES_DATA))}, 0)
-
-    gpu.render_pass_end(render_pass)
-
-    cmdbuf := gpu.command_encoder_finish(encoder)
-    defer gpu.release(cmdbuf)
-
-    gpu.queue_submit(self.queue, { cmdbuf })
-    gpu.surface_present(self.surface)
-
-    return .Continue
-}
-
-event :: proc(self: ^Application, event: app.Event) -> (ok: bool) {
-    #partial switch &ev in event {
-        case app.Resize_Event:
-            resize(self, ev.width, ev.height)
+    state.rpass.colors[0] = gpu.DEFAULT_RENDER_PASS_COLOR_ATTACHMENT
+    state.rpass.colors[0].view = {} // assigned later
+    state.rpass.colors[0].ops = {
+        load        = .Clear,
+        store       = .Store,
+        clear_value = {0.1, 0.2, 0.3, 1.0},
     }
+
+    state.rpass.depth_stencil_attachment = {
+        view = {}, // assigned later
+        depth_ops = {
+            load        = .Clear,
+            store       = .Store,
+            clear_value = 1.0,
+        },
+        stencil_ops = {
+            load        = .Clear,
+            store       = .Store,
+            clear_value = 0.0,
+        },
+    }
+
+    state.rpass.descriptor = {
+        label                    = TITLE + " - Render Pass",
+        color_attachments        = state.rpass.colors[:],
+        depth_stencil_attachment = &state.depth_texture.descriptor,
+    }
+
+    init_cube_mesh(ctx)
+    init_vertex_buffer(ctx)
+    init_uniform_buffers(ctx)
+    init_depth_texture(ctx)
+    init_bind_group_layout(ctx)
+    init_bind_groups(ctx)
+    init_pipelines(ctx)
+
+    state.start = time.tick_now()
+
     return true
 }
 
-quit :: proc(self: ^Application, res: app.App_Result) {
-    app.release_depth_stencil_texture(self.depth_texture)
-
-    gpu.release(self.uniform_bind_group2)
-    gpu.release(self.uniform_bind_group1)
-    gpu.release(self.uniform_buffer)
-    gpu.release(self.render_pipeline)
-    gpu.release(self.index_buffer)
-    gpu.release(self.vertex_buffer)
-
-    free(self)
+quit :: proc(ctx: ^app.Application) {
+    gpu.render_pipeline_release(state.pipeline)
+    for &cube in state.cubes {
+        if cube.uniform_buffer_bind_group != {} {
+            gpu.bind_group_release(cube.uniform_buffer_bind_group)
+        }
+    }
+    gpu.bind_group_layout_release(state.cube_bind_group_layout)
+    app.depth_stencil_texture_uninit(&state.depth_texture)
+    gpu.buffer_release(state.uniform_buffer)
+    gpu.buffer_release(state.vertex_buffer)
 }
 
-resize :: proc(self: ^Application, width, height: u32) {
-    recreate_depth_stencil_texture(self, width, height)
-    set_projection_matrix(self, width, height)
+update :: proc(ctx: ^app.Application, dt: f32) {
+    // Update matrix data
+    update_uniform_buffers(ctx)
 }
 
-create_depth_stencil_texture :: proc(self: ^Application, width, height: u32) {
-    self.depth_texture = app.create_depth_stencil_texture(self.device, {
-        width = width, height = height,
-    })
-    self.rpass.descriptor.depth_stencil_attachment = &self.depth_texture.descriptor
+iterate :: proc(ctx: ^app.Application, dt: f32) -> (ok: bool) {
+    update(ctx, dt)
+
+    frame := app.get_current_frame()
+    if frame.skip { return true }
+    defer app.release_current_frame(&frame)
+
+    state.rpass.colors[0].view = frame.view
+
+    encoder := gpu.device_create_command_encoder(ctx.device)
+    defer gpu.command_encoder_release(encoder)
+
+    rpass := gpu.command_encoder_begin_render_pass(encoder, state.rpass.descriptor)
+    defer gpu.render_pass_release(rpass)
+
+    // Record render commands
+    gpu.render_pass_set_pipeline(rpass, state.pipeline)
+    gpu.render_pass_set_vertex_buffer(rpass, 0, state.vertex_buffer, 0, gpu.WHOLE_SIZE)
+    for &cube in state.cubes {
+        gpu.render_pass_set_bind_group(rpass, 0, cube.uniform_buffer_bind_group)
+        gpu.render_pass_draw(rpass, u32(state.cube_mesh.vertex_count), 1, 0, 0)
+    }
+
+    gpu.render_pass_end(rpass)
+
+    cmdbuf := gpu.command_encoder_finish(encoder)
+    defer gpu.command_buffer_release(cmdbuf)
+
+    gpu.queue_submit(ctx.queue, {cmdbuf})
+    gpu.surface_texture_present(frame)
+
+    return true
 }
 
-recreate_depth_stencil_texture :: proc(self: ^Application, width, height: u32) {
-    app.release_depth_stencil_texture(self.depth_texture)
-    create_depth_stencil_texture(self, width, height)
+resize :: proc(ctx: ^app.Application, width, height: u32) {
 }
 
-set_projection_matrix :: proc(self: ^Application, width, height: u32) {
-    aspect := f32(width) / f32(height)
-    self.projection_matrix = la.matrix4_perspective(2 * math.PI / 5, aspect, 1, 100.0)
-}
-
-get_transformation_matrix :: proc(
-    self: ^Application,
-    translation, rotation_axis: la.Vector3f32,
-) -> (
-    mvp_mat: la.Matrix4f32,
-) {
-    view_matrix := la.MATRIX4F32_IDENTITY
-
-    // Translate
-    view_matrix = la.matrix_mul(view_matrix, la.matrix4_translate(translation))
-
-    // Rotate
-    rotation_matrix := la.matrix4_rotate(1, rotation_axis)
-    view_matrix = la.matrix_mul(view_matrix, rotation_matrix)
-
-    // Multiply projection and view matrices
-    mvp_mat = la.matrix_mul(self.projection_matrix, view_matrix)
-
-    return
+event :: proc(ctx: ^app.Application, event: app.Event) {
+    #partial switch ev in event {
+        case app.Resize_Event:
+            resize(ctx, ev.width, ev.height)
+    }
 }
 
 main :: proc() {
     when ODIN_DEBUG {
-        context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
+        context.logger = log.create_console_logger(
+            lowest = .Debug,
+            opt = {.Level, .Terminal_Color},
+        )
         defer log.destroy_console_logger(context.logger)
 
-        // TODO(Capati): WASM requires additional flags for the tracking allocator?
         when ODIN_OS != .JS {
             track: mem.Tracking_Allocator
             mem.tracking_allocator_init(&track, context.allocator)
@@ -373,9 +411,9 @@ main :: proc() {
 
             defer {
                 if len(track.allocation_map) > 0 {
-                    log.warnf("=== %v allocations not freed: ===", len(track.allocation_map))
+                    log.errorf("=== %v allocations not freed: ===", len(track.allocation_map))
                     for _, entry in track.allocation_map {
-                        log.debugf("- %v bytes @ %v", entry.size, entry.location)
+                        log.warnf("- %v bytes @ %v", entry.size, entry.location)
                     }
                 }
                 mem.tracking_allocator_destroy(&track)
@@ -383,12 +421,12 @@ main :: proc() {
         }
     }
 
-    // Set main callbacks
-    app.init_proc = cast(app.App_Init_Proc)init
-    app.quit_proc = cast(app.App_Quit_Proc)quit
-    app.iterate_proc = cast(app.App_Iterate_Proc)iterate
-    app.event_proc = cast(app.App_Event_Proc)event
-
     // Initialize framework and run application
-    app.init(EXAMPLE_TITLE, CLIENT_WIDTH, CLIENT_HEIGHT)
+    app.run(app.Application_Descriptor{
+        title      = TITLE,
+        init_cb    = init,
+        iterate_cb = iterate,
+        quit_cb    = quit,
+        event_cb   = event,
+    })
 }

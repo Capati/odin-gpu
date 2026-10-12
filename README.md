@@ -168,12 +168,3 @@ Contributions and feedback are always welcome!
 [Odin Language]: https://odin-lang.org/
 [WebGPU]: https://www.w3.org/TR/webgpu/
 [renderlink]: https://github.com/Capati/renderlink/
-
-The bytes per row and rows per image can be hard to figure out so here are some examples:
-
-| Resolution | Format | Bytes per block | Pixels per block | Bytes per row                          | Rows per image               |
-|------------|--------|-----------------|------------------|----------------------------------------|------------------------------|
-| 256x256    | RGBA8  | 4               | 1 * 1 * 1        | 256 * 4 = Some(1024)                   | None                         |
-| 32x16x8    | RGBA8  | 4               | 1 * 1 * 1        | 32 * 4 = 128 padded to 256 = Some(256) | None                         |
-| 256x256    | BC3    | 16              | 4 * 4 * 1        | 16 * (256 / 4) = 1024 = Some(1024)     | None                         |
-| 64x64x8    | BC3    | 16              | 4 * 4 * 1        | 16 * (64 / 4) = 256 = Some(256)        | 64 / 4 = 16 = Some(16)       |

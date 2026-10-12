@@ -1304,6 +1304,54 @@
                     "osx": {
                         "cmd": ["./build.sh", "info", "run"]
                     }
+                },
+                {
+                    "name": "Build Fractal Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "fractal_cube"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "fractal_cube"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "fractal_cube"]
+                    }
+                },
+                {
+                    "name": "Build Fractal Cube [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "fractal_cube", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "fractal_cube", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "fractal_cube", "release"]
+                    }
+                },
+                {
+                    "name": "Build Fractal Cube (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "fractal_cube", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "fractal_cube", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "fractal_cube", "web"]
+                    }
+                },
+                {
+                    "name": "Run Fractal Cube",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "fractal_cube", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "fractal_cube", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "fractal_cube", "run"]
+                    }
                 }
             ]
         }

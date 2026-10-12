@@ -1,69 +1,70 @@
+/*
+Example - Fractal Cube
+
+Renders a rotating cube that samples the previous frame, producing a fractal
+feedback effect.
+*/
 package fractal_cube
 
 // Core
-import "core:mem"
+import "base:runtime"
 import "core:log"
 import "core:math"
+import "core:mem"
 import la "core:math/linalg"
 
 // Local packages
-import gpu "../../"
+import "../../gpu"
 import app "../framework"
-import "shaders"
 
-CLIENT_WIDTH    :: 640
-CLIENT_HEIGHT   :: 480
-EXAMPLE_TITLE   :: "Fractal Cube"
-DEPTH_FORMAT    :: gpu.Texture_Format.Depth24_Plus
-COLOR_DARK_GRAY :: gpu.Color{0.6, 0.6, 0.6, 1.0}
+TITLE :: "Fractal Cube"
 
-Application :: struct {
-    using gc:                  app.GPU_Context,
+State :: struct {
+    vertex_buffer:      gpu.Buffer,
+    index_buffer:       gpu.Buffer,
+    render_pipeline:    gpu.Render_Pipeline,
+    uniform_buffer:     gpu.Buffer,
+    bind_group_layout:  gpu.Bind_Group_Layout,
+    bind_group:         gpu.Bind_Group,
+    projection_matrix:  la.Matrix4f32,
+    depth_texture:      app.Depth_Stencil_Texture,
 
-    // Initialization
-    vertex_buffer:             gpu.Buffer,
-    index_buffer:              gpu.Buffer,
-    render_pipeline:           gpu.Render_Pipeline,
-    uniform_buffer:            gpu.Buffer,
-    uniform_bind_group_layout: gpu.Bind_Group_Layout,
-    uniform_bind_group:        gpu.Bind_Group,
-    projection_matrix:         la.Matrix4f32,
-    depth_texture:             app.Depth_Stencil_Texture,
+    // Centered square-crop factors for the full-frame feedback texture.
+    // (1,1) at square windows; shrinks U when wider than tall and V when
+    // taller than wide so faces stay undistorted.
+    uv_scale:           [2]f32,
 
-    // We will copy the frame's rendering results into this texture and
-    // sample it on the next frame.
-    cube_texture:              gpu.Texture,
-    cube_view:                 gpu.Texture_View,
-    sampler:                   gpu.Sampler,
+    // The frame's rendering results are copied into this texture and sampled
+    // on the next frame.
+    cube_texture:       gpu.Texture,
+    cube_view:          gpu.Texture_View,
+    sampler:            gpu.Sampler,
 
-    // Cache the render pass descriptor
     rpass: struct {
-        colors:                   [1]gpu.Render_Pass_Color_Attachment,
-        depth_stencil_attachment: gpu.Render_Pass_Depth_Stencil_Attachment,
-        descriptor:               gpu.Render_Pass_Descriptor,
+        colors:     [1]gpu.Render_Pass_Color_Attachment,
+        descriptor: gpu.Render_Pass_Descriptor,
     },
 }
 
-init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
-    // Allocate new application state
-    appstate^ = new(Application)
-    self := appstate^
-    self.gc = app.get_gpu_context()
+state: State
 
-    self.vertex_buffer = gpu.device_create_buffer_with_data(
-        self.device,
+init :: proc(ctx: ^app.Application) -> (ok: bool) {
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
+    state.vertex_buffer = gpu.device_create_buffer_with_data(
+        ctx.device,
         {
-            label = EXAMPLE_TITLE + " Vertex Data",
-            usage = {.Vertex},
+            label = TITLE + " - Vertex Data",
+            usage = {.Vertex, .Copy_Dst},
         },
         gpu.to_bytes(CUBE_VERTEX_DATA),
     )
 
-    self.index_buffer = gpu.device_create_buffer_with_data(
-        self.device,
+    state.index_buffer = gpu.device_create_buffer_with_data(
+        ctx.device,
         {
-            label = EXAMPLE_TITLE + " Index Buffer",
-            usage = {.Index},
+            label = TITLE + " - Index Buffer",
+            usage = {.Index, .Copy_Dst},
         },
         gpu.to_bytes(CUBE_INDICES_DATA),
     )
@@ -81,40 +82,23 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
         },
     }
 
-    vertex_source := shaders.load(self.device, .Vertex)
-    vertex_shader := gpu.device_create_shader_module(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Vertex Shader",
-            code = vertex_source,
-            stage = .Vertex,
-        },
-    )
-    defer gpu.release(vertex_shader)
+    vert_shader := app.load_shader(ctx.device, #directory, "fractal_cube.vert")
+    defer gpu.shader_module_release(vert_shader)
+    frag_shader := app.load_shader(ctx.device, #directory, "fractal_cube.frag")
+    defer gpu.shader_module_release(frag_shader)
 
-    fragment_source := shaders.load(self.device, .Fragment)
-    fragment_shader := gpu.device_create_shader_module(
-        self.device,
+    state.bind_group_layout = gpu.device_create_bind_group_layout(
+        ctx.device,
         {
-            label = EXAMPLE_TITLE + " Fragment Shader",
-            code = fragment_source,
-            stage = .Fragment,
-        },
-    )
-    defer gpu.release(fragment_shader)
-
-    self.uniform_bind_group_layout = gpu.device_create_bind_group_layout(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Bind Group Layout",
+            label = TITLE + " - Bind Group Layout",
             entries = {
                 {
                     binding = 0,
-                    visibility = {.Vertex},
+                    visibility = {.Vertex, .Fragment},
                     type = gpu.Buffer_Binding_Layout {
                         type = .Uniform,
                         has_dynamic_offset = false,
-                        min_binding_size = size_of(la.Matrix4f32),
+                        min_binding_size = size_of(Fractal_Uniforms),
                     },
                 },
                 {
@@ -137,33 +121,31 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
         },
     )
 
-    pipeline_layout := gpu.device_create_pipeline_layout(
-        self.device,
-        {
-            label = EXAMPLE_TITLE + " Pipeline Layout",
-            bind_group_layouts = { self.uniform_bind_group_layout },
-        },
+    layout := gpu.device_create_pipeline_layout(
+        ctx.device,
+        {label = TITLE + " - Pipeline Layout", bind_group_layouts = {state.bind_group_layout}},
     )
-    defer gpu.release(pipeline_layout)
+    defer gpu.pipeline_layout_release(layout)
 
-    depth_stencil_state := app.create_depth_stencil_state()
-
-    self.render_pipeline = gpu.device_create_render_pipeline(
-        self.device,
+    depth_stencil := app.create_depth_stencil_state(
+        {format = app.DEFAULT_DEPTH_FORMAT, depth_write_enabled = true, depth_compare = .Less},
+    )
+    state.render_pipeline = gpu.device_create_render_pipeline(
+        ctx.device,
         {
-            label = EXAMPLE_TITLE + " Render Pipeline",
-            layout = pipeline_layout,
+            label = TITLE + " - Render Pipeline",
+            layout = layout,
             vertex = {
-                module = vertex_shader,
+                module = vert_shader,
                 entry_point = "vs_main",
-                buffers = { vertex_buffer_layout },
+                buffers = {vertex_buffer_layout},
             },
-            fragment = &{
-                module = fragment_shader,
+            fragment = &gpu.Fragment_State {
+                module = frag_shader,
                 entry_point = "fs_main",
                 targets = {
                     {
-                        format = self.config.format,
+                        format = ctx.render_format,
                         blend = &gpu.BLEND_STATE_NORMAL,
                         write_mask = gpu.COLOR_WRITES_ALL,
                     },
@@ -171,7 +153,7 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
             },
             primitive = {
                 topology   = .Triangle_List,
-                front_face = .Ccw,
+                front_face = .CCW,
                 // Backface culling since the cube is solid piece of geometry.
                 // Faces pointing away from the camera will be occluded by faces
                 // pointing toward the camera.
@@ -179,65 +161,91 @@ init :: proc(appstate: ^^Application) -> (res: app.App_Result) {
             },
             // Enable depth testing so that the fragment closest to the camera
             // is rendered in front.
-            depth_stencil = &depth_stencil_state,
-            multisample = gpu.MULTISAMPLE_STATE_DEFAULT,
+            depth_stencil = &depth_stencil,
+            multisample = {count = 1, mask = max(u32)},
         },
     )
 
-    self.uniform_buffer = gpu.device_create_buffer(
-        self.device,
+    state.uniform_buffer = gpu.device_create_buffer(
+        ctx.device,
         {
-            label = EXAMPLE_TITLE + " Uniform Buffer",
-            size  = 4 * 16, // 4x4 matrix
+            label = TITLE + " - Uniform Buffer",
+            size  = size_of(Fractal_Uniforms),
             usage = {.Uniform, .Copy_Dst},
         },
     )
+    update_uv_scale(ctx)
 
-    create_cube_texture(self, self.config.width, self.config.height)
+    create_cube_texture(ctx, ctx.width, ctx.height)
 
-    sampler_descriptor := gpu.SAMPLER_DESCRIPTOR_DEFAULT
+    sampler_descriptor := gpu.DEFAULT_SAMPLER_DESCRIPTOR
     sampler_descriptor.mag_filter = .Linear
     sampler_descriptor.min_filter = .Linear
-    self.sampler = gpu.device_create_sampler(self.device, sampler_descriptor)
+    state.sampler = gpu.device_create_sampler(ctx.device, sampler_descriptor)
 
-    create_fractal_bind_group(self)
+    create_fractal_bind_group(ctx)
 
-    self.rpass.colors[0] = {
-        view = nil, /* Assigned later */
-        ops = {
-            load        = .Clear,
-            store       = .Store,
-            // The clear color serves as the initial background and seed for the
-            // fractal generation. The mid-gray value (0.5, 0.5, 0.5) provides a
-            // neutral starting point for the fractal algorithm. In the fractal
-            // shader, values near 0.5 can significantly influence the initial
-            // pattern generation. The specific threshold of 0.01 used in the
-            // shader depends on this base gray color. Changing this value can
-            // dramatically alter the initial fractal distribution and appearance.
-            clear_value = { 0.5, 0.5, 0.5, 1 },
-        },
+    state.rpass.colors[0] = gpu.DEFAULT_RENDER_PASS_COLOR_ATTACHMENT
+    state.rpass.colors[0].view = {}
+    state.rpass.colors[0].ops = {
+        load  = .Clear,
+        store = .Store,
+        // The clear color serves as the initial background and seed for the
+        // fractal generation. The mid-gray value (0.5, 0.5, 0.5) provides a
+        // neutral starting point for the fractal algorithm. In the fractal
+        // shader, values near 0.5 can significantly influence the initial
+        // pattern generation. The specific threshold of 0.01 used in the
+        // shader depends on this base gray color. Changing this value can
+        // dramatically alter the initial fractal distribution and appearance.
+        clear_value = {0.5, 0.5, 0.5, 1},
+    }
+    state.rpass.descriptor = {
+        label                    = TITLE + " - Render pass",
+        color_attachments        = state.rpass.colors[:],
+        depth_stencil_attachment = &state.depth_texture.descriptor,
     }
 
-    self.rpass.descriptor = {
-        label                    = "Render pass descriptor",
-        color_attachments        = self.rpass.colors[:],
-        depth_stencil_attachment = &self.rpass.depth_stencil_attachment,
-    }
-
-    create_depth_stencil_texture(self, self.config.width, self.config.height)
-
-    set_projection_matrix(self, self.config.width, self.config.height)
-
-    return .Continue
+    init_depth_texture(ctx)
+    set_projection_matrix(ctx, ctx.width, ctx.height)
+    return true
 }
 
-create_cube_texture :: proc(self: ^Application, width, height: u32) {
-    self.cube_texture = gpu.device_create_texture(
-        self.device,
+// Mirrors the `Uniforms` block in shaders/fractal_cube.slang (std140:
+// mat4 + vec2 + trailing pad).
+Fractal_Uniforms :: struct {
+    transform: la.Matrix4f32,
+    uv_scale:  [2]f32,
+    _pad:      [2]f32,
+}
+
+compute_uv_scale :: proc(width, height: u32) -> [2]f32 {
+    if width == 0 || height == 0 {
+        return {1, 1}
+    }
+    w, h := f32(width), f32(height)
+    if w >= h {
+        return {h / w, 1}
+    }
+    return {1, w / h}
+}
+
+update_uv_scale :: proc(ctx: ^app.Application) {
+    state.uv_scale = compute_uv_scale(ctx.width, ctx.height)
+    gpu.queue_write_buffer(
+        queue = ctx.queue,
+        buffer = state.uniform_buffer,
+        offset = u64(offset_of(Fractal_Uniforms, uv_scale)),
+        data = gpu.to_bytes(state.uv_scale),
+    )
+}
+
+create_cube_texture :: proc(ctx: ^app.Application, width, height: u32) {
+    state.cube_texture = gpu.device_create_texture(
+        ctx.device,
         {
             label = "Fractal Cube Texture",
-            usage = { .Texture_Binding, .Copy_Dst, .Render_Attachment },
-            format = self.config.format,
+            usage = {.Texture_Binding, .Copy_Dst, .Render_Attachment},
+            format = ctx.render_format,
             dimension = .D2,
             mip_level_count = 1,
             sample_count = 1,
@@ -249,201 +257,205 @@ create_cube_texture :: proc(self: ^Application, width, height: u32) {
         },
     )
 
-    texture_view_descriptor := gpu.Texture_View_Descriptor {
-        format            = self.config.format,
-        dimension         = .D2,
-        base_mip_level    = 0,
-        mip_level_count   = 1,
-        base_array_layer  = 0,
-        array_layer_count = 1,
-        aspect            = .All,
-    }
-
-    self.cube_view = gpu.texture_create_view(self.cube_texture, texture_view_descriptor)
-}
-
-recreate_cube_texture :: proc(self: ^Application, width, height: u32) {
-    destroy_cube_texture(self)
-    create_cube_texture(self, width, height)
-}
-
-destroy_cube_texture :: proc(self: ^Application) {
-    if self.cube_texture != nil {
-        gpu.release(self.cube_texture)
-    }
-    if self.cube_view != nil {
-        gpu.release(self.cube_view)
-    }
-}
-
-create_fractal_bind_group :: proc(self: ^Application) {
-    self.uniform_bind_group = gpu.device_create_bind_group(
-        self.device,
+    state.cube_view = gpu.texture_create_view(
+        state.cube_texture,
         {
-            layout = self.uniform_bind_group_layout,
+            format            = ctx.render_format,
+            dimension         = .D2,
+            base_mip_level    = 0,
+            mip_level_count   = 1,
+            base_array_layer  = 0,
+            array_layer_count = 1,
+            aspect            = .All,
+        },
+    )
+}
+
+recreate_cube_texture :: proc(ctx: ^app.Application, width, height: u32) {
+    destroy_cube_texture()
+    create_cube_texture(ctx, width, height)
+}
+
+destroy_cube_texture :: proc() {
+    if state.cube_texture != {} {
+        gpu.texture_release(state.cube_texture)
+    }
+    if state.cube_view != {} {
+        gpu.texture_view_release(state.cube_view)
+    }
+}
+
+create_fractal_bind_group :: proc(ctx: ^app.Application) {
+    state.bind_group = gpu.device_create_bind_group(
+        ctx.device,
+        {
+            label = TITLE + " - Bind group",
+            layout = state.bind_group_layout,
             entries = {
                 {
                     binding = 0,
                     resource = gpu.Buffer_Binding {
-                        buffer = self.uniform_buffer,
-                        size = gpu.buffer_get_size(self.uniform_buffer),
+                        buffer = state.uniform_buffer,
+                        size = gpu.buffer_get_size(state.uniform_buffer),
                     },
                 },
                 {
                     binding = 1,
-                    resource = self.cube_view,
+                    resource = state.cube_view,
                 },
                 {
                     binding = 2,
-                    resource = self.sampler,
+                    resource = state.sampler,
                 },
             },
         },
     )
 }
 
-recreate_fractal_bind_group :: proc(self: ^Application) {
-    if self.uniform_bind_group != nil {
-        gpu.release(self.uniform_bind_group)
+recreate_fractal_bind_group :: proc(ctx: ^app.Application) {
+    if state.bind_group != {} {
+        gpu.bind_group_release(state.bind_group)
     }
-    create_fractal_bind_group(self)
+    create_fractal_bind_group(ctx)
 }
 
-update :: proc(self: ^Application) {
-    transformation_matrix := get_transformation_matrix(self)
+update :: proc(ctx: ^app.Application) {
+    transformation_matrix := get_transformation_matrix()
     gpu.queue_write_buffer(
-        self.queue,
-        self.uniform_buffer,
-        0,
-        gpu.to_bytes(transformation_matrix),
+        queue = ctx.queue,
+        buffer = state.uniform_buffer,
+        offset = 0,
+        data = gpu.to_bytes(transformation_matrix),
     )
 }
 
-iterate :: proc(self: ^Application, dt: f32) -> (res: app.App_Result) {
-    update(self)
+iterate :: proc(ctx: ^app.Application, dt: f32) -> (ok: bool) {
+    update(ctx)
 
     frame := app.get_current_frame()
-    if frame.skip { return }
+    if frame.skip {return true}
     defer app.release_current_frame(&frame)
 
-    encoder := gpu.device_create_command_encoder(self.device)
-    defer gpu.release(encoder)
+    encoder := gpu.device_create_command_encoder(ctx.device)
+    defer gpu.command_encoder_release(encoder)
 
-    self.rpass.colors[0].view = frame.view
-    render_pass := gpu.command_encoder_begin_render_pass(encoder, self.rpass.descriptor)
-    defer gpu.release(render_pass)
+    state.rpass.colors[0].view = frame.view
+    pass := gpu.command_encoder_begin_render_pass(encoder, state.rpass.descriptor)
+    defer gpu.render_pass_release(pass)
 
-    gpu.render_pass_set_pipeline(render_pass, self.render_pipeline)
-    gpu.render_pass_set_bind_group(render_pass, 0, self.uniform_bind_group)
-    gpu.render_pass_set_vertex_buffer(render_pass, 0, self.vertex_buffer)
-    gpu.render_pass_set_index_buffer(render_pass, self.index_buffer, .Uint16)
-    gpu.render_pass_draw_indexed(render_pass, {0, u32(len(CUBE_INDICES_DATA))}, 0)
+    gpu.render_pass_set_pipeline(pass, state.render_pipeline)
+    gpu.render_pass_set_bind_group(pass, 0, state.bind_group)
+    gpu.render_pass_set_vertex_buffer(pass, 0, state.vertex_buffer, 0, gpu.WHOLE_SIZE)
+    gpu.render_pass_set_index_buffer(pass, state.index_buffer, .Uint16, 0, gpu.WHOLE_SIZE)
+    gpu.render_pass_draw_indexed(pass, u32(len(CUBE_INDICES_DATA)), 1, 0, 0, 0)
 
-    gpu.render_pass_end(render_pass)
+    gpu.render_pass_end(pass)
 
     copy_size := gpu.texture_get_size(frame.texture)
 
     // Copy the rendering results from the swapchain into `cube_texture`.
     gpu.command_encoder_copy_texture_to_texture(
         encoder,
-        { texture = frame.texture, mip_level = 0, origin = {}, aspect = .All },
-        { texture = self.cube_texture, mip_level = 0, origin = {}, aspect = .All },
-        { copy_size.width, copy_size.height, 1 },
+        {texture = frame.texture, mip_level = 0, origin = {}, aspect = .All},
+        {texture = state.cube_texture, mip_level = 0, origin = {}, aspect = .All},
+        {copy_size.width, copy_size.height, 1},
     )
 
-    cmdbuf := gpu.command_encoder_finish(encoder)
-    defer gpu.release(cmdbuf)
+    cmd := gpu.command_encoder_finish(encoder)
+    defer gpu.command_buffer_release(cmd)
 
-    gpu.queue_submit(self.queue, { cmdbuf })
-    gpu.surface_present(self.surface)
+    gpu.queue_submit(ctx.queue, {cmd})
+    gpu.surface_texture_present(frame)
 
-    return .Continue
-}
-
-event :: proc(self: ^Application, event: app.Event) -> (ok: bool) {
-    #partial switch &ev in event {
-        case app.Resize_Event:
-            resize(self, ev.width, ev.height)
-    }
     return true
 }
 
-quit :: proc(self: ^Application, res: app.App_Result) {
-    app.release_depth_stencil_texture(self.depth_texture)
-
-    gpu.release(self.uniform_bind_group)
-    gpu.release(self.sampler)
-
-    destroy_cube_texture(self)
-
-    gpu.release(self.uniform_bind_group_layout)
-    gpu.release(self.uniform_buffer)
-    gpu.release(self.render_pipeline)
-    gpu.release(self.index_buffer)
-    gpu.release(self.vertex_buffer)
-
-    free(self)
+event :: proc(ctx: ^app.Application, event: app.Event) {
+    #partial switch ev in event {
+    case app.Resize_Event:
+        resize(ctx, ev.width, ev.height)
+    case:
+    }
 }
 
-resize :: proc(self: ^Application, width, height: u32) {
-    recreate_depth_stencil_texture(self, width, height)
-    recreate_cube_texture(self, width, height)
-    set_projection_matrix(self, width, height)
-    recreate_fractal_bind_group(self)
+quit :: proc(ctx: ^app.Application) {
+    app.depth_stencil_texture_uninit(&state.depth_texture)
+
+    gpu.bind_group_release(state.bind_group)
+    gpu.sampler_release(state.sampler)
+
+    destroy_cube_texture()
+
+    gpu.bind_group_layout_release(state.bind_group_layout)
+    gpu.buffer_release(state.uniform_buffer)
+    gpu.render_pipeline_release(state.render_pipeline)
+    gpu.buffer_release(state.index_buffer)
+    gpu.buffer_release(state.vertex_buffer)
 }
 
-create_depth_stencil_texture :: proc(self: ^Application, width, height: u32) {
-    self.depth_texture = app.create_depth_stencil_texture(self.device, {
-        width = width, height = height,
-    })
-    self.rpass.descriptor.depth_stencil_attachment = &self.depth_texture.descriptor
+resize :: proc(ctx: ^app.Application, width, height: u32) {
+    if height == 0 {return}
+    init_depth_texture(ctx)
+    recreate_cube_texture(ctx, width, height)
+    set_projection_matrix(ctx, width, height)
+    update_uv_scale(ctx)
+    recreate_fractal_bind_group(ctx)
 }
 
-recreate_depth_stencil_texture :: proc(self: ^Application, width, height: u32) {
-    app.release_depth_stencil_texture(self.depth_texture)
-    create_depth_stencil_texture(self, width, height)
+init_depth_texture :: proc(ctx: ^app.Application) {
+    if state.depth_texture.texture != {} {
+        app.depth_stencil_texture_uninit(&state.depth_texture)
+    }
+    app.depth_stencil_texture_init(
+        &state.depth_texture,
+        ctx.device,
+        {
+            format = app.DEFAULT_DEPTH_FORMAT,
+            width = ctx.width,
+            height = ctx.height,
+            sample_count = 1,
+        },
+    )
 }
 
-set_projection_matrix :: proc(self: ^Application, width, height: u32) {
+set_projection_matrix :: proc(ctx: ^app.Application, width, height: u32) {
     aspect := f32(width) / f32(height)
-    self.projection_matrix = la.matrix4_perspective(2 * math.PI / 5, aspect, 1, 100.0)
+    state.projection_matrix = la.matrix4_perspective_f32(2 * math.PI / 5, aspect, 1, 100)
+    app.camera_projection_matrix_convert_clip_space_near_z(&state.projection_matrix, .Zero, .Negative_One)
 }
 
-get_transformation_matrix :: proc(self: ^Application) -> (mvp_mat: la.Matrix4f32) {
-    view_matrix := la.MATRIX4F32_IDENTITY
+get_transformation_matrix :: proc() -> (mvp_mat: la.Matrix4f32) {
+    view := la.MATRIX4F32_IDENTITY
 
     // Translate
-    translation := la.Vector3f32{0, 0, -4}
-    view_matrix = la.matrix_mul(view_matrix, la.matrix4_translate(translation))
+    view = view * la.matrix4_translate_f32({0, 0, -4})
 
     // Rotate
     now := f32(app.get_time())
-    rotation_axis := la.Vector3f32{math.sin(now), math.cos(now), 0}
-    rotation_matrix := la.matrix4_rotate(1, rotation_axis)
-    view_matrix = la.matrix_mul(view_matrix, rotation_matrix)
+    view = view * la.matrix4_rotate_f32(1.0, {math.sin(now), math.cos(now), 0})
 
     // Multiply projection and view matrices
-    mvp_mat = la.matrix_mul(self.projection_matrix, view_matrix)
-
+    mvp_mat = state.projection_matrix * view
     return
 }
 
 main :: proc() {
     when ODIN_DEBUG {
-        context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
+        context.logger = log.create_console_logger(
+            lowest = .Debug,
+            opt = {.Level, .Terminal_Color},
+        )
         defer log.destroy_console_logger(context.logger)
 
-        // TODO(Capati): WASM requires additional flags for the tracking allocator?
         when ODIN_OS != .JS {
             track: mem.Tracking_Allocator
             mem.tracking_allocator_init(&track, context.allocator)
             context.allocator = mem.tracking_allocator(&track)
-
             defer {
                 if len(track.allocation_map) > 0 {
-                    log.warnf("=== %v allocations not freed: ===", len(track.allocation_map))
+                    log.errorf("=== %v allocations not freed: ===", len(track.allocation_map))
                     for _, entry in track.allocation_map {
-                        log.debugf("- %v bytes @ %v", entry.size, entry.location)
+                        log.warnf("- %v bytes @ %v", entry.size, entry.location)
                     }
                 }
                 mem.tracking_allocator_destroy(&track)
@@ -451,12 +463,13 @@ main :: proc() {
         }
     }
 
-    // Set main callbacks
-    app.init_proc = cast(app.App_Init_Proc)init
-    app.quit_proc = cast(app.App_Quit_Proc)quit
-    app.iterate_proc = cast(app.App_Iterate_Proc)iterate
-    app.event_proc = cast(app.App_Event_Proc)event
-
-    // Initialize framework and run application
-    app.init(EXAMPLE_TITLE, CLIENT_WIDTH, CLIENT_HEIGHT)
+    app.run(
+        app.Application_Descriptor {
+            title = TITLE,
+            init_cb = init,
+            iterate_cb = iterate,
+            quit_cb = quit,
+            event_cb = event,
+        },
+    )
 }

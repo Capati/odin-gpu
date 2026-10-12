@@ -1,5 +1,7 @@
 struct Uniforms {
     float4x4 transform;
+    float2 uv_scale;
+    float2 _pad;
 };
 
 struct VertexInput {
@@ -50,10 +52,15 @@ SamplerState r_color_sampler : register(s2);
 float4 fs_main(FragmentInput input) : SV_Target {
     float4 texColor;
 
+    // Centered crop of the full-frame feedback texture to a square aspect
+    // (uv_scale updated on resize), then the historical 80% zoom.
+    float2 uv = (input.tex_coord - float2(0.5, 0.5)) * uniforms.uv_scale;
+    uv = uv * 0.8 + float2(0.5, 0.5);
+
 #if defined(USE_COMBINED_SAMPLER)
-    texColor = r_color.Sample(input.tex_coord * 0.8 + float2(0.1, 0.1));
+    texColor = r_color.Sample(uv);
 #else
-    texColor = r_color_texture.Sample(r_color_sampler, input.tex_coord * 0.8 + float2(0.1, 0.1));
+    texColor = r_color_texture.Sample(r_color_sampler, uv);
 #endif
 
     // The threshold of 0.01 used in the shader depends on the base gray color

@@ -86,6 +86,7 @@
                 "coordinate_system",
                 "cube",
                 "cubemap",
+                "fractal_cube",
                 "gltf_cube",
                 "gltf_viewer",
                 "imgui",

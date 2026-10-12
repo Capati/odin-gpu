@@ -6,6 +6,8 @@ struct _MatrixStorage_float4x4_ColMajorstd140_0
 struct Uniforms_std140_0
 {
     @align(16) transform_0 : _MatrixStorage_float4x4_ColMajorstd140_0,
+    @align(16) uv_scale_0 : vec2<f32>,
+    @align(8) _pad_0 : vec2<f32>,
 };
 
 @binding(0) @group(0) var<uniform> uniforms_0 : Uniforms_std140_0;

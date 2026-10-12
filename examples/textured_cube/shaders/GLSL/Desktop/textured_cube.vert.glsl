@@ -2,8 +2,8 @@
 layout(row_major) uniform;
 layout(row_major) buffer;
 
-#line 2 0
-struct Uniforms_natural_0
+#line 1 0
+struct Uniforms_0
 {
     mat4x4 transform_0;
 };
@@ -11,7 +11,7 @@ struct Uniforms_natural_0
 
 #line 16
 layout(binding = 0)
-layout(std140) uniform block_Uniforms_natural_0
+layout(std140) uniform block_Uniforms_0
 {
     mat4x4 transform_0;
 }uniforms_0;

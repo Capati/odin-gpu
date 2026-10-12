@@ -8,3 +8,7 @@ feedback effect.
 ```shell
 build.bat|sh fractal_cube run
 ```
+
+## Screenshot
+
+![Fractal Cube](fractal_cube.png)

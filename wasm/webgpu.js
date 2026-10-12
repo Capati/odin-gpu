@@ -4163,6 +4163,19 @@
           return texture.sampleCount;
         },
 
+
+        /**
+         * @param {number} textureIdx
+         */
+        webgpuTextureGetSize: (textureIdx, outPtr) => {
+          /** @type {GPUTexture} */
+          const texture = this.textures.getPacked(textureIdx);
+          const off = this.struct(outPtr);
+          this.mem.storeU32(off(4), texture.width);
+          this.mem.storeU32(off(4), texture.height);
+          this.mem.storeU32(off(4), texture.depthOrArrayLayers);
+        },
+
         /**
          * @param {number} textureIdx
          * @returns {number}

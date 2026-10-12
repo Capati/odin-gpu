@@ -919,6 +919,7 @@ foreign webgpu {
     webgpuTextureGetHeight :: proc(texture: Texture) -> u32 ---
     webgpuTextureGetMipLevelCount :: proc(texture: Texture) -> u32 ---
     webgpuTextureGetSampleCount :: proc(texture: Texture) -> u32 ---
+    webgpuTextureGetSize :: proc(texture: Texture, out: ^Extent_3D) ---
     webgpuTextureGetTextureBindingViewDimension :: proc(
         texture: Texture,
     ) -> Texture_View_Dimension ---
@@ -1182,6 +1183,7 @@ webgpu_set_procedures :: proc() {
     texture_get_height = webgpu_texture_get_height
     texture_get_mip_level_count = webgpu_texture_get_mip_level_count
     texture_get_sample_count = webgpu_texture_get_sample_count
+    texture_get_size = webgpu_texture_get_size
     texture_get_texture_binding_view_dimension = webgpu_texture_get_texture_binding_view_dimension
     texture_get_usage = webgpu_texture_get_usage
     texture_get_width = webgpu_texture_get_width
@@ -2775,11 +2777,11 @@ webgpu_texture_create_view :: proc(
 }
 
 webgpu_texture_destroy :: proc(texture: Texture, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuTextureDestroy(texture)
 }
 
 webgpu_texture_get_depth_or_array_layers :: proc(texture: Texture, loc := #caller_location) -> u32 {
-    unimplemented(loc = loc)
+    return webgpuTextureGetDepthOrArrayLayers(texture)
 }
 
 webgpu_texture_get_descriptor :: proc(
@@ -2789,12 +2791,15 @@ webgpu_texture_get_descriptor :: proc(
     unimplemented(loc = loc)
 }
 
-webgpu_texture_get_dimension :: proc(texture: Texture, loc := #caller_location) -> Texture_Dimension {
-    unimplemented(loc = loc)
+webgpu_texture_get_dimension :: proc(
+    texture: Texture,
+    loc := #caller_location,
+) -> Texture_Dimension {
+    return webgpuTextureGetDimension(texture)
 }
 
 webgpu_texture_get_format :: proc(texture: Texture, loc := #caller_location) -> Texture_Format {
-    unimplemented(loc = loc)
+    return webgpuTextureGetFormat(texture)
 }
 
 webgpu_texture_get_height :: proc(texture: Texture, loc := #caller_location) -> u32 {
@@ -2806,18 +2811,24 @@ webgpu_texture_get_mip_level_count :: proc(texture: Texture, loc := #caller_loca
 }
 
 webgpu_texture_get_sample_count :: proc(texture: Texture, loc := #caller_location) -> u32 {
-    unimplemented(loc = loc)
+    return webgpuTextureGetSampleCount(texture)
+}
+
+webgpu_texture_get_size :: proc(texture: Texture, loc := #caller_location) -> Extent_3D {
+    out: Extent_3D
+    webgpuTextureGetSize(texture, &out)
+    return out
 }
 
 webgpu_texture_get_texture_binding_view_dimension :: proc(
     texture: Texture,
     loc := #caller_location,
 ) -> Texture_View_Dimension {
-    unimplemented(loc = loc)
+    return webgpuTextureGetTextureBindingViewDimension(texture)
 }
 
 webgpu_texture_get_usage :: proc(texture: Texture, loc := #caller_location) -> Texture_Usages {
-    unimplemented(loc = loc)
+    return webgpuTextureGetUsage(texture)
 }
 
 webgpu_texture_get_width :: proc(texture: Texture, loc := #caller_location) -> u32 {

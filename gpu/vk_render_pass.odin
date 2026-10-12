@@ -1,4 +1,4 @@
-﻿#+build !js
+#+build !js
 package gpu
 
 // Core
@@ -15,11 +15,6 @@ VK_Framebuffer_Cache_Texture_View :: struct {
 }
 
 VK_Framebuffer_Key :: struct {
-    // NOTE: no render pass in the key. Framebuffer compatibility is
-    // determined by the attachments (formats/counts derive from the views)
-    // and the extent; load/store ops live in the render pass, not the
-    // framebuffer. Keying on the per-begin pass instance handle (as before)
-    // made every key unique, so the cache never hit and grew without bound.
     width:            u32,
     height:           u32,
     attachment_count: u32,
@@ -198,7 +193,7 @@ vk_create_render_pass :: proc(
 
         // Read-only DS attachments must not be written to. If the device
         // advertises STORE_OP_NONE (VK_KHR_maintenance5 / Vulkan 1.3) we can
-        // say so precisely; otherwise fall back to STORE â€” the driver still
+        // say so precisely; otherwise fall back to STORE the driver still
         // won't write anything because the subpass is read-only.
         store_op_for_read_only := device_impl.caps.store_op_none \
             ? vk.AttachmentStoreOp.NONE : vk.AttachmentStoreOp.STORE
@@ -476,19 +471,11 @@ vk_render_pass_end :: proc(
 
     _ = command_allocator_allocate(&cmdbuf.commands, Render_Pass_End_Cmd, loc)
 
-    // Swapchain images are not marked `.Present` here. The tracker drain runs
-    // before the pass is recorded and has already committed the attachment
-    // states, so the `.Present` end state is applied to the device tracker by
-    // `vk_record_render_pass` once the pass has actually ended.
     vk_command_buffer_fold_usage_scope(cmdbuf, scope, loc)
 
-    // The fold appended a barrier to the tracker's pending lists for every
-    // transition from the command buffer's previously known states into a
-    // state this pass requires. They can only be computed once the whole scope
-    // has folded, so backfill them into the pass's begin command now; the
-    // recorder emits them immediately before `vkCmdBeginRenderPass`, which is
-    // the earliest point they can safely be issued (see the field comment on
-    // `Begin_Render_Pass_Cmd`).
+    // Backfill barriers computed during the fold into the pass's begin command.
+    // The recorder emits them immediately before `vkCmdBeginRenderPass`, when
+    // they're safe to issue.
     temp_allocator := virtual.arena_allocator(&cmdbuf.temp_arena)
     begin := impl.begin_cmd
     begin.buffer_transitions = buffer_tracker_drain_transitions(

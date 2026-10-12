@@ -1,0 +1,98 @@
+# Builds every example for WebAssembly and deploys the showcase site to
+# GitHub Pages (https://capati.github.io/odin-gpu/).
+#
+# One-time setup: repository Settings -> Pages -> Build and deployment ->
+# Source: "GitHub Actions".
+#
+# How it works:
+#
+#   1. node tools/prep_examples.mjs stages the Next.js site source in site/
+#      (examples.json manifest from each README.md, screenshots, shared JS,
+#      assets submodule).
+#   2. tools/build_web_all.sh builds each example with examples/build.sh
+#      ("web release", same flags as local `build.sh <name> web release`) and
+#      stages app.wasm into site/public/e/<name>/.
+#   3. Next.js static export renders the gallery homepage + one page per
+#      example into site/out/; public/ files pass through untouched.
+#   4. site/out/ is uploaded and deployed; no binaries are committed to git.
+#
+# Odin version: built from source at the monthly tag tested by this repo
+# (see "Tested in Odin version" in the root README). To follow a newer
+# monthly, update `branch:` below. To float on the latest release instead,
+# replace `release: 'false'` + `branch:` with `release: latest`.
+
+# Manual only: run it from Actions -> Examples site -> Run workflow when you
+# want to refresh the showcase. Pushes to main intentionally do NOT rebuild
+# (Odin wasm builds are slow and Pages deploys are explicit).
+
+name: Examples site
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with assets submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Odin
+        uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: "false"
+          branch: dev-2026-10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install site dependencies
+        run: npm ci
+        working-directory: site
+
+      - name: Stage site content
+        run: node site/tools/prep_examples.mjs
+
+      - name: Build all examples for web
+        run: bash site/tools/build_web_all.sh release --out site
+
+      - name: Render site (Next.js static export)
+        run: npm run build
+        working-directory: site
+        env:
+          NEXT_BASE_PATH: /odin-gpu
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

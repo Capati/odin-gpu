@@ -1,6 +1,8 @@
 # Examples
 
-Small examples ordered by complexity. Run any of them with:
+Live WebGPU demos of every example: <https://capati.github.io/odin-gpu/>
+
+Small examples ordered by complexity. Run any of them natively with:
 
 ```shell
 build.bat|sh <name> run

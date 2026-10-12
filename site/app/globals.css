@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-page: #0b0e14;
+  --color-panel: #141926;
+  --color-bar: #161a22;
+  --color-line: #2a3140;
+  --color-ink: #dbe2ef;
+  --color-dim: #8b94a7;
+  --color-link: #7aa2ff;
+  --color-btn: #232a3a;
+  --color-btnhover: #2c3549;
+  --color-chip: #1b2233;
+  --color-well: #0e121b;
+  --color-code: #232a3a;
+  --color-pre: #11141c;
+  --color-warnbg: #3a2b12;
+  --color-warn: #f2c879;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Explicit (Tailwind preflight already hides [hidden], this is belt-and-braces). */
+#notice[hidden] {
+  display: none;
+}
+#wrap.nocanvas {
+  display: none;
+}

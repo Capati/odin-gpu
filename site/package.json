@@ -1,0 +1,25 @@
+{
+  "name": "odin-gpu-examples-site",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Showcase site for the odin-gpu WebGPU examples (Next.js static export)",
+  "type": "module",
+  "scripts": {
+    "prep": "node ./tools/prep_examples.mjs",
+    "build": "next build",
+    "dev": "next dev"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

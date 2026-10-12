@@ -17,6 +17,15 @@
 node_modules
 /temp
 
+# Next.js showcase site (generated; source is site/app + tools/prep_examples.mjs)
+/site/out/
+/site/.next/
+/site/data/examples.json
+/site/public/e/
+/site/public/shared/
+/site/public/assets/
+/site/public/.nojekyll
+
 /build/*
 /examples/build/*
 !/build/.gitkeep

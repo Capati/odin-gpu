@@ -15,8 +15,6 @@
 A modern graphics API wrapper for [Odin Language][], inspired by the [WebGPU][] specification. This
 library provides abstractions over Vulkan, DirectX 11/12, Metal, OpenGL, and WebGPU backends.
 
-Tested in Odin version: `dev-2026-10`
-
 ## Status
 
 > [!WARNING]
@@ -30,47 +28,72 @@ WebGPU itself as well. In case of any deviations due to constraints of native ba
 implementation of WebGPU should work the same way; deviations should exist under the hood of native
 backends and never affect the spec implementation.
 
-Current development focus is the Vulkan backend and WebGPU/WASM support. The other backends are
-parked until the Vulkan implementation stabilizes (see Backends below).
-
 Currently I'm working on [renderlink][] as a "proof of concept" for this library. You can also
 check [all examples](./examples).
 
 ## Backends
 
+Current development focus is the Vulkan backend and WebGPU/WASM support. The other backends are
+parked until the Vulkan implementation stabilizes.
+
 | Feature | Status | Notes |
-|---------|--------|-------|
-| **Core API** |
+| --------- | -------- | ------- |
+| **Core API** | | |
 | Core API Layout | In Progress | Basic types exist, API not yet stable |
-| **Backends** |
-| Vulkan     | In Progress | Should be the main backend |
+| **Backends** | | |
+| Vulkan | In Progress | Should be the main backend |
 | DirectX 12 | Not Started | Windows support |
 | DirectX 11 | Parked | Fallback Windows support |
-| Metal      | Not Started | Might rely on MoltenVK first |
-| OpenGL     | Parked | Fallback backend on Linux and Windows |
-| WebGPU     | In Progress | WASM support |
-| WebGL     | Not Started | Fallback WASM support, limited features |
-| **Advanced** |
-| Bindless    | TODO | |
+| Metal | Not Started | Might rely on MoltenVK first |
+| OpenGL | Parked | Fallback backend on Linux and Windows |
+| WebGPU | In Progress | WASM support |
+| WebGL | Not Started | Fallback WASM support, limited features |
+| **Advanced** | | |
+| Bindless | TODO | |
 | Ray Tracing | TODO | |
+| Mesh Shaders | TODO | |
 
 ## Installation
 
-Just copy or clone this repository to your dependencies folder.
+Tested in Odin version: `dev-2026-10`
+
+Only the `gpu/` folder is required to use the library. Copy this folder next
+to your project, then import it:
+
+```odin
+import "path/to/gpu"
+```
+
+Alternatively, register it as an Odin collection so all your projects can use
+a stable import path:
+
+```shell
+odin build . -collection:libs=<path-to-this-repo>
+```
+
+```odin
+import "libs:gpu"
+```
+
+### Project Structure
 
 ```text
 ├── gpu            # Core API
-│   ├── lib        # Vendored allocator/bindings (vma, d3d12ma, egl, gl)
-│   └── parked     # D3D11/D3D12/Metal/OpenGL backends, returning later
+│   ├── lib        # Vendored library and bindings
+│   └── stash      # D3D11/D3D12/Metal/OpenGL backends, returning later
 ├── examples       # Collection of examples to show usage
 │   └── build      # Examples output folder + assets submodule
+├── site           # Showcase website
+│   ├── app        # Gallery homepage + per-example canvas pages
+│   └── tools      # Manifest staging (prep) + web builds
 ├── utils          # Additional renderer and utility packages
+│   ├── glfw       # Surface creation helpers for GLFW
 │   ├── gltf       # glTF loader (+ tools/bench, tools/compare)
 │   ├── imgui      # ImGui renderer
-│   ├── sdl2/sdl3  # Surface creation helpers
+│   ├── sdl2/sdl3  # Surface creation helpers for SDL
 │   ├── microui    # Micro UI renderer
 │   └── tobj       # OBJ loader
-├── tests          # Example harness, surface stress runner, shared build dir
+├── tests          # Some harness tests
 ├── wasm           # Browser shell (webgpu.js, index.html)
 ├── resources      # Vendored WebGPU headers
 └── CHANGELOG.md   # Release notes

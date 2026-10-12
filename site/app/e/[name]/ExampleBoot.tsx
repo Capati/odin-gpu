@@ -7,7 +7,7 @@ const NO_GPU_MSG =
 const MISSING_WASM_MSG =
   "app.wasm is missing for this example. Build it first: site/tools/build_web_all.[bat|sh] <name>, or wait for the Pages CI deploy.";
 
-function boot() {
+function boot(onFirstFrame: () => void) {
   const odin = window.odin;
   if (!odin) {
     throw new Error("odin runtime failed to load");
@@ -35,8 +35,13 @@ function boot() {
   );
 
   const originalRAF = window.requestAnimationFrame;
+  let firstFrame = true;
   window.requestAnimationFrame = function (callback: FrameRequestCallback) {
     return originalRAF.call(window, function (time: number) {
+      if (firstFrame) {
+        firstFrame = false;
+        onFirstFrame();
+      }
       stats.begin();
       callback(time);
       stats.end();
@@ -47,12 +52,14 @@ function boot() {
 export default function ExampleBoot() {
   const [notice, setNotice] = useState<string | null>(null);
   const [noGpu, setNoGpu] = useState(false);
+  const [loading, setLoading] = useState(true);
   const booted = useRef(false);
 
   useEffect(() => {
     // Site hosts one shared assets/ folder at the site root, while examples
     // fetch relative "assets/..." paths. Rewrite those to the shared location.
-    // Required for gltf/cubemap/obj examples; harmless otherwise.
+    // The "./assets/..." form is tolerated too (model-file derived paths).
+    // Harmless otherwise.
     const origOpen = XMLHttpRequest.prototype.open as unknown as (
       this: XMLHttpRequest,
       ...args: unknown[]
@@ -75,9 +82,21 @@ export default function ExampleBoot() {
     };
     if (booted.current) return;
     booted.current = true;
+    // Fallback so the spinner can never stick forever (e.g. RAF throttled
+    // in a background tab, where the first frame fires only on focus).
+    const fallback = window.setTimeout(() => setLoading(false), 30000);
+    const done = () => {
+      window.clearTimeout(fallback);
+      setLoading(false);
+    };
+    const fail = (msg: string) => {
+      window.clearTimeout(fallback);
+      setNotice(msg);
+      setLoading(false);
+    };
     if (!("gpu" in navigator)) {
       setNoGpu(true);
-      setNotice(NO_GPU_MSG);
+      fail(NO_GPU_MSG);
       return;
     }
     // Skip booting when the wasm for this example has not been deployed yet
@@ -86,26 +105,39 @@ export default function ExampleBoot() {
       (res) => {
         if (res.ok) {
           try {
-            boot();
+            boot(done);
           } catch (e) {
-            setNotice(`Failed to start: ${e instanceof Error ? e.message : String(e)}`);
+            fail(`Failed to start: ${e instanceof Error ? e.message : String(e)}`);
           }
         } else {
-          setNotice(MISSING_WASM_MSG);
+          fail(MISSING_WASM_MSG);
         }
       },
       () => {
         try {
-          boot();
+          boot(done);
         } catch (e) {
-          setNotice(`Failed to start: ${e instanceof Error ? e.message : String(e)}`);
+          fail(`Failed to start: ${e instanceof Error ? e.message : String(e)}`);
         }
       },
     );
+    return () => window.clearTimeout(fallback);
   }, []);
 
   return (
     <>
+      {loading && (
+        <div
+          id="loader"
+          className="fixed inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-page/80"
+        >
+          <span
+            aria-hidden="true"
+            className="block h-10 w-10 animate-spin rounded-full border-2 border-line border-t-link"
+          />
+          <span className="text-sm text-dim">Loading demo…</span>
+        </div>
+      )}
       {notice && (
         <div
           id="notice"

@@ -63,10 +63,14 @@ export default function ExampleBoot() {
       url: string | URL,
       ...rest: unknown[]
     ) {
-      const target =
-        typeof url === "string" && url.indexOf("assets/") === 0
-          ? `../../assets/${url.slice(7)}`
-          : url;
+      let target: string | URL = url;
+      if (typeof target === "string") {
+        if (target.indexOf("assets/") === 0) {
+          target = `../../assets/${target.slice(7)}`;
+        } else if (target.indexOf("./assets/") === 0) {
+          target = `../../assets/${target.slice(9)}`;
+        }
+      }
       origOpen.apply(this, [method, target, ...rest]);
     };
     if (booted.current) return;

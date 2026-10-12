@@ -40,12 +40,12 @@ FACE_COUNT :: 6
 
 // Texture layers follow WebGPU's cube-view order: +X, -X, +Y, -Y, +Z, -Z.
 CUBEMAP_FACE_PATHS :: [FACE_COUNT]string {
-    "./assets/textures/cubemaps/bridge2_px.jpg",
-    "./assets/textures/cubemaps/bridge2_nx.jpg",
-    "./assets/textures/cubemaps/bridge2_py.jpg",
-    "./assets/textures/cubemaps/bridge2_ny.jpg",
-    "./assets/textures/cubemaps/bridge2_pz.jpg",
-    "./assets/textures/cubemaps/bridge2_nz.jpg",
+    app.ASSETS_DIR + "textures/cubemaps/bridge2_px.jpg",
+    app.ASSETS_DIR + "textures/cubemaps/bridge2_nx.jpg",
+    app.ASSETS_DIR + "textures/cubemaps/bridge2_py.jpg",
+    app.ASSETS_DIR + "textures/cubemaps/bridge2_ny.jpg",
+    app.ASSETS_DIR + "textures/cubemaps/bridge2_pz.jpg",
+    app.ASSETS_DIR + "textures/cubemaps/bridge2_nz.jpg",
 }
 
 State :: struct {

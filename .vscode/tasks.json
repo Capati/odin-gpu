@@ -89,6 +89,7 @@
                 "gltf_cube",
                 "gltf_viewer",
                 "imgui",
+                "info",
                 "instanced_cube",
                 "microui",
                 "minimal",

@@ -1,60 +1,44 @@
+/*
+Example - Info
+
+Prints the library version and the selected adapter information.
+*/
 package info
 
 // Core
-import "base:runtime"
 import "core:fmt"
 
 // Local packages
-import gpu "../../"
+import "../../gpu"
 
 main :: proc() {
-    version := gpu.get_version()
+    fmt.printf("Version: %s\n\n", gpu.VERSION_STRING)
 
-    fmt.printf("Version: %d.%d.%d\n\n", version.major, version.minor, version.patch)
+    instance := gpu.create_instance(context.allocator)
+    if instance == {} {
+        fmt.eprintln("Failed to create instance")
+        return
+    }
+    defer gpu.instance_release(instance)
 
-    instance := gpu.create_instance()
-    defer gpu.release(instance)
-
-    ta := context.temp_allocator
-    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-
-    adapters := gpu.instance_enumerate_adapters(instance, ta)
-    if len(adapters) == 0 {
+    adapter := gpu.instance_create_adapter(instance)
+    if adapter == {} {
         fmt.eprintln("No adapters available")
         return
     }
-    defer {
-        for a in adapters { gpu.release(a) }
-    }
+    defer gpu.adapter_release(adapter)
 
-    fmt.println("Available adapter(s):\n")
+    info := gpu.adapter_get_info(adapter)
+    defer gpu.adapter_info_free_members(info)
 
-    for a in adapters {
-        info := gpu.adapter_get_info(a, ta)
-        gpu.adapter_info_print(info)
-    }
-
-    gpu.instance_request_adapter(instance, { callback = on_adapter })
-
-    on_adapter :: proc "c" (
-        status: gpu.Request_Adapter_Status,
-        adapter: gpu.Adapter,
-        message: string,
-        userdata1: rawptr,
-        userdata2: rawptr,
-    ) {
-        context = runtime.default_context()
-
-        if status != .Success || adapter == nil {
-            fmt.eprintfln("Request adapter failure: [%v] %s", status, message)
+    fmt.println("Selected adapter:\n")
+    fmt.printf("  Name: %s\n", info.name if info.name != "" else "Unknown device")
+    fmt.printf("  Backend: %v\n", info.backend)
+    fmt.printf("  Device type: %v\n", info.device_type)
+    if info.driver != "" {
+        fmt.printf("  Driver: %s\n", info.driver)
+        if info.driver_info != "" {
+            fmt.printf("  Driver info: %s\n", info.driver_info)
         }
-
-        defer gpu.release(adapter)
-
-        runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-
-        fmt.println("\nSelected adapter:\n")
-        info := gpu.adapter_get_info(adapter, context.temp_allocator)
-        gpu.adapter_info_print(info)
     }
 }

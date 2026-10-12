@@ -1256,6 +1256,54 @@
                     "osx": {
                         "cmd": ["./build.sh", "obj_model", "run"]
                     }
+                },
+                {
+                    "name": "Build Info",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "info"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "info"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "info"]
+                    }
+                },
+                {
+                    "name": "Build Info [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "info", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "info", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "info", "release"]
+                    }
+                },
+                {
+                    "name": "Build Info (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "info", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "info", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "info", "web"]
+                    }
+                },
+                {
+                    "name": "Run Info",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "info", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "info", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "info", "run"]
+                    }
                 }
             ]
         }

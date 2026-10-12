@@ -20,6 +20,7 @@ node_modules
 # Next.js showcase site (generated; source is site/app + tools/prep_examples.mjs)
 /site/out/
 /site/.next/
+/site/next-env.d.ts
 /site/data/examples.json
 /site/public/e/
 /site/public/shared/

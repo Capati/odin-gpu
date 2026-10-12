@@ -1,19 +1,15 @@
 # OBJ Model
 
-This example demonstrates how to load a `OBJ` model using tobj (tinyobjloader).
-
-## Features
-
-- Use the `tobj` utility to load the model.
+Loads a Wavefront OBJ model through the `tobj` utility package and renders it
+with per-vertex normals and colors. The camera is a framework orbit camera: drag
+to orbit, wheel to zoom.
 
 ## Running
-
-To build and run this example:
 
 ```shell
 build.bat|sh obj_model run
 ```
 
-## Screenshots
+## Screenshot
 
-![OBJ Model](./obj_model.png)
+![OBJ Model](obj_model.png)

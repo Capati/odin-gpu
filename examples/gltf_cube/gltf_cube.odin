@@ -70,14 +70,10 @@ init_gltf_mesh :: proc(ctx: ^app.Application) {
     vertices := make([]Vertex, position_accessor.count, context.temp_allocator)
     for i in 0 ..< len(vertices) {
         vertex := &vertices[i]
-        assert(
-            app.gltf_read_attribute_floats(position_accessor, i, vertex.position[:]),
-            "failed to read glTF POSITION",
-        )
-        assert(
-            app.gltf_read_attribute_floats(normal_accessor, i, vertex.normal[:]),
-            "failed to read glTF NORMAL",
-        )
+        pos_ok := app.gltf_read_attribute_floats(position_accessor, i, vertex.position[:])
+        norm_ok := app.gltf_read_attribute_floats(normal_accessor, i, vertex.normal[:])
+        assert(pos_ok, "failed to read glTF POSITION")
+        assert(norm_ok, "failed to read glTF NORMAL")
     }
 
     indices := make([]u32, indices_accessor.count, context.temp_allocator)

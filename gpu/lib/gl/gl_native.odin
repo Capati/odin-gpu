@@ -830,51 +830,10 @@ get_active_uniforms :: proc "contextless" (program: Program) -> u32 {
     return u32(count)
 }
 
-// get_active_uniforms_parameter :: proc "contextless" (
-//     program: Program,
-//     uniforms: []u32,
-//     pname: u32,
-// ) -> Vec<i32> {
-//     let results = vec![0 uniforms.len()]
-//     gl.GetActiveUniformsiv(
-//         u32(program),
-//         uniforms.len() as _,
-//         uniforms.as_ptr(),
-//         pname,
-//         results.as_mut_ptr(),
-//     )
-//     results
-// }
+// TODO: get_active_uniforms_parameter - unimplemented
 
-// get_active_uniform :: proc "contextless" (
-//     program: Program,
-//     index: u32,
-// ) -> Option<ActiveUniform> {
-//     let uniform_max_size = 0
-//     gl.GetProgramiv(
-//         u32(program),
-//         ACTIVE_UNIFORM_MAX_LENGTH,
-//         &uniform_max_size,
-//     )
+// TODO: get_active_uniform - unimplemented
 
-//     let name = string::with_capacity(uniform_max_size as usize)
-//     name.extend(std::iter::repeat('\0').take(uniform_max_size as usize))
-//     let length = 0
-//     let size = 0
-//     let utype = 0
-//     gl.GetActiveUniform(
-//         u32(program),
-//         index,
-//         uniform_max_size,
-//         &length,
-//         &size,
-//         &utype,
-//         name.as_ptr() as *native_gl::GLchar,
-//     )
-//     name.truncate(length as usize)
-
-//     Some(ActiveUniform { size, utype, name })
-// }
 
 use_program :: proc "contextless" (program: Program) {
     gl.UseProgram(u32(program))
@@ -886,17 +845,9 @@ create_buffer :: proc "contextless" () -> Buffer {
     return Buffer(buffer)
 }
 
-// create_named_buffer :: proc "contextless" (&self) -> Result<Buffer, string> {
-//     let buffer = 0
-//     gl.CreateBuffers(1, &buffer)
-//     NonZeroU32::new(buffer)
-//         .map(NativeBuffer)
-//         .ok_or_else(|| string::from("Unable to create Buffer object"))
-// }
+// TODO: create_named_buffer - unimplemented
 
-// is_buffer :: proc "contextless" (buffer: Buffer) -> bool {
-//     gl.IsBuffer(buffer.0.get()) != 0
-// }
+// TODO: is_buffer - unimplemented
 
 bind_buffer :: proc "contextless" (target: u32, buffer: Buffer) {
     gl.BindBuffer(target, u32(buffer))
@@ -961,35 +912,7 @@ blit_framebuffer :: proc "contextless" (
     )
 }
 
-// blit_named_framebuffer :: proc "contextless" (
-//     read_buffer: Option<Framebuffer>,
-//     draw_buffer: Option<Framebuffer>,
-//     src_x0: i32,
-//     src_y0: i32,
-//     src_x1: i32,
-//     src_y1: i32,
-//     dst_x0: i32,
-//     dst_y0: i32,
-//     dst_x1: i32,
-//     dst_y1: i32,
-//     mask: u32,
-//     filter: u32,
-// ) {
-//     gl.BlitNamedFramebuffer(
-//         read_buffer.map(|f| f.0.get()).unwrap_or(0),
-//         draw_buffer.map(|f| f.0.get()).unwrap_or(0),
-//         src_x0,
-//         src_y0,
-//         src_x1,
-//         src_y1,
-//         dst_x0,
-//         dst_y0,
-//         dst_x1,
-//         dst_y1,
-//         mask,
-//         filter,
-//     )
-// }
+// TODO: blit_named_framebuffer - unimplemented
 
 create_vertex_array :: proc "contextless" () -> VertexArray {
     vertex_array: u32 = ---
@@ -1005,13 +928,7 @@ create_vertex_array :: proc "contextless" () -> VertexArray {
     return VertexArray(vertex_array)
 }
 
-// create_named_vertex_array :: proc "contextless" (&self) -> Result<VertexArray, string> {
-//     let vertex_array = 0
-//     gl.CreateVertexArrays(1, &vertex_array)
-//     NonZeroU32::new(vertex_array)
-//         .map(NativeVertexArray)
-//         .ok_or_else(|| string::from("Unable to create VertexArray object"))
-// }
+// TODO: create_named_vertex_array - unimplemented
 
 delete_vertex_array :: proc "contextless" (vertex_array: VertexArray) {
     vertex_array := u32(vertex_array)
@@ -1087,31 +1004,15 @@ pixel_store :: proc {
     pixel_store_bool,
 }
 
-// get_frag_data_location :: proc "contextless" (program: Program, name: &str) -> i32 {
-//     let name = CString::new(name).unwrap()
-//     gl.GetFragDataLocation(u32(program), name.as_ptr() as *const native_gl::GLchar)
-// }
+// TODO: get_frag_data_location - unimplemented
 
-// bind_frag_data_location :: proc "contextless" (
-//     program: Program,
-//     color_number: u32,
-//     name: &str,
-// ) {
-//     let name = CString::new(name).unwrap()
-//     gl.BindFragDataLocation(
-//         u32(program),
-//         color_number,
-//         name.as_ptr() as *const native_gl::GLchar,
-//     )
-// }
+// TODO: bind_frag_data_location - unimplemented
 
 buffer_data_size :: proc "contextless" (target: u32, size: i32, usage: u32) {
     gl.BufferData(target, int(size), nil, usage)
 }
 
-// named_buffer_data_size :: proc "contextless" (buffer: Buffer, size: i32, usage: u32) {
-//     gl.NamedBufferData(buffer.0.get(), size as isize, std::ptr::null(), usage)
-// }
+// TODO: named_buffer_data_size - unimplemented
 
 buffer_data_u8_slice :: proc "contextless" (target: u32, data: []u8, usage: u32) {
     gl.BufferData(
@@ -1127,14 +1028,7 @@ buffer_data :: proc {
     buffer_data_u8_slice,
 }
 
-// named_buffer_data_u8_slice :: proc "contextless" (buffer: Buffer, data: &[u8], usage: u32) {
-//     gl.NamedBufferData(
-//         buffer.0.get(),
-//         data.len() as isize,
-//         data.as_ptr() as *const std::ffi::c_void,
-//         usage,
-//     )
-// }
+// TODO: named_buffer_data_u8_slice - unimplemented
 
 buffer_sub_data_u8_slice :: proc "contextless" (target: u32, offset: i32, src_data: []u8) {
     gl.BufferSubData(
@@ -1145,18 +1039,7 @@ buffer_sub_data_u8_slice :: proc "contextless" (target: u32, offset: i32, src_da
     )
 }
 
-// named_buffer_sub_data_u8_slice :: proc "contextless" (
-//     buffer: Buffer,
-//     offset: i32,
-//     src_data: &[u8],
-// ) {
-//     gl.NamedBufferSubData(
-//         buffer.0.get(),
-//         offset as isize,
-//         src_data.len() as isize,
-//         src_data.as_ptr() as *const std::ffi::c_void,
-//     )
-// }
+// TODO: named_buffer_sub_data_u8_slice - unimplemented
 
 get_buffer_sub_data :: proc "contextless" (target: u32, offset: i32, dst_data: []u8) {
     gl.GetBufferSubData(
@@ -1179,34 +1062,16 @@ buffer_storage :: proc "contextless" (target: u32, size: i32, data: []u8, flags:
     if gl.BufferStorage != nil {
         gl.BufferStorage(target, int(size), raw_data(data), flags)
     }
-//     let data = data.map(|p| p.as_ptr()).unwrap_or(std::ptr::null()) as *const std::ffi::c_void
-//     if gl.BufferStorage_is_loaded() {
-//         gl.BufferStorage(target, size, data, flags)
-//     } else {
-//         gl.BufferStorageEXT(target, size, data, flags)
-//     }
+    // TODO: BufferStorageEXT fallback
 }
 
-// named_buffer_storage :: proc "contextless" (
-//     buffer: Buffer,
-//     size: i32,
-//     data: Option<&[u8]>,
-//     flags: u32,
-// ) {
-//     let data = data.map(|p| p.as_ptr()).unwrap_or(std::ptr::null()) as *const std::ffi::c_void
-//     gl.NamedBufferStorage(buffer.0.get(), size as isize, data, flags)
-// }
+// TODO: named_buffer_storage - unimplemented
 
 check_framebuffer_status :: proc "contextless" (target: u32) -> u32 {
     return gl.CheckFramebufferStatus(target)
 }
 
-// check_named_framebuffer_status :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     target: u32,
-// ) -> u32 {
-//     gl.CheckNamedFramebufferStatus(framebuffer.map(|f| f.0.get()).unwrap_or(0), target)
-// }
+// TODO: check_named_framebuffer_status - unimplemented
 
 clear_buffer_i32_slice :: proc "contextless" (target: u32, draw_buffer: u32, values: []i32) {
     gl.ClearBufferiv(target, i32(draw_buffer), raw_data(values))
@@ -1235,73 +1100,19 @@ clear_buffer :: proc {
 //     gl.ClearBufferfi(target, draw_buffer as i32, depth, stencil)
 // }
 
-// clear_named_framebuffer_i32_slice :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     target: u32,
-//     draw_buffer: u32,
-//     values: &[i32],
-// ) {
-//     gl.ClearNamedFramebufferiv(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         target,
-//         draw_buffer as i32,
-//         values.as_ptr(),
-//     )
-// }
+// TODO: clear_named_framebuffer_i32_slice - unimplemented
 
-// clear_named_framebuffer_u32_slice :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     target: u32,
-//     draw_buffer: u32,
-//     values: []u32,
-// ) {
-//     gl.ClearNamedFramebufferuiv(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         target,
-//         draw_buffer as i32,
-//         values.as_ptr(),
-//     )
-// }
+// TODO: clear_named_framebuffer_u32_slice - unimplemented
 
-// clear_named_framebuffer_f32_slice :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     target: u32,
-//     draw_buffer: u32,
-//     values: []f32,
-// ) {
-//     gl.ClearNamedFramebufferfv(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         target,
-//         draw_buffer as i32,
-//         values.as_ptr(),
-//     )
-// }
+// TODO: clear_named_framebuffer_f32_slice - unimplemented
 
-// clear_named_framebuffer_depth_stencil :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     target: u32,
-//     draw_buffer: u32,
-//     depth: f32,
-//     stencil: i32,
-// ) {
-//     gl.ClearNamedFramebufferfi(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         target,
-//         draw_buffer as i32,
-//         depth,
-//         stencil,
-//     )
-// }
+// TODO: clear_named_framebuffer_depth_stencil - unimplemented
 
 // client_wait_sync :: proc "contextless" (fence: Fence, flags: u32, timeout: i32) -> u32 {
 //     gl.ClientWaitSync(fence.0, flags, timeout as u64)
 // }
 
-// get_sync_parameter_i32 :: proc "contextless" (fence: Fence, parameter: u32) -> i32 {
-//     let v = 0
-//     gl.GetSynciv(fence.0, parameter, 1, ptr::null_mut(), &v)
-//     v
-// }
+// TODO: get_sync_parameter_i32 - unimplemented
 
 // wait_sync :: proc "contextless" (fence: Fence, flags: u32, timeout: u64) {
 //     gl.WaitSync(fence.0, flags, timeout)
@@ -1323,41 +1134,7 @@ copy_buffer_sub_data :: proc "contextless" (
     )
 }
 
-// copy_image_sub_data :: proc "contextless" (
-//     src_name: Texture,
-//     src_target: u32,
-//     src_level: i32,
-//     src_x: i32,
-//     src_y: i32,
-//     src_z: i32,
-//     dst_name: Texture,
-//     dst_target: u32,
-//     dst_level: i32,
-//     dst_x: i32,
-//     dst_y: i32,
-//     dst_z: i32,
-//     src_width: i32,
-//     src_height: i32,
-//     src_depth: i32,
-// ) {
-//     gl.CopyImageSubData(
-//         src_name.0.get(),
-//         src_target,
-//         src_level,
-//         src_x,
-//         src_y,
-//         src_z,
-//         dst_name.0.get(),
-//         dst_target,
-//         dst_level,
-//         dst_x,
-//         dst_y,
-//         dst_z,
-//         src_width,
-//         src_height,
-//         src_depth,
-//     )
-// }
+// TODO: copy_image_sub_data - unimplemented
 
 // copy_tex_image_2d :: proc "contextless" (
 //     target: u32,
@@ -1496,52 +1273,17 @@ draw_arrays_indirect_offset :: proc "contextless" (mode: u32, offset: i32) {
 //     gl.DrawBuffer(draw_buffer)
 // }
 
-// named_framebuffer_draw_buffer :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     draw_buffer: u32,
-// ) {
-//     gl.NamedFramebufferDrawBuffer(framebuffer.map(|f| f.0.get()).unwrap_or(0), draw_buffer)
-// }
+// TODO: named_framebuffer_draw_buffer - unimplemented
 
 draw_buffers :: proc "contextless" (buffers: []u32) {
     gl.DrawBuffers(i32(len(buffers)), raw_data(buffers))
 }
 
-// named_framebuffer_draw_buffers :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     buffers: []u32,
-// ) {
-//     gl.NamedFramebufferDrawBuffers(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         buffers.len() as i32,
-//         buffers.as_ptr(),
-//     )
-// }
+// TODO: named_framebuffer_draw_buffers - unimplemented
 
-// draw_elements :: proc "contextless" (mode: u32, count: i32, element_type: u32, offset: i32) {
-//     gl.DrawElements(
-//         mode as u32,
-//         count,
-//         element_type as u32,
-//         offset as *const std::ffi::c_void,
-//     )
-// }
+// TODO: draw_elements - unimplemented
 
-// draw_elements_base_vertex :: proc "contextless" (
-//     mode: u32,
-//     count: i32,
-//     element_type: u32,
-//     offset: i32,
-//     base_vertex: i32,
-// ) {
-//     gl.DrawElementsBaseVertex(
-//         mode as u32,
-//         count,
-//         element_type as u32,
-//         offset as *const std::ffi::c_void,
-//         base_vertex,
-//     )
-// }
+// TODO: draw_elements_base_vertex - unimplemented
 
 draw_elements_instanced :: proc "contextless" (
     mode: u32,
@@ -1725,119 +1467,36 @@ framebuffer_texture_layer :: proc "contextless" (
     )
 }
 
-// named_framebuffer_renderbuffer :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     attachment: u32,
-//     renderbuffer_target: u32,
-//     renderbuffer: Renderbuffer,
-// ) {
-//     gl.NamedFramebufferRenderbuffer(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         attachment,
-//         renderbuffer_target,
-//         renderbuffer.map(|rb| rb.0.get()).unwrap_or(0),
-//     )
-// }
+// TODO: named_framebuffer_renderbuffer - unimplemented
 
-// named_framebuffer_texture :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     attachment: u32,
-//     texture: Texture,
-//     level: i32,
-// ) {
-//     gl.NamedFramebufferTexture(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         attachment,
-//         texture,
-//         level,
-//     )
-// }
+// TODO: named_framebuffer_texture - unimplemented
 
-// named_framebuffer_texture_layer :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     attachment: u32,
-//     texture: Texture,
-//     level: i32,
-//     layer: i32,
-// ) {
-//     gl.NamedFramebufferTextureLayer(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         attachment,
-//         texture,
-//         level,
-//         layer,
-//     )
-// }
+// TODO: named_framebuffer_texture_layer - unimplemented
 
 front_face :: proc "contextless" (value: u32) {
     gl.FrontFace(value)
 }
 
-// get_error :: proc "contextless" (&self) -> u32 {
-//     gl.GetError()
-// }
+// TODO: get_error - unimplemented
 
-// get_tex_parameter_i32 :: proc "contextless" (target: u32, parameter: u32) -> i32 {
-//     let value = 0
-//     gl.GetTexParameteriv(target, parameter, &value)
-//     value
-// }
 
-// get_tex_parameter_f32 :: proc "contextless" (target: u32, parameter: u32) -> f32 {
-//     let value = 0.
-//     gl.GetTexParameterfv(target, parameter, &value)
-//     value
-// }
+// TODO: get_tex_parameter_i32 - unimplemented
 
-// get_texture_level_parameter_i32 :: proc "contextless" (
-//     texture: Texture,
-//     level: i32,
-//     parameter: u32,
-// ) -> i32 {
-//     let value = 0
-//     gl.GetTextureLevelParameteriv(texture.0.get(), level, parameter, &value)
-//     value
-// }
+// TODO: get_tex_parameter_f32 - unimplemented
 
-// get_texture_level_parameter_f32 :: proc "contextless" (
-//     texture: Texture,
-//     level: i32,
-//     parameter: u32,
-// ) -> f32 {
-//     let value = 0.0
-//     gl.GetTextureLevelParameterfv(texture.0.get(), level, parameter, &value)
-//     value
-// }
+// TODO: get_texture_level_parameter_i32 - unimplemented
 
-// get_tex_level_parameter_i32 :: proc "contextless" (target: u32, level: i32, parameter: u32) -> i32 {
-//     let value = 0
-//     gl.GetTexLevelParameteriv(target, level, parameter, &value)
-//     value
-// }
+// TODO: get_texture_level_parameter_f32 - unimplemented
 
-// get_tex_level_parameter_f32 :: proc "contextless" (target: u32, level: i32, parameter: u32) -> f32 {
-//     let value = 0.0
-//     gl.GetTexLevelParameterfv(target, level, parameter, &value)
-//     value
-// }
+// TODO: get_tex_level_parameter_i32 - unimplemented
 
-// get_buffer_parameter_i32 :: proc "contextless" (target: u32, parameter: u32) -> i32 {
-//     let value = 0
-//     gl.GetBufferParameteriv(target, parameter, &value)
-//     value
-// }
+// TODO: get_tex_level_parameter_f32 - unimplemented
 
-// get_parameter_bool :: proc "contextless" (parameter: u32) -> bool {
-//     let value = 0
-//     gl.GetBooleanv(parameter, &value)
-//     value != FALSE
-// }
+// TODO: get_buffer_parameter_i32 - unimplemented
 
-// get_parameter_bool_array :: proc "contextless" <const N: usize>(parameter: u32) -> [bool N] {
-//     let value = [0 N]
-//     gl.GetBooleanv(parameter, &value[0])
-//     value.map(|v| v != FALSE)
-// }
+// TODO: get_parameter_bool - unimplemented
+
+// TODO: get_parameter_bool_array - unimplemented
 
 get_parameter_i32 :: proc "contextless" (parameter: u32) -> i32 {
     value: i32 = ---
@@ -1859,17 +1518,9 @@ get_parameter_i64_slice :: proc "contextless" (parameter: u32, out: []i64) {
     gl.GetInteger64v(parameter, &out[0])
 }
 
-// get_parameter_indexed_i64 :: proc "contextless" (parameter: u32, index: u32) -> i64 {
-//     let value = 0
-//     gl.GetInteger64i_v(parameter, index, &value)
-//     value
-// }
+// TODO: get_parameter_indexed_i64 - unimplemented
 
-// get_parameter_f32 :: proc "contextless" (parameter: u32) -> f32 {
-//     let value: f32 = 0.0
-//     gl.GetFloatv(parameter, &value)
-//     value
-// }
+// TODO: get_parameter_f32 - unimplemented
 
 // get_parameter_f32_slice :: proc "contextless" (parameter: u32, out: []f32) {
 //     gl.GetFloatv(parameter, &out[0])
@@ -1889,178 +1540,46 @@ get_parameter_string :: proc "contextless" (parameter: u32) -> string {
     return string(gl.GetString(parameter))
 }
 
-// get_parameter_buffer :: proc "contextless" (parameter: u32) -> Buffer {
-//     self.get_parameter_gl_name(parameter).map(NativeBuffer)
-// }
+// TODO: get_parameter_buffer - unimplemented
 
-// get_parameter_framebuffer :: proc "contextless" (parameter: u32) -> Option<Framebuffer> {
-//     self.get_parameter_gl_name(parameter).map(NativeFramebuffer)
-// }
+// TODO: get_parameter_framebuffer - unimplemented
 
-// get_parameter_program :: proc "contextless" (parameter: u32) -> Program {
-//     self.get_parameter_gl_name(parameter).map(NativeProgram)
-// }
+// TODO: get_parameter_program - unimplemented
 
-// get_parameter_renderbuffer :: proc "contextless" (parameter: u32) -> Renderbuffer {
-//     self.get_parameter_gl_name(parameter)
-//         .map(NativeRenderbuffer)
-// }
+// TODO: get_parameter_renderbuffer - unimplemented
 
-// get_parameter_sampler :: proc "contextless" (parameter: u32) -> Sampler {
-//     self.get_parameter_gl_name(parameter).map(NativeSampler)
-// }
+// TODO: get_parameter_sampler - unimplemented
 
-// get_parameter_texture :: proc "contextless" (parameter: u32) -> Texture {
-//     self.get_parameter_gl_name(parameter).map(NativeTexture)
-// }
+// TODO: get_parameter_texture - unimplemented
 
-// get_parameter_transform_feedback :: proc "contextless" (
-//     parameter: u32,
-// ) -> Option<TransformFeedback> {
-//     self.get_parameter_gl_name(parameter)
-//         .map(NativeTransformFeedback)
-// }
+// TODO: get_parameter_transform_feedback - unimplemented
 
-// get_parameter_vertex_array :: proc "contextless" (parameter: u32) -> VertexArray {
-//     self.get_parameter_gl_name(parameter).map(NativeVertexArray)
-// }
+// TODO: get_parameter_vertex_array - unimplemented
 
-// get_renderbuffer_parameter_i32 :: proc "contextless" (target: u32, parameter: u32) -> i32 {
-//     let value = 0
-//     gl.GetRenderbufferParameteriv(target, parameter, &value)
-//     value
-// }
+// TODO: get_renderbuffer_parameter_i32 - unimplemented
 
-// get_framebuffer_parameter_i32 :: proc "contextless" (target: u32, parameter: u32) -> i32 {
-//     let value = 0
-//     gl.GetFramebufferParameteriv(target, parameter, &value)
-//     value
-// }
+// TODO: get_framebuffer_parameter_i32 - unimplemented
 
-// get_named_framebuffer_parameter_i32 :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     parameter: u32,
-// ) -> i32 {
-//     let value = 0
-//     gl.GetNamedFramebufferParameteriv(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         parameter,
-//         &value,
-//     )
-//     value
-// }
+// TODO: get_named_framebuffer_parameter_i32 - unimplemented
 
-// get_framebuffer_attachment_parameter_i32 :: proc "contextless" (
-//     target: u32,
-//     attachment: u32,
-//     parameter: u32,
-// ) -> i32 {
-//     let value = 0
-//     gl.GetFramebufferAttachmentParameteriv(target, attachment, parameter, &value)
-//     value
-// }
+// TODO: get_framebuffer_attachment_parameter_i32 - unimplemented
 
-// get_named_framebuffer_attachment_parameter_i32 :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     attachment: u32,
-//     parameter: u32,
-// ) -> i32 {
-//     let value = 0
-//     gl.GetNamedFramebufferAttachmentParameteriv(
-//         framebuffer.map(|f| f.0.get()).unwrap_or(0),
-//         attachment,
-//         parameter,
-//         &value,
-//     )
-//     value
-// }
+// TODO: get_named_framebuffer_attachment_parameter_i32 - unimplemented
 
-// get_uniform_location :: proc "contextless" (
-//     program: Program,
-//     name: &str,
-// ) -> Option<UniformLocation> {
-//     let name = CString::new(name).unwrap()
-//     let uniform_location =
-//         gl.GetUniformLocation(u32(program), name.as_ptr() as *const native_gl::GLchar)
-//     if uniform_location < 0 {
-//         None
-//     } else {
-//         Some(NativeUniformLocation(uniform_location as u32))
-//     }
-// }
+// TODO: get_uniform_location - unimplemented
 
-// get_attrib_location :: proc "contextless" (program: Program, name: &str) -> Option<u32> {
-//     let name = CString::new(name).unwrap()
-//     let attrib_location =
-//         gl.GetAttribLocation(u32(program), name.as_ptr() as *const native_gl::GLchar)
-//     if attrib_location < 0 {
-//         None
-//     } else {
-//         Some(attrib_location as u32)
-//     }
-// }
+// TODO: get_attrib_location - unimplemented
 
-// bind_attrib_location :: proc "contextless" (program: Program, index: u32, name: &str) {
-//     let name = CString::new(name).unwrap()
-//     gl.BindAttribLocation(
-//         u32(program),
-//         index,
-//         name.as_ptr() as *const native_gl::GLchar,
-//     )
-// }
+// TODO: bind_attrib_location - unimplemented
 
-// get_active_attributes :: proc "contextless" (program: Program) -> u32 {
-//     let count = 0
-//     gl.GetProgramiv(u32(program), ACTIVE_ATTRIBUTES, &count)
-//     count as u32
-// }
+// TODO: get_active_attributes - unimplemented
 
-// get_active_attribute :: proc "contextless" (
-//     program: Program,
-//     index: u32,
-// ) -> Option<ActiveAttribute> {
-//     let attribute_max_size = 0
-//     gl.GetProgramiv(
-//         u32(program),
-//         ACTIVE_ATTRIBUTE_MAX_LENGTH,
-//         &attribute_max_size,
-//     )
-//     let name = string::with_capacity(attribute_max_size as usize)
-//     name.extend(std::iter::repeat('\0').take(attribute_max_size as usize))
-//     let length = 0
-//     let size = 0
-//     let atype = 0
-//     gl.GetActiveAttrib(
-//         u32(program),
-//         index,
-//         attribute_max_size,
-//         &length,
-//         &size,
-//         &atype,
-//         name.as_ptr() as *native_gl::GLchar,
-//     )
+// TODO: get_active_attribute - unimplemented
 
-//     name.truncate(length as usize)
 
-//     Some(ActiveAttribute { name, size, atype })
-// }
+// TODO: get_sync_status - unimplemented
 
-// get_sync_status :: proc "contextless" (fence: Fence) -> u32 {
-//     let len = 0
-//     let values = [UNSIGNALED as i32]
-//     gl.GetSynciv(
-//         fence.0,
-//         SYNC_STATUS,
-//         values.len() as i32,
-//         &len,
-//         values.as_mut_ptr(),
-//     )
-//     values[0] as u32
-// }
-
-// is_sync :: proc "contextless" (fence: Fence) -> bool {
-//     1 == gl.IsSync(fence.0)
-// }
+// TODO: is_sync - unimplemented
 
 renderbuffer_storage :: proc "contextless" (
     target: u32,
@@ -2099,27 +1618,15 @@ sampler_parameter_i32 :: proc "contextless" (sampler: Sampler, name: u32, value:
 //     return value
 // }
 
-// get_sampler_parameter_f32 :: proc "contextless" (sampler: Sampler, name: u32) -> f32 {
-//     let value = 0.
-//     gl.GetSamplerParameterfv(sampler.0.get(), name, &value)
-//     value
-// }
+// TODO: get_sampler_parameter_f32 - unimplemented
 
-// get_sampler_parameter_f32_slice :: proc "contextless" (
-//     sampler: Sampler,
-//     name: u32,
-//     out: []f32,
-// ) {
-//     gl.GetSamplerParameterfv(sampler.0.get(), name, out.as_mut_ptr())
-// }
+// TODO: get_sampler_parameter_f32_slice - unimplemented
 
 // generate_mipmap :: proc "contextless" (target: u32) {
 //     gl.GenerateMipmap(target)
 // }
 
-// generate_texture_mipmap :: proc "contextless" (texture: Texture) {
-//     gl.GenerateTextureMipmap(texture.0.get())
-// }
+// TODO: generate_texture_mipmap - unimplemented
 
 tex_image_1d :: proc "contextless" (
     target: u32,
@@ -2141,25 +1648,7 @@ tex_image_1d :: proc "contextless" (
     gl.TexImage1D(target, level, internal_format, width, border, format, type, ptr)
 }
 
-// compressed_tex_image_1d :: proc "contextless" (
-//     target: u32,
-//     level: i32,
-//     internal_format: i32,
-//     width: i32,
-//     border: i32,
-//     image_size: i32,
-//     pixels: &[u8],
-// ) {
-//     gl.CompressedTexImage1D(
-//         target,
-//         level,
-//         internal_format as u32,
-//         width,
-//         border,
-//         image_size,
-//         pixels.as_ptr() as *const std::ffi::c_void,
-//     )
-// }
+// TODO: compressed_tex_image_1d - unimplemented
 
 tex_image_2d :: proc "contextless" (
     target: u32,
@@ -2245,29 +1734,7 @@ tex_image_3d :: proc "contextless" (
         target, level, internal_format, width, height, depth, border, format, type, ptr)
 }
 
-// compressed_tex_image_3d :: proc "contextless" (
-//     target: u32,
-//     level: i32,
-//     internal_format: i32,
-//     width: i32,
-//     height: i32,
-//     depth: i32,
-//     border: i32,
-//     image_size: i32,
-//     pixels: &[u8],
-// ) {
-//     gl.CompressedTexImage3D(
-//         target,
-//         level,
-//         internal_format as u32,
-//         width,
-//         height,
-//         depth,
-//         border,
-//         image_size,
-//         pixels.as_ptr() as *const std::ffi::c_void,
-//     )
-// }
+// TODO: compressed_tex_image_3d - unimplemented
 
 // tex_storage_1d :: proc "contextless" (target: u32, levels: i32, internal_format: u32, width: i32) {
 //     gl.TexStorage1D(target, levels, internal_format, width)
@@ -2283,15 +1750,7 @@ tex_storage_2d :: proc "contextless" (
     gl.TexStorage2D(target, levels, internal_format, width, height)
 }
 
-// texture_storage_2d :: proc "contextless" (
-//     texture: Texture,
-//     levels: i32,
-//     internal_format: u32,
-//     width: i32,
-//     height: i32,
-// ) {
-//     gl.TextureStorage2D(texture.0.get(), levels, internal_format, width, height)
-// }
+// TODO: texture_storage_2d - unimplemented
 
 tex_storage_2d_multisample :: proc "contextless" (
     target: u32,
@@ -2322,31 +1781,9 @@ tex_storage_3d :: proc "contextless" (
     gl.TexStorage3D(target, levels, internal_format, width, height, depth)
 }
 
-// texture_storage_3d :: proc "contextless" (
-//     texture: Texture,
-//     levels: i32,
-//     internal_format: u32,
-//     width: i32,
-//     height: i32,
-//     depth: i32,
-// ) {
-//     gl.TextureStorage3D(
-//         texture.0.get(),
-//         levels,
-//         internal_format,
-//         width,
-//         height,
-//         depth,
-//     )
-// }
+// TODO: texture_storage_3d - unimplemented
 
-// get_uniform_i32 :: proc "contextless" (
-//     program: Program,
-//     location: &UniformLocation,
-//     v: &[i32],
-// ) {
-//     gl.GetUniformiv(u32(program), location.0 as i32, v.as_mut_ptr())
-// }
+// TODO: get_uniform_i32 - unimplemented
 
 // get_uniform_u32 :: proc "contextless" (
 //     program: Program,
@@ -2364,315 +1801,73 @@ tex_storage_3d :: proc "contextless" (
 //     gl.GetUniformfv(u32(program), location.0 as i32, v.as_mut_ptr())
 // }
 
-// uniform_1_i32 :: proc "contextless" (location: i32, x: i32) {
-//     if let Some(loc) = location {
-//         gl.Uniform1i(location, x)
-//     }
-// }
+// TODO: uniform_1_i32 - unimplemented
 
-// uniform_2_i32 :: proc "contextless" (location: i32, x: i32, y: i32) {
-//     if let Some(loc) = location {
-//         gl.Uniform2i(location, x, y)
-//     }
-// }
+// TODO: uniform_2_i32 - unimplemented
 
-// uniform_3_i32 :: proc "contextless" (
-//     location: i32,
-//     x: i32,
-//     y: i32,
-//     z: i32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.Uniform3i(location, x, y, z)
-//     }
-// }
+// TODO: uniform_3_i32 - unimplemented
 
-// uniform_4_i32 :: proc "contextless" (
-//     location: i32,
-//     x: i32,
-//     y: i32,
-//     z: i32,
-//     w: i32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.Uniform4i(location, x, y, z, w)
-//     }
-// }
+// TODO: uniform_4_i32 - unimplemented
 
-// uniform_1_i32_slice :: proc "contextless" (location: i32, v: &[i32]) {
-//     if let Some(loc) = location {
-//         gl.Uniform1iv(location, i32(len(v)), raw_data(v))
-//     }
-// }
+// TODO: uniform_1_i32_slice - unimplemented
 
-// uniform_2_i32_slice :: proc "contextless" (location: i32, v: &[i32]) {
-//     if let Some(loc) = location {
-//         gl.Uniform2iv(location, i32(len(v)) / 2, raw_data(v))
-//     }
-// }
+// TODO: uniform_2_i32_slice - unimplemented
 
-// uniform_3_i32_slice :: proc "contextless" (location: i32, v: &[i32]) {
-//     if let Some(loc) = location {
-//         gl.Uniform3iv(location, i32(len(v)) / 3, raw_data(v))
-//     }
-// }
+// TODO: uniform_3_i32_slice - unimplemented
 
-// uniform_4_i32_slice :: proc "contextless" (location: i32, v: &[i32]) {
-//     if let Some(loc) = location {
-//         gl.Uniform4iv(location, i32(len(v)) / 4, raw_data(v))
-//     }
-// }
+// TODO: uniform_4_i32_slice - unimplemented
 
 uniform_1_u32 :: proc "contextless" (location: i32, x: u32) {
     gl.Uniform1ui(location, x)
 }
 
-// uniform_2_u32 :: proc "contextless" (location: i32, x: u32, y: u32) {
-//     if let Some(loc) = location {
-//         gl.Uniform2ui(location, x, y)
-//     }
-// }
+// TODO: uniform_2_u32 - unimplemented
 
-// uniform_3_u32 :: proc "contextless" (
-//     location: i32,
-//     x: u32,
-//     y: u32,
-//     z: u32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.Uniform3ui(location, x, y, z)
-//     }
-// }
+// TODO: uniform_3_u32 - unimplemented
 
-// uniform_4_u32 :: proc "contextless" (
-//     location: i32,
-//     x: u32,
-//     y: u32,
-//     z: u32,
-//     w: u32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.Uniform4ui(location, x, y, z, w)
-//     }
-// }
+// TODO: uniform_4_u32 - unimplemented
 
-// uniform_1_u32_slice :: proc "contextless" (location: i32, v: []u32) {
-//     if let Some(loc) = location {
-//         gl.Uniform1uiv(location, i32(len(v)), raw_data(v))
-//     }
-// }
+// TODO: uniform_1_u32_slice - unimplemented
 
-// uniform_2_u32_slice :: proc "contextless" (location: i32, v: []u32) {
-//     if let Some(loc) = location {
-//         gl.Uniform2uiv(location, i32(len(v)) / 2, raw_data(v))
-//     }
-// }
+// TODO: uniform_2_u32_slice - unimplemented
 
-// uniform_3_u32_slice :: proc "contextless" (location: i32, v: []u32) {
-//     if let Some(loc) = location {
-//         gl.Uniform3uiv(location, i32(len(v)) / 3, raw_data(v))
-//     }
-// }
+// TODO: uniform_3_u32_slice - unimplemented
 
-// uniform_4_u32_slice :: proc "contextless" (location: i32, v: []u32) {
-//     if let Some(loc) = location {
-//         gl.Uniform4uiv(location, i32(len(v)) / 4, raw_data(v))
-//     }
-// }
+// TODO: uniform_4_u32_slice - unimplemented
 
-// uniform_1_f32 :: proc "contextless" (location: i32, x: f32) {
-//     if let Some(loc) = location {
-//         gl.Uniform1f(location, x)
-//     }
-// }
+// TODO: uniform_1_f32 - unimplemented
 
-// uniform_2_f32 :: proc "contextless" (location: i32, x: f32, y: f32) {
-//     if let Some(loc) = location {
-//         gl.Uniform2f(location, x, y)
-//     }
-// }
+// TODO: uniform_2_f32 - unimplemented
 
-// uniform_3_f32 :: proc "contextless" (
-//     location: i32,
-//     x: f32,
-//     y: f32,
-//     z: f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.Uniform3f(location, x, y, z)
-//     }
-// }
+// TODO: uniform_3_f32 - unimplemented
 
-// uniform_4_f32 :: proc "contextless" (
-//     location: i32,
-//     x: f32,
-//     y: f32,
-//     z: f32,
-//     w: f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.Uniform4f(location, x, y, z, w)
-//     }
-// }
+// TODO: uniform_4_f32 - unimplemented
 
-// uniform_1_f32_slice :: proc "contextless" (location: i32, v: []f32) {
-//     if let Some(loc) = location {
-//         gl.Uniform1fv(location, i32(len(v)), raw_data(v))
-//     }
-// }
+// TODO: uniform_1_f32_slice - unimplemented
 
-// uniform_2_f32_slice :: proc "contextless" (location: i32, v: []f32) {
-//     if let Some(loc) = location {
-//         gl.Uniform2fv(location, i32(len(v)) / 2, raw_data(v))
-//     }
-// }
+// TODO: uniform_2_f32_slice - unimplemented
 
-// uniform_3_f32_slice :: proc "contextless" (location: i32, v: []f32) {
-//     if let Some(loc) = location {
-//         gl.Uniform3fv(location, i32(len(v)) / 3, raw_data(v))
-//     }
-// }
+// TODO: uniform_3_f32_slice - unimplemented
 
-// uniform_4_f32_slice :: proc "contextless" (location: i32, v: []f32) {
-//     if let Some(loc) = location {
-//         gl.Uniform4fv(location, i32(len(v)) / 4, raw_data(v))
-//     }
-// }
+// TODO: uniform_4_f32_slice - unimplemented
 
-// uniform_matrix_2_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix2fv(
-//             location,
-//             i32(len(v)) / 4,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_2_f32_slice - unimplemented
 
-// uniform_matrix_2x3_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix2x3fv(
-//             location,
-//             i32(len(v)) / 6,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_2x3_f32_slice - unimplemented
 
-// uniform_matrix_2x4_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix2x4fv(
-//             location,
-//             i32(len(v)) / 8,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_2x4_f32_slice - unimplemented
 
-// uniform_matrix_3x2_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix3x2fv(
-//             location,
-//             i32(len(v)) / 6,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_3x2_f32_slice - unimplemented
 
-// uniform_matrix_3_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix3fv(
-//             location,
-//             i32(len(v)) / 9,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_3_f32_slice - unimplemented
 
-// uniform_matrix_3x4_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix3x4fv(
-//             location,
-//             i32(len(v)) / 12,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_3x4_f32_slice - unimplemented
 
-// uniform_matrix_4x2_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix4x2fv(
-//             location,
-//             i32(len(v)) / 8,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_4x2_f32_slice - unimplemented
 
-// uniform_matrix_4x3_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix4x3fv(
-//             location,
-//             i32(len(v)) / 12,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_4x3_f32_slice - unimplemented
 
-// uniform_matrix_4_f32_slice :: proc "contextless" (
-//     location: i32,
-//     transpose: bool,
-//     v: []f32,
-// ) {
-//     if let Some(loc) = location {
-//         gl.UniformMatrix4fv(
-//             location,
-//             i32(len(v)) / 16,
-//             transpose,
-//             raw_data(v),
-//         )
-//     }
-// }
+// TODO: uniform_matrix_4_f32_slice - unimplemented
 
 unmap_buffer :: proc "contextless" (target: u32) {
     gl.UnmapBuffer(target)
@@ -2776,9 +1971,7 @@ active_texture :: proc "contextless" (unit: u32) {
     gl.ActiveTexture(unit)
 }
 
-// fence_sync :: proc "contextless" (condition: u32, flags: u32) -> Result<Fence, string> {
-//     Ok(NativeFence(gl.FenceSync(condition as u32, flags)))
-// }
+// TODO: fence_sync - unimplemented
 
 // tex_parameter_f32 :: proc "contextless" (target: u32, parameter: u32, value: f32) {
 //     gl.TexParameterf(target, parameter, value)
@@ -2788,17 +1981,13 @@ tex_parameter_i32 :: proc "contextless" (target: u32, parameter: u32, value: i32
     gl.TexParameteri(target, parameter, value)
 }
 
-// texture_parameter_i32 :: proc "contextless" (texture: Texture, parameter: u32, value: i32) {
-//     gl.TextureParameteri(texture.0.get(), parameter, value)
-// }
+// TODO: texture_parameter_i32 - unimplemented
 
 // tex_parameter_f32_slice :: proc "contextless" (target: u32, parameter: u32, values: []f32) {
 //     gl.TexParameterfv(target, parameter, values.as_ptr())
 // }
 
-// tex_parameter_i32_slice :: proc "contextless" (target: u32, parameter: u32, values: &[i32]) {
-//     gl.TexParameteriv(target, parameter, values.as_ptr())
-// }
+// TODO: tex_parameter_i32_slice - unimplemented
 
 tex_sub_image_2d :: proc "contextless" (
     target: u32,
@@ -2989,86 +2178,25 @@ depth_range :: proc "contextless" (near: f64, far: f64) {
     }
 }
 
-// depth_range_f64_slice :: proc "contextless" (first: u32, count: i32, values: &[[f64 2]]) {
-//     gl.DepthRangeArrayv(first, count, values.as_ptr() as *const f64)
-// }
+// TODO: depth_range_f64_slice - unimplemented
 
 scissor :: proc "contextless" (x: i32, y: i32, width: i32, height: i32) {
     gl.Scissor(x, y, width, height)
 }
 
-// scissor_slice :: proc "contextless" (first: u32, count: i32, scissors: &[[i32 4]]) {
-//     gl.ScissorArrayv(first, count, scissors.as_ptr() as *const i32)
-// }
+// TODO: scissor_slice - unimplemented
 
-// vertex_array_attrib_binding_f32 :: proc "contextless" (
-//     vao: VertexArray,
-//     index: u32,
-//     binding_index: u32,
-// ) {
-//     gl.VertexArrayAttribBinding(vao.0.get(), index, binding_index)
-// }
+// TODO: vertex_array_attrib_binding_f32 - unimplemented
 
-// vertex_array_attrib_format_f32 :: proc "contextless" (
-//     vao: VertexArray,
-//     index: u32,
-//     size: i32,
-//     data_type: u32,
-//     normalized: bool,
-//     relative_offset: u32,
-// ) {
-//     gl.VertexArrayAttribFormat(
-//         vao.0.get(),
-//         index,
-//         size,
-//         data_type,
-//         normalized as u8,
-//         relative_offset,
-//     )
-// }
+// TODO: vertex_array_attrib_format_f32 - unimplemented
 
-// vertex_array_attrib_format_i32 :: proc "contextless" (
-//     vao: VertexArray,
-//     index: u32,
-//     size: i32,
-//     data_type: u32,
-//     relative_offset: u32,
-// ) {
-//     gl.VertexArrayAttribIFormat(vao.0.get(), index, size, data_type, relative_offset)
-// }
+// TODO: vertex_array_attrib_format_i32 - unimplemented
 
-// vertex_array_attrib_format_f64 :: proc "contextless" (
-//     vao: VertexArray,
-//     index: u32,
-//     size: i32,
-//     data_type: u32,
-//     relative_offset: u32,
-// ) {
-//     gl.VertexArrayAttribLFormat(vao.0.get(), index, size, data_type, relative_offset)
-// }
+// TODO: vertex_array_attrib_format_f64 - unimplemented
 
-// vertex_array_element_buffer :: proc "contextless" (
-//     vao: VertexArray,
-//     buffer: Buffer,
-// ) {
-//     gl.VertexArrayElementBuffer(vao.0.get(), buffer)
-// }
+// TODO: vertex_array_element_buffer - unimplemented
 
-// vertex_array_vertex_buffer :: proc "contextless" (
-//     vao: VertexArray,
-//     binding_index: u32,
-//     buffer: Buffer,
-//     offset: i32,
-//     stride: i32,
-// ) {
-//     gl.VertexArrayVertexBuffer(
-//         vao.0.get(),
-//         binding_index,
-//         buffer,
-//         offset as isize,
-//         stride,
-//     )
-// }
+// TODO: vertex_array_vertex_buffer - unimplemented
 
 vertex_attrib_divisor :: proc "contextless" (index: u32, divisor: u32) {
     gl.VertexAttribDivisor(index, divisor)
@@ -3304,58 +2432,10 @@ stencil_op_separate :: proc "contextless" (
     gl.StencilOpSeparate(face, stencil_fail, depth_fail, pass)
 }
 
-// debug_message_control :: proc "contextless" (
-//     source: u32,
-//     msg_type: u32,
-//     severity: u32,
-//     ids: []u32,
-//     enabled: bool,
-// ) {
+// TODO: debug_message_control - unimplemented
 
-//     let ids_ptr = if ids.is_empty() {
-//         std::ptr::null()
-//     } else {
-//         ids.as_ptr()
-//     }
 
-//     khr_fallback!(
-//         gl.DebugMessageControl_is_loaded,
-//         gl.DebugMessageControlKHR,
-//         gl.DebugMessageControl(
-//             source,
-//             msg_type,
-//             severity,
-//             ids.len() as i32,
-//             ids_ptr,
-//             enabled as u8,
-//         ),
-//     )
-// }
-
-// debug_message_insert :: proc "contextless" <S>(
-//     source: u32,
-//     msg_type: u32,
-//     id: u32,
-//     severity: u32,
-//     msg: S,
-// ) where
-//     S: AsRef<str>,
-// {
-//     let message = msg.as_ref().as_bytes()
-//     let length = message.len() as i32
-//     khr_fallback!(
-//         gl.DebugMessageInsert_is_loaded,
-//         gl.DebugMessageInsertKHR,
-//         gl.DebugMessageInsert(
-//             source,
-//             msg_type,
-//             id,
-//             severity,
-//             length,
-//             message.as_ptr() as *const native_gl::GLchar,
-//         ),
-//     )
-// }
+// TODO: debug_message_insert - unimplemented
 
 debug_message_callback :: proc "contextless" (callback: debug_proc_t, userParam: rawptr) {
     if ctx.version.is_embedded {
@@ -3367,76 +2447,13 @@ debug_message_callback :: proc "contextless" (callback: debug_proc_t, userParam:
     }
 }
 
-// get_debug_message_log :: proc "contextless" (count: u32) -> Vec<DebugMessageLogEntry> {
-//     let ct = count as usize
-//     let sources = Vec::with_capacity(ct)
-//     let types = Vec::with_capacity(ct)
-//     let ids = Vec::with_capacity(ct)
-//     let severities = Vec::with_capacity(ct)
-//     let lengths = Vec::with_capacity(ct)
-//     let buf_size = (count * MAX_DEBUG_MESSAGE_LENGTH) as i32
-//     let message_log = Vec::with_capacity(buf_size as usize)
+// TODO: get_debug_message_log - unimplemented
 
-//     let received = khr_fallback!(
-//         gl.GetDebugMessageLog_is_loaded,
-//         gl.GetDebugMessageLogKHR,
-//         gl.GetDebugMessageLog(
-//             count,
-//             buf_size,
-//             sources.as_mut_ptr(),
-//             types.as_mut_ptr(),
-//             ids.as_mut_ptr(),
-//             severities.as_mut_ptr(),
-//             lengths.as_mut_ptr(),
-//             message_log.as_mut_ptr(),
-//         ),
-//     ) as usize
 
-//     sources.set_len(received)
-//     types.set_len(received)
-//     ids.set_len(received)
-//     severities.set_len(received)
-//     lengths.set_len(received)
-//     message_log.set_len(buf_size as usize)
+// TODO: push_debug_group - unimplemented
 
-//     let entries = Vec::new()
-//     let offset = 0
-//     for i in 0..received {
-//         let message =
-//             std::ffi::CStr::from_ptr(message_log[offset..].as_ptr()).to_string_lossy()
-//         offset += lengths[i] as usize
-//         entries.push(DebugMessageLogEntry {
-//             source: sources[i],
-//             msg_type: types[i],
-//             id: ids[i],
-//             severity: severities[i],
-//             message: message.to_string(),
-//         })
-//     }
+// TODO: pop_debug_group - unimplemented
 
-//     entries
-// }
-
-// push_debug_group :: proc "contextless" <S>(source: u32, id: u32, message: S)
-// where
-//     S: AsRef<str>,
-// {
-//     let msg = message.as_ref().as_bytes()
-//     let length = msg.len() as i32
-//     khr_fallback!(
-//         gl.PushDebugGroup_is_loaded,
-//         gl.PushDebugGroupKHR,
-//         gl.PushDebugGroup(source, id, length, msg.as_ptr() as *const native_gl::GLchar),
-//     )
-// }
-
-// pop_debug_group :: proc "contextless" (&self) {
-//     khr_fallback!(
-//         gl.PopDebugGroup_is_loaded,
-//         gl.PopDebugGroupKHR,
-//         gl.PopDebugGroup(),
-//     )
-// }
 
 object_label :: proc "contextless" (#any_int identifier: u32, name: u32, label: string) {
     length := i32(len(label))
@@ -3449,133 +2466,23 @@ object_label :: proc "contextless" (#any_int identifier: u32, name: u32, label: 
     }
 }
 
-// get_object_label :: proc "contextless" (identifier: u32, name: u32) -> string {
-//     let len = 0
-//     let label_buf = Vec::with_capacity(self.constants.max_label_length as usize)
-//     khr_fallback!(
-//         gl.GetObjectLabel_is_loaded,
-//         gl.GetObjectLabelKHR,
-//         gl.GetObjectLabel(
-//             identifier,
-//             name,
-//             self.constants.max_label_length,
-//             &len,
-//             label_buf.as_mut_ptr(),
-//         ),
-//     )
-//     label_buf.set_len(len as usize)
-//     std::ffi::CStr::from_ptr(label_buf.as_ptr())
-//         .to_str()
-//         .unwrap()
-//         .to_owned()
-// }
+// TODO: get_object_label - unimplemented
 
-// object_ptr_label :: proc "contextless" <S>(sync: Fence, label: Option<S>)
-// where
-//     S: AsRef<str>,
-// {
+// TODO: object_ptr_label - unimplemented
 
-//     match label {
-//         Some(l) => {
-//             let lbl = l.as_ref().as_bytes()
-//             let length = lbl.len() as i32
-//             khr_fallback!(
-//                 gl.ObjectPtrLabel_is_loaded,
-//                 gl.ObjectPtrLabelKHR,
-//                 gl.ObjectPtrLabel(
-//                     sync.0 as *std::ffi::c_void,
-//                     length,
-//                     lbl.as_ptr() as *const native_gl::GLchar,
-//                 ),
-//             )
-//         }
-//         None => {
-//             khr_fallback!(
-//                 gl.ObjectPtrLabel_is_loaded,
-//                 gl.ObjectPtrLabelKHR,
-//                 gl.ObjectPtrLabel(sync.0 as *std::ffi::c_void, 0, std::ptr::null()),
-//             )
-//         }
-//     }
-// }
 
-// get_object_ptr_label :: proc "contextless" (sync: Fence) -> string {
-//     let len = 0
-//     let label_buf = Vec::with_capacity(self.constants.max_label_length as usize)
-//     khr_fallback!(
-//         gl.GetObjectPtrLabel_is_loaded,
-//         gl.GetObjectPtrLabelKHR,
-//         gl.GetObjectPtrLabel(
-//             sync.0 as *std::ffi::c_void,
-//             self.constants.max_label_length,
-//             &len,
-//             label_buf.as_mut_ptr(),
-//         ),
-//     )
-//     label_buf.set_len(len as usize)
-//     std::ffi::CStr::from_ptr(label_buf.as_ptr())
-//         .to_str()
-//         .unwrap()
-//         .to_owned()
-// }
+// TODO: get_object_ptr_label - unimplemented
 
-// get_uniform_block_index :: proc "contextless" (program: Program, name: &str) -> Option<u32> {
-//     let name = CString::new(name).unwrap()
-//     let index = gl.GetUniformBlockIndex(u32(program), name.as_ptr())
-//     if index == INVALID_INDEX {
-//         None
-//     } else {
-//         Some(index)
-//     }
-// }
+// TODO: get_uniform_block_index - unimplemented
 
-// get_uniform_indices :: proc "contextless" (
-//     program: Program,
-//     names: &[&str],
-// ) -> Vec<Option<u32>> {
-//     let c_names = names
-//         .iter()
-//         .map(|&name| CString::new(name).unwrap())
-//         .collect::<Vec<_>>()
-//     let c_name_ptrs = c_names.iter().map(|name| name.as_ptr()).collect::<Vec<_>>()
+// TODO: get_uniform_indices - unimplemented
 
-//     let count = names.len()
-//     let indices = vec![0 count]
-//     gl.GetUniformIndices(
-//         u32(program),
-//         count as _,
-//         c_name_ptrs.as_ptr(),
-//         indices.as_mut_ptr(),
-//     )
-//     indices
-//         .iter()
-//         .map(|&index| {
-//             if index == INVALID_INDEX {
-//                 None
-//             } else {
-//                 Some(index)
-//             }
-//         })
-//         .collect()
-// }
 
 // uniform_block_binding :: proc "contextless" (program: Program, index: u32, binding: u32) {
 //     gl.UniformBlockBinding(u32(program), index, binding)
 // }
 
-// get_shader_storage_block_index :: proc "contextless" (
-//     program: Program,
-//     name: &str,
-// ) -> Option<u32> {
-//     let name = CString::new(name).unwrap()
-//     let index =
-//         gl.GetProgramResourceIndex(u32(program), SHADER_STORAGE_BLOCK, name.as_ptr())
-//     if index == INVALID_INDEX {
-//         None
-//     } else {
-//         Some(index)
-//     }
-// }
+// TODO: get_shader_storage_block_index - unimplemented
 
 // shader_storage_block_binding :: proc "contextless" (
 //     program: Program,
@@ -3589,12 +2496,7 @@ read_buffer :: proc "contextless" (src: u32) {
     gl.ReadBuffer(src)
 }
 
-// named_framebuffer_read_buffer :: proc "contextless" (
-//     framebuffer: Option<Framebuffer>,
-//     src: u32,
-// ) {
-//     gl.NamedFramebufferReadBuffer(framebuffer.map(|f| f.0.get()).unwrap_or(0), src)
-// }
+// TODO: named_framebuffer_read_buffer - unimplemented
 
 read_pixels :: proc "contextless" (
     x: i32,
@@ -3672,94 +2574,29 @@ get_query_parameter_u64_with_offset :: proc "contextless" (
     }
 }
 
-// create_transform_feedback :: proc "contextless" (&self) -> Result<TransformFeedback, string> {
-//     let name = 0
-//     gl.GenTransformFeedbacks(1, &name)
-//     NonZeroU32::new(name)
-//         .map(NativeTransformFeedback)
-//         .ok_or_else(|| string::from("Unable to create TransformFeedback object"))
-// }
+// TODO: create_transform_feedback - unimplemented
 
-// is_transform_feedback :: proc "contextless" (transform_feedback: TransformFeedback) -> bool {
-//     gl.IsTransformFeedback(transform_feedback.0.get()) != 0
-// }
+// TODO: is_transform_feedback - unimplemented
 
-// delete_transform_feedback :: proc "contextless" (transform_feedback: TransformFeedback) {
-//     gl.DeleteTransformFeedbacks(1, &transform_feedback.0.get())
-// }
+// TODO: delete_transform_feedback - unimplemented
 
-// bind_transform_feedback :: proc "contextless" (
-//     target: u32,
-//     transform_feedback: Option<TransformFeedback>,
-// ) {
-//     gl.BindTransformFeedback(target, transform_feedback.map(|tf| tf.0.get()).unwrap_or(0))
-// }
+// TODO: bind_transform_feedback - unimplemented
 
 // begin_transform_feedback :: proc "contextless" (primitive_mode: u32) {
 //     gl.BeginTransformFeedback(primitive_mode)
 // }
 
-// end_transform_feedback :: proc "contextless" (&self) {
-//     gl.EndTransformFeedback()
-// }
+// TODO: end_transform_feedback - unimplemented
 
-// pause_transform_feedback :: proc "contextless" (&self) {
-//     gl.PauseTransformFeedback()
-// }
+// TODO: pause_transform_feedback - unimplemented
 
-// resume_transform_feedback :: proc "contextless" (&self) {
-//     gl.ResumeTransformFeedback()
-// }
+// TODO: resume_transform_feedback - unimplemented
 
-// transform_feedback_varyings :: proc "contextless" (
-//     program: Program,
-//     varyings: &[&str],
-//     buffer_mode: u32,
-// ) {
+// TODO: transform_feedback_varyings - unimplemented
 
-//     let strings: Vec<CString> = varyings
-//         .iter()
-//         .copied()
-//         .map(CString::new)
-//         .collect::<Result<_, _>>()
-//         .unwrap()
-//     let varyings: Vec<_> = strings.iter().map(|c_str| c_str.as_ptr()).collect()
 
-//     gl.TransformFeedbackVaryings(
-//         u32(program),
-//         varyings.len() as i32,
-//         varyings.as_ptr(),
-//         buffer_mode,
-//     )
-// }
+// TODO: get_transform_feedback_varying - unimplemented
 
-// get_transform_feedback_varying :: proc "contextless" (
-//     program: Program,
-//     index: u32,
-// ) -> Option<ActiveTransformFeedback> {
-
-//     const max_name_size: usize = 256
-//     let name_bytes = [0 max_name_size]
-
-//     let size = 0
-//     let tftype = 0
-
-//     gl.GetTransformFeedbackVarying(
-//         u32(program),
-//         index,
-//         name_bytes.len() as i32,
-//         std::ptr::null_mut(),
-//         &size,
-//         &tftype,
-//         name_bytes.as_mut_ptr(),
-//     )
-
-//     let name = CStr::from_ptr(name_bytes.as_mut_ptr())
-//         .to_string_lossy()
-//         .into_owned()
-
-//     Some(ActiveTransformFeedback { size, tftype, name })
-// }
 
 memory_barrier :: proc "contextless" (barriers: u32) {
     gl.MemoryBarrier(barriers)
@@ -3789,88 +2626,10 @@ bind_image_texture :: proc "contextless" (
     )
 }
 
-// get_active_uniform_block_parameter_i32 :: proc "contextless" (
-//     program: Program,
-//     uniform_block_index: u32,
-//     parameter: u32,
-// ) -> i32 {
-//     let value = 0
-//     gl.GetActiveUniformBlockiv(u32(program), uniform_block_index, parameter, &value)
-//     value
-// }
+// TODO: get_active_uniform_block_parameter_i32 - unimplemented
 
-// get_active_uniform_block_parameter_i32_slice :: proc "contextless" (
-//     program: Program,
-//     uniform_block_index: u32,
-//     parameter: u32,
-//     out: &[i32],
-// ) {
-//     gl.GetActiveUniformBlockiv(
-//         u32(program),
-//         uniform_block_index,
-//         parameter,
-//         out.as_mut_ptr(),
-//     )
-// }
-// get_active_uniform_block_name :: proc "contextless" (
-//     program: Program,
-//     uniform_block_index: u32,
-// ) -> string {
+// TODO: get_active_uniform_block_parameter_i32_slice - unimplemented
 
-//     // Probe for the length of the name of the uniform block, and, failing
-//     // that, fall back to allocating a buffer that is 256 bytes long. This
-//     // should be good enough for pretty much all contexts, including faulty
-//     // or partially faulty ones.
-//     let len = self.get_active_uniform_block_parameter_i32(
-//         program,
-//         uniform_block_index,
-//         crate::UNIFORM_BLOCK_NAME_LENGTH,
-//     )
-//     let len = if gl.GetError() == crate::NO_ERROR && len > 0 {
-//         len as usize
-//     } else {
-//         256
-//     }
-
-//     let buffer = vec![0 len]
-//     let length = 0
-//     gl.GetActiveUniformBlockName(
-//         u32(program),
-//         uniform_block_index,
-//         buffer.len() as _,
-//         &length,
-//         buffer.as_mut_ptr(),
-//     )
-
-//     if length > 0 {
-//         assert_eq!(
-//             std::mem::size_of::<u8>(),
-//             std::mem::size_of::<native_gl::GLchar>(),
-//             "This operation is only safe in systems in which the length of \
-//             a GLchar is the same as that of an u8"
-//         )
-//         assert_eq!(
-//             std::mem::align_of::<u8>(),
-//             std::mem::align_of::<native_gl::GLchar>(),
-//             "This operation is only safe in systems in which the alignment \
-//             of a GLchar is the same as that of an u8"
-//         )
-//         let buffer = std::slice::from_raw_parts(
-//             buffer.as_ptr() as *const u8,
-//             (length as usize + 1).min(buffer.len()),
-//         )
-
-//         let name = CStr::from_bytes_with_nul(&buffer[..])
-//             .unwrap()
-//             .to_str()
-//             .unwrap()
-//             .to_owned()
-
-//         name
-//     } else {
-//         string::from("")
-//     }
-// }
 
 // max_shader_compiler_threads :: proc "contextless" (count: u32) {
 //     if gl.MaxShaderCompilerThreadsKHR_is_loaded() {
@@ -3888,17 +2647,4 @@ bind_image_texture :: proc "contextless" (
 //     gl.SampleCoverage(value, invert as u8)
 // }
 
-// get_internal_format_i32_slice :: proc "contextless" (
-//     target: u32,
-//     internal_format: u32,
-//     pname: u32,
-//     result: &[i32],
-// ) {
-//     gl.GetInternalformativ(
-//         target,
-//         internal_format,
-//         pname,
-//         result.len() as _,
-//         result.as_mut_ptr(),
-//     )
-// }
+// TODO: get_internal_format_i32_slice - unimplemented

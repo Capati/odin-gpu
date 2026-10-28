@@ -826,46 +826,8 @@ vk_create_adapter :: proc(
         }
     }
 
-    // if let (Some(ref f16_i8), Some(ref bit16)) = (self.shader_float16_int8, self._16bit_storage)
-    // {
-    //     // Note `storage_input_output16` is not required, we polyfill `f16` I/O using `f32`
-    //     // types when this capability is not available
-    //     features.set(
-    //         F::SHADER_F16,
-    //         f16_i8.shader_float16 != 0
-    //             && bit16.storage_buffer16_bit_access != 0
-    //             && bit16.uniform_and_storage_buffer16_bit_access != 0,
-    //     );
-    // }
+    // TODO: port shader-f16 and subgroup feature detection
 
-    // if let Some(ref subgroup) = caps.subgroup {
-    //     if (caps.device_api_version >= vk::API_VERSION_1_3
-    //         || caps.supports_extension(ext::subgroup_size_control::NAME))
-    //         && subgroup.supported_operations.contains(
-    //             vk::SubgroupFeatureFlags::BASIC
-    //                 | vk::SubgroupFeatureFlags::VOTE
-    //                 | vk::SubgroupFeatureFlags::ARITHMETIC
-    //                 | vk::SubgroupFeatureFlags::BALLOT
-    //                 | vk::SubgroupFeatureFlags::SHUFFLE
-    //                 | vk::SubgroupFeatureFlags::SHUFFLE_RELATIVE
-    //                 | vk::SubgroupFeatureFlags::QUAD,
-    //         )
-    //     {
-    //         features.set(
-    //             F::SUBGROUP,
-    //             subgroup
-    //                 .supported_stages
-    //                 .contains(vk::ShaderStageFlags::COMPUTE | vk::ShaderStageFlags::FRAGMENT),
-    //         );
-    //         features.set(
-    //             F::SUBGROUP_VERTEX,
-    //             subgroup
-    //                 .supported_stages
-    //                 .contains(vk::ShaderStageFlags::VERTEX),
-    //         );
-    //         features.insert(F::SUBGROUP_BARRIER);
-    //     }
-    // }
 
     vk_supports_depth_format :: proc "contextless" (
         pd: vk.PhysicalDevice,
@@ -893,163 +855,13 @@ vk_create_adapter :: proc(
         append(&out.features, Feature_Name.Depth32_Float_Stencil8)
     }
 
-    // let supports_acceleration_structures = caps
-    //     .supports_extension(khr::deferred_host_operations::NAME)
-    //     && caps.supports_extension(khr::acceleration_structure::NAME)
-    //     && caps.supports_extension(khr::buffer_device_address::NAME);
-
-    // let supports_ray_query =
-    //     supports_acceleration_structures && caps.supports_extension(khr::ray_query::NAME);
-    // let supports_acceleration_structure_binding_array = supports_ray_query
-    //     && self
-    //         .acceleration_structure
-    //         .as_ref()
-    //         .is_some_and(|features| {
-    //             features.descriptor_binding_acceleration_structure_update_after_bind != 0
-    //         });
-
-    // features.set(
-    //     F::EXPERIMENTAL_RAY_QUERY
-    //     // Although this doesn't really require ray queries, it does not make sense to be enabled if acceleration structures
-    //     // aren't enabled.
-    //         | F::EXTENDED_ACCELERATION_STRUCTURE_VERTEX_FORMATS,
-    //     supports_ray_query,
-    // );
-
-    // // Binding arrays of TLAS are supported on Vulkan when ray queries are supported.
-    // //
-    // // Note: this flag is used for shader-side `binding_array<acceleration_structure>` as well as
-    // // allowing `BindGroupLayoutEntry::count = Some(...)` for `BindingType::AccelerationStructure`.
-    // features.set(
-    //     F::ACCELERATION_STRUCTURE_BINDING_ARRAY,
-    //     supports_acceleration_structure_binding_array,
-    // );
-
-    // if supports_acceleration_structures
-    //     && caps.supports_extension(khr::ray_tracing_pipeline::NAME)
-    // {
-    //     features.insert(
-    //         F::EXPERIMENTAL_RAY_TRACING_PIPELINES
-    //                 // Same reason as for ray queries.
-    //                 | F::EXTENDED_ACCELERATION_STRUCTURE_VERTEX_FORMATS,
-    //     );
-    // }
-
-    // let rg11b10ufloat_renderable = supports_format(
-    //     instance,
-    //     phd,
-    //     vk::Format::B10G11R11_UFLOAT_PACK32,
-    //     vk::ImageTiling::OPTIMAL,
-    //     vk::FormatFeatureFlags::COLOR_ATTACHMENT
-    //         | vk::FormatFeatureFlags::COLOR_ATTACHMENT_BLEND,
-    // );
-    // features.set(F::RG11B10UFLOAT_RENDERABLE, rg11b10ufloat_renderable);
-
-    // features.set(
-    //     F::BGRA8UNORM_STORAGE,
-    //     supports_bgra8unorm_storage(instance, phd, caps.device_api_version),
-    // );
-
-    // features.set(
-    //     F::FLOAT32_FILTERABLE,
-    //     is_float32_filterable_supported(instance, phd),
-    // );
-
-    // features.set(
-    //     F::FLOAT32_BLENDABLE,
-    //     is_float32_blendable_supported(instance, phd),
-    // );
-
-    // if let Some(ref _sampler_ycbcr_conversion) = self.sampler_ycbcr_conversion {
-    //     features.set(
-    //         F::TEXTURE_FORMAT_NV12,
-    //         supports_format(
-    //             instance,
-    //             phd,
-    //             vk::Format::G8_B8R8_2PLANE_420_UNORM,
-    //             vk::ImageTiling::OPTIMAL,
-    //             vk::FormatFeatureFlags::SAMPLED_IMAGE
-    //                 | vk::FormatFeatureFlags::TRANSFER_SRC
-    //                 | vk::FormatFeatureFlags::TRANSFER_DST,
-    //         ) && !caps.is_driver(vk::DriverId::MOLTENVK),
-    //     );
-    // }
-
-    // if let Some(ref _sampler_ycbcr_conversion) = self.sampler_ycbcr_conversion {
-    //     features.set(
-    //         F::TEXTURE_FORMAT_P010,
-    //         supports_format(
-    //             instance,
-    //             phd,
-    //             vk::Format::G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16,
-    //             vk::ImageTiling::OPTIMAL,
-    //             vk::FormatFeatureFlags::SAMPLED_IMAGE
-    //                 | vk::FormatFeatureFlags::TRANSFER_SRC
-    //                 | vk::FormatFeatureFlags::TRANSFER_DST,
-    //         ) && !caps.is_driver(vk::DriverId::MOLTENVK),
-    //     );
-    // }
-
-    // features.set(
-    //     F::VULKAN_GOOGLE_DISPLAY_TIMING,
-    //     caps.supports_extension(google::display_timing::NAME),
-    // );
-
-    // features.set(
-    //     F::VULKAN_EXTERNAL_MEMORY_WIN32,
-    //     caps.supports_extension(khr::external_memory_win32::NAME),
-    // );
-    // features.set(
-    //     F::VULKAN_EXTERNAL_MEMORY_FD,
-    //     caps.supports_extension(khr::external_memory_fd::NAME),
-    // );
-    // features.set(
-    //     F::VULKAN_EXTERNAL_MEMORY_DMA_BUF,
-    //     caps.supports_extension(khr::external_memory_fd::NAME)
-    //         && caps.supports_extension(ext::external_memory_dma_buf::NAME)
-    //         && caps.supports_extension(ext::image_drm_format_modifier::NAME),
-    // );
-    // features.set(
-    //     F::EXPERIMENTAL_MESH_SHADER,
-    //     caps.supports_extension(ext::mesh_shader::NAME),
-    // );
-    // features.set(
-    //     F::EXPERIMENTAL_MESH_SHADER_POINTS,
-    //     caps.supports_extension(ext::mesh_shader::NAME),
-    // );
-    // if let Some(ref mesh_shader) = self.mesh_shader {
-    //     features.set(
-    //         F::EXPERIMENTAL_MESH_SHADER_MULTIVIEW,
-    //         mesh_shader.multiview_mesh_shader != 0,
-    //     );
-    // }
-
-    // // Not supported by default by `VK_KHR_portability_subset`, which we use on apple platforms.
-    // features.set(
-    //     F::MULTISAMPLE_ARRAY,
-    //     self.portability_subset
-    //         .map(|p| p.multisample_array_image == vk::TRUE)
-    //         .unwrap_or(true),
-    // );
-    // // Enable cooperative matrix if any configuration is supported. The SPIR-V
-    // // we emit for it uses `Device`-scope atomics under the Vulkan memory model,
-    // // so the device must also support `vulkanMemoryModelDeviceScope`, otherwise
-    // // those shaders trip `VUID-RuntimeSpirv-vulkanMemoryModel-06265`.
-    // features.set(
-    //     F::EXPERIMENTAL_COOPERATIVE_MATRIX,
-    //     !caps.cooperative_matrix_properties.is_empty()
-    //         && self.vulkan_memory_model.is_some_and(|m| {
-    //             m.vulkan_memory_model == vk::TRUE
-    //                 && m.vulkan_memory_model_device_scope == vk::TRUE
-    //         }),
-    // );
-
-    // features.set(
-    //     F::SHADER_DRAW_INDEX,
-    //     self.shader_draw_parameters
-    //         .is_some_and(|a| a.shader_draw_parameters != 0)
-    //         || caps.supports_extension(c"VK_KHR_shader_draw_parameters"),
-    // );
+    // TODO: port remaining Vulkan feature detection:
+    //   - acceleration structures / ray query / ray tracing pipelines
+    //   - RG11B10UFLOAT renderable, BGRA8UNORM storage
+    //   - float32 filterable / blendable
+    //   - NV12 / P010 (ycbcr), Google display timing
+    //   - external memory (win32/fd/dma-buf), mesh shader, multisample array
+    //   - cooperative matrix, shader draw index
 
     slice.sort(out.features[:])
 

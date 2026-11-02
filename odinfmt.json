@@ -4,5 +4,22 @@
     "tabs": false,
     "spaces": 4,
     "tabs_width": 4,
-    "newline_style": "LF"
+    "newline_style": "LF",
+
+    "brace_style": "_1TBS",
+    "newline_limit": 2,
+
+    "multiline_composite_literals": true,
+    "preserve_struct_blank_lines": true,
+    "align_struct_fields": true,
+    "align_struct_values": true,
+    "align_constant_definitions": true,
+    "align_comments": false,
+
+    "inline_single_stmt_case": false,
+    "indent_cases": false,
+    "spaces_around_colons": false,
+    "space_single_line_blocks": false,
+    "sort_imports": true,
+    "convert_do": false
 }

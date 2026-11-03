@@ -463,17 +463,14 @@ decode_textures :: proc(loader: ^Loader, model: ^Gltf_Model) {
         // Only URI payloads are owned; buffer views alias the document.
         owns_encoded := image.buffer_view == nil
         encoded_count := len(encoded)
-        decoded, reason, ok := decode_image_bytes(encoded, loader.allocator)
+        decoded, ok := decode_image_bytes(encoded, loader.allocator)
         if owns_encoded {
             delete(encoded, loader.allocator)
         }
         if !ok || decoded.channels != 4 {
-            log.warnf(
-                "Could not decode texture %d: %d bytes (%s); falling back to the material factors",
-                index,
-                encoded_count,
-                reason,
-            )
+            log.warnf("Could not decode texture %d: %d bytes; " +
+                "falling back to the material factors",
+                index, encoded_count)
             continue
         }
         texture.pixels = decoded.pixels

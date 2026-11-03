@@ -76,3 +76,10 @@ desktop.ini
 ols.json
 imgui.ini
 
+# AI Agent / Assistant local state
+.claude/
+.cursor/
+.aider*
+.windsurf/
+.continue/
+.commandcode/

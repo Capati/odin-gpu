@@ -367,8 +367,8 @@ free_list_allocator_allocate :: proc(
             if !prev_ok {
                 return 0, 0, .Internal
             }
-            if is_on_same_page(prev.offset, prev.size, off, granularity) \
-                    && has_granularity_conflict(prev.allocation_type, allocation_type) {
+            if is_on_same_page(prev.offset, prev.size, off, granularity) &&
+                    has_granularity_conflict(prev.allocation_type, allocation_type) {
                 off = u64(mem.align_forward_int(int(off), int(granularity)))
             }
         }
@@ -384,8 +384,8 @@ free_list_allocator_allocate :: proc(
             if !next_ok {
                 return 0, 0, .Internal
             }
-            if is_on_same_page(off, size, next.offset, granularity) \
-                    && has_granularity_conflict(allocation_type, next.allocation_type) {
+            if is_on_same_page(off, size, next.offset, granularity) &&
+                    has_granularity_conflict(allocation_type, next.allocation_type) {
                 continue
             }
         }
@@ -562,9 +562,11 @@ free_list_allocator_report_memory_leaks :: proc(
         if chunk.allocation_type == .Free {
             continue
         }
-        name := len(chunk.name) > 0 \
-            ? str_from_array(chunk.name[:]) \
+        name := (
+            len(chunk.name) > 0
+            ? str_from_array(chunk.name[:])
             : "<Unnamed FreeList allocation>"
+        )
         log.warnf("leak detected: {{" +
             "chunk_id: %d, size: 0x%x, " +
             "offset: 0x%x, " +
@@ -670,9 +672,11 @@ dedicated_block_allocator_report_allocations :: proc(
 ) -> []Allocation_Report {
     reports := make([dynamic]Allocation_Report, allocator, loc = loc)
     if self.allocated != 0 {
-        name := len(self.name) > 0 \
-            ? str_from_array(self.name[:]) \
+        name := (
+            len(self.name) > 0
+            ? str_from_array(self.name[:])
             : "<Unnamed Dedicated allocation>"
+        )
         append(&reports, Allocation_Report{offset = 0, size = self.size})
         last_report := &reports[len(reports)-1]
         str_copy_to_array(last_report.name[:], name)
@@ -688,9 +692,11 @@ dedicated_block_allocator_report_memory_leaks :: proc(
     if self.allocated == 0 {
         return
     }
-    name := len(self.name) > 0 \
-        ? str_from_array(self.name[:]) \
+    name := (
+        len(self.name) > 0
+        ? str_from_array(self.name[:])
         : "<Unnamed Dedicated allocation>"
+    )
     log.warnf(
         "leak detected: {{" +
         "size: 0x%x, " +

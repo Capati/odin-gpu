@@ -813,8 +813,11 @@ vk_allocator_allocate :: proc(
 
 vk_allocator_free :: proc(self: ^VK_Allocator, allocation: ^VK_Allocation) -> Allocator_Error {
     if self.debug_settings.log_frees {
-        name := len(allocation.name) > 0 \
-            ? str_from_array(allocation.name[:]) : "<null>"
+        name := (
+            len(allocation.name) > 0
+            ? str_from_array(allocation.name[:])
+            : "<null>"
+        )
         log.debugf("Freeing `%s`.", name)
     }
 

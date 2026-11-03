@@ -17,6 +17,8 @@ for %%R in (
 	utils/tobj
 ) do call :scan "%%~fR"
 
+call :vet_atomic gpu
+
 :done
 if %FAILED% neq 0 (
     echo.
@@ -34,5 +36,11 @@ exit /b 0
 if not exist "%~1\*_tests.odin" exit /b 0
 echo === %~1
 odin test "%~1"
+if errorlevel 1 set /a FAILED+=1
+exit /b 0
+
+:vet_atomic
+echo === -vet-atomic-access %~1
+odin check "%~1" -no-entry-point -vet-atomic-access
 if errorlevel 1 set /a FAILED+=1
 exit /b 0

@@ -1,34 +1,18 @@
 package gpu
 
-// Core
-import "core:slice"
-
 // Handle to a physical graphics and/or compute device.
 //
-// Adapters can be created using `instance_request_adapter`
-// or other `Instance` methods.
+// Adapters can be created using `instance_create_adapter()` or
+// `instance_enumerate_adapters()`.
 //
 // Adapters can be used to open a connection to the corresponding `Device`
-// on the host system by using `adapter_request_device`.
+// on the host system by using `adapter_create_device()`.
 //
-// Does not have to be kept alive.
+// Does not have to be kept alive: a `Device` holds its own reference to the
+// adapter it was created from.
 //
 // Corresponds to [WebGPU `GPUAdapter`](https://gpuweb.github.io/gpuweb/#gpu-adapter).
 Adapter :: distinct rawptr
-
-@private
-Adapter_Impl :: struct {
-    instance:   Instance,
-    features:   Features,
-    limits:     Limits,
-    alignments: Alignments,
-}
-
-@private
-adapter_get_public_impl: proc "contextless" (
-    adapter: Adapter,
-    loc := #caller_location,
-) -> ^Adapter_Impl
 
 // Status code delivered to the callback of `adapter_request_device()`.
 Request_Device_Status :: enum i32 {
@@ -108,48 +92,121 @@ Adapter_Info :: struct {
 // The features supported by this adapter that can be used to create devices.
 adapter_get_features: proc(adapter: Adapter, loc := #caller_location) -> Features
 
+// Get info about the adapter itself.
+//
+// The strings in the returned `Adapter_Info` are allocated with `allocator`.
+// Release them with `adapter_info_free_members()`.
 adapter_get_info: proc(
     adapter: Adapter,
     allocator := context.allocator,
     loc := #caller_location,
 ) -> Adapter_Info
 
-adapter_info_free_members :: proc(
+// Frees the strings `adapter_get_info()` allocated in `adapter_info`.
+//
+// Pass the same `allocator` that was passed to `adapter_get_info()`.
+adapter_info_free_members: proc(
     adapter_info: Adapter_Info,
     allocator := context.allocator,
     loc := #caller_location,
-) {
-    context.allocator = allocator
-    delete(adapter_info.name)
-    delete(adapter_info.device_pci_bus_id)
-    delete(adapter_info.driver)
-    delete(adapter_info.driver_info)
-}
+)
 
-adapter_get_limits :: proc(adapter: Adapter, loc := #caller_location) -> Limits {
-    impl := adapter_get_public_impl(adapter, loc)
-    return impl.limits
-}
+// The best limits which can be used to create devices on this adapter.
+adapter_get_limits: proc(adapter: Adapter, loc := #caller_location) -> Limits
 
-adapter_has_feature :: proc(
+// Reports whether this adapter supports `feature`.
+//
+// Adapter support does not enable the feature on a device: it must also be
+// listed in `Device_Descriptor.required_features` when the device is created.
+adapter_has_feature: proc(
     adapter: Adapter,
     feature: Feature_Name,
     loc := #caller_location,
+) -> bool
+
+// Reports whether this adapter supports all `features`.
+//
+// Adapter support does not enable the feature on a device: it must also be
+// listed in `Device_Descriptor.required_features` when the device is created.
+adapter_has_features :: proc(
+    adapter: Adapter,
+    features: []Feature_Name,
+    loc := #caller_location,
 ) -> bool {
-    if feature == {} {
-        return true
+    for f in features {
+        if !adapter_has_feature(adapter, f) {
+            return false
+        }
     }
-    impl := adapter_get_public_impl(adapter, loc)
-    _, found := slice.binary_search(impl.features[:], feature)
-    return found
+    return true
 }
 
+// Requests a connection to a physical device, creating a logical device.
+//
+// Returns the `Device`. Its default `Queue`, obtained with
+// `device_get_queue()`, is the one that executes command buffers.
+//
+// Per the WebGPU specification, an `Adapter` may only be used once to create a
+// device. If another device is wanted, call `instance_create_adapter()` again
+// to get a fresh `Adapter`. However, `odin-gpu` does not currently enforce this
+// restriction: backends allow repeated calls on the same `Adapter`.
+//
+// **Failure**
+//
+// Returns `nil` when:
+//
+// - `descriptor.required_features` contains a feature the adapter does not
+//   advertise through `adapter_get_features()`.
+// - `descriptor.required_limits` requests a value better than the one reported
+//   by `adapter_get_limits()`.
+// - The underlying API fails to create the logical device.
 adapter_create_device: proc(
     adapter: Adapter,
     descriptor: Device_Descriptor = {},
     loc := #caller_location,
 ) -> Device
 
+// Alias to `adapter_create_device`.
+adapter_request_device :: proc(
+    adapter: Adapter,
+    descriptor: Device_Descriptor = {},
+    loc := #caller_location,
+) -> Device {
+    return adapter_create_device(adapter, descriptor, loc)
+}
+
+// Returns the `Adapter`'s debug label.
+//
+// The string is owned by the `Adapter` and stays valid until the next
+// `adapter_set_label()` or until the `Adapter` is released.
+adapter_get_label: proc(adapter: Adapter, loc := #caller_location) -> string
+
+// Sets the `Adapter`'s debug label.
+//
+// The `Adapter` keeps its own copy of `label`, so the caller may release its
+// copy immediately after this call.
+adapter_set_label: proc(adapter: Adapter, label: string, loc := #caller_location)
+
+// Increments the reference count of `adapter`.
 adapter_add_ref: proc(adapter: Adapter, loc := #caller_location)
 
+// Releases `adapter`, destroying it when its reference count reaches zero.
 adapter_release: proc(adapter: Adapter, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private
+// -----------------------------------------------------------------------------
+
+@private
+Adapter_Impl :: struct {
+    instance:   Instance,
+    features:   Features,
+    limits:     Limits,
+    alignments: Alignments,
+}
+
+@private
+adapter_get_public_impl: proc "contextless" (
+    adapter: Adapter,
+    loc := #caller_location,
+) -> ^Adapter_Impl

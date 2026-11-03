@@ -701,13 +701,25 @@ vk_allocator_find_memorytype_index :: proc(
     index: int,
     found: bool,
 ) {
+    // Several types can satisfy the request. Prefer the one backed by the
+    // largest heap so a long run of allocations does not fill a small pool
+    // while a larger one is available. Ties keep the first type.
+    best_heap_size: u64
     for &mt in self.memory_types {
         bit := u64(1) << u64(mt.memory_type_index)
-        if bit & u64(requirements.memoryTypeBits) != 0 && (mt.memory_properties & flags) == flags {
-            return mt.memory_type_index, true
+        if bit & u64(requirements.memoryTypeBits) == 0 ||
+           (mt.memory_properties & flags) != flags {
+            continue
         }
+        heap_size := u64(self.memory_heaps[mt.heap_index].size)
+        if found && heap_size <= best_heap_size {
+            continue
+        }
+        index = mt.memory_type_index
+        best_heap_size = heap_size
+        found = true
     }
-    return 0, false
+    return
 }
 
 vk_allocator_allocate :: proc(

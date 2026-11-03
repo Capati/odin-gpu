@@ -14,16 +14,31 @@ package gpu
 // Corresponds to [WebGPU `GPUAdapter`](https://gpuweb.github.io/gpuweb/#gpu-adapter).
 Adapter :: distinct rawptr
 
-// Status code delivered to the callback of `adapter_request_device()`.
-Request_Device_Status :: enum i32 {
-    // A device was successfully created. The callback receives a valid `Device`.
-    Success,
-    // The callback was cancelled (for example because the last external
-    // reference to the instance was dropped).
-    Callback_Cancelled,
-    // Device creation failed (validation error, unsupported features/limits,
-    // out-of-memory, internal error, etc.).
-    Error,
+// Supported physical device types.
+Device_Type :: enum i32 {
+    // Other or Unknown.
+    Unknown,
+    // Integrated GPU with shared CPU/GPU memory.
+    Integrated_Gpu,
+    // Discrete GPU with separate CPU/GPU memory.
+    Discrete_Gpu,
+    // Virtual / Hosted.
+    Virtual_Gpu,
+    // Cpu / Software Rendering.
+    Cpu,
+}
+
+// Power preference when choosing a physical adapter.
+//
+// Corresponds to [WebGPU `GPUPowerPreference`](
+// https://gpuweb.github.io/gpuweb/#enumdef-gpupowerpreference).
+Power_Preference :: enum i32 {
+    // Power usage is not considered when choosing an adapter.
+    None,
+    // Adapter that uses the least possible power. This is often an integrated GPU.
+    Low_Power,
+    // Adapter that has the highest performance. This is often a discrete GPU.
+    High_Performance,
 }
 
 // Information about an adapter.
@@ -192,21 +207,3 @@ adapter_add_ref: proc(adapter: Adapter, loc := #caller_location)
 
 // Releases `adapter`, destroying it when its reference count reaches zero.
 adapter_release: proc(adapter: Adapter, loc := #caller_location)
-
-// -----------------------------------------------------------------------------
-// @private
-// -----------------------------------------------------------------------------
-
-@private
-Adapter_Impl :: struct {
-    instance:   Instance,
-    features:   Features,
-    limits:     Limits,
-    alignments: Alignments,
-}
-
-@private
-adapter_get_public_impl: proc "contextless" (
-    adapter: Adapter,
-    loc := #caller_location,
-) -> ^Adapter_Impl

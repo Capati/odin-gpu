@@ -31,10 +31,12 @@ json_write :: proc(builder: ^strings.Builder, value: json.Value) {
             strings.write_string(builder, "null")
         } else {
             // 'g' with precision -1 is the shortest round-trippable form, and
-            // its output (`1e+100`, `0.5`, `-3`) is valid JSON.
+            // its output (`1e+100`, `0.5`, `-3`) is valid JSON. The `{}` flags
+            // matter: strconv defaults to `{.Plus}`, which would emit `+1.5`
+            // and produce invalid JSON for positive values.
             buf: [32]byte
-            n := len(strconv.generic_ftoa(buf[:], f, 'g', -1, 64))
-            strings.write_bytes(builder, buf[:n])
+            s := strconv.write_float(buf[:], f, 'g', -1, 64, {})
+            strings.write_string(builder, s)
         }
     case json.Boolean:
         strings.write_string(builder, "true" if v else "false")

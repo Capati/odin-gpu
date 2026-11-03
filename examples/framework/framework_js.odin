@@ -46,9 +46,8 @@ os_run :: proc() {
 step :: proc(dt: f32) -> bool {
 	context = g_ctx.custom_ctx
 
-	if !g_ctx.os.initialized {
-		return true
-	}
+	if g_ctx.quit_done { return false }
+	if !g_ctx.os.initialized { return false }
 
     if g_ctx.desc.iterate_cb != nil {
         if !g_ctx.desc.iterate_cb(&g_ctx, dt) {

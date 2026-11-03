@@ -10,9 +10,7 @@ package gltf_cube
 
 // Core
 import "base:runtime"
-import "core:log"
 import la "core:math/linalg"
-import "core:mem"
 
 // Local packages
 import "../../gpu"
@@ -313,29 +311,6 @@ quit :: proc(ctx: ^app.Application) {
 }
 
 main :: proc() {
-    when ODIN_DEBUG {
-        context.logger = log.create_console_logger(
-            lowest = .Debug,
-            opt = {.Level, .Terminal_Color},
-        )
-        defer log.destroy_console_logger(context.logger)
-
-        when ODIN_OS != .JS {
-            track: mem.Tracking_Allocator
-            mem.tracking_allocator_init(&track, context.allocator)
-            context.allocator = mem.tracking_allocator(&track)
-            defer {
-                if len(track.allocation_map) > 0 {
-                    log.errorf("=== %v allocations not freed: ===", len(track.allocation_map))
-                    for _, entry in track.allocation_map {
-                        log.warnf("- %v bytes @ %v", entry.size, entry.location)
-                    }
-                }
-                mem.tracking_allocator_destroy(&track)
-            }
-        }
-    }
-
     app.run(
         app.Application_Descriptor {
             title = TITLE,

@@ -3,6 +3,7 @@ package application
 // Core
 import "base:runtime"
 import "core:log"
+import "core:mem"
 import "core:slice"
 import "core:strings"
 
@@ -17,6 +18,8 @@ USE_SRGB :: #config(USE_SRGB, false)
 DEFAULT_WINDOW_WIDTH  :: 1280
 DEFAULT_WINDOW_HEIGHT :: 720
 
+// Returns false to abort startup, anything allocated before returning false
+// must be released by `init_cb` itself.
 App_Init_Proc    :: #type proc(ctx: ^Application) -> bool
 App_Iterate_Proc :: #type proc(ctx: ^Application, dt: f32) -> bool
 App_Event_Proc   :: #type proc(ctx: ^Application, event: Event)
@@ -56,31 +59,34 @@ Application_Descriptor :: struct {
 }
 
 Application :: struct {
-    desc:               Application_Descriptor,
-    width:              u32,
-    height:             u32,
-    exit_key:           Key,
-    info:               gpu.Adapter_Info,
-    caps:               gpu.Surface_Capabilities,
-    config:             gpu.Surface_Configuration,
-    instance:           gpu.Instance,
-    adapter:            gpu.Adapter,
-    device:             gpu.Device,
-    queue:              gpu.Queue,
-    surface:            gpu.Surface,
-    render_format:      gpu.Texture_Format,
-    msaa_tex:           gpu.Texture,
-    depth_stencil_tex:  gpu.Texture,
-    depth_stencil_fmt:  gpu.Texture_Format,
-    swapchain_view:     gpu.Texture_View,
-    msaa_view:          gpu.Texture_View,
-    depth_stencil_view: gpu.Texture_View,
-    mipmap_generator:   rawptr,
-    os:                 OS,
-    custom_ctx:         runtime.Context,
-    allocator:          runtime.Allocator,
-    initialized:        bool,
-    is_minimized:       bool,
+    desc:                Application_Descriptor,
+    width:               u32,
+    height:              u32,
+    exit_key:            Key,
+    info:                gpu.Adapter_Info,
+    caps:                gpu.Surface_Capabilities,
+    config:              gpu.Surface_Configuration,
+    instance:            gpu.Instance,
+    adapter:             gpu.Adapter,
+    device:              gpu.Device,
+    queue:               gpu.Queue,
+    surface:             gpu.Surface,
+    render_format:       gpu.Texture_Format,
+    msaa_tex:            gpu.Texture,
+    depth_stencil_tex:   gpu.Texture,
+    depth_stencil_fmt:   gpu.Texture_Format,
+    swapchain_view:      gpu.Texture_View,
+    msaa_view:           gpu.Texture_View,
+    depth_stencil_view:  gpu.Texture_View,
+    mipmap_generator:    rawptr,
+    os:                  OS,
+    custom_ctx:          runtime.Context,
+    allocator:           runtime.Allocator,
+    track:               mem.Tracking_Allocator,
+    debug_teardown_done: bool,
+    initialized:         bool,
+    is_minimized:        bool,
+    quit_done:           bool,
 }
 
 @(private)
@@ -90,22 +96,50 @@ run :: proc(
     desc: Application_Descriptor,
     allocator := context.allocator,
     loc := #caller_location,
+) -> (
+    ok: bool,
 ) {
     assert(desc.init_cb != nil, "init_cb must not be nil", loc)
     assert(desc.iterate_cb != nil, "iterate_cb must not be nil", loc)
     assert(desc.quit_cb != nil, "quit_cb must not be nil", loc)
     assert(desc.title != "", "title must not be empty", loc)
 
-    g_ctx.custom_ctx = context
+    // Reset the lifecycle flags so a second `run` after a `quit` (or a failed
+    // startup) starts from a clean state.
+    g_ctx.initialized = false
+    g_ctx.quit_done = false
+    g_ctx.debug_teardown_done = false
+
     g_ctx.allocator = allocator
 
-    g_ctx.desc              = desc
-    g_ctx.width             = desc.width  if desc.width  != 0 else DEFAULT_WINDOW_WIDTH
-    g_ctx.height            = desc.height if desc.height != 0 else DEFAULT_WINDOW_HEIGHT
+    when ODIN_DEBUG {
+        context.logger = log.create_console_logger(
+            lowest = .Debug,
+            opt = {.Level, .Terminal_Color},
+            allocator = allocator,
+        )
+
+        when ODIN_OS != .JS {
+            mem.tracking_allocator_init(&g_ctx.track, allocator)
+            context.allocator = mem.tracking_allocator(&g_ctx.track)
+        }
+
+        // Paired with `teardown_debug`, which `quit` calls on a successful run.
+        // The cleanup has to happen here too when startup fails before the
+        // frame loop starts.
+        defer if !ok {teardown_debug()}
+    }
+
+    g_ctx.custom_ctx = context
+
+    g_ctx.desc = desc
+    g_ctx.width = desc.width if desc.width != 0 else DEFAULT_WINDOW_WIDTH
+    g_ctx.height = desc.height if desc.height != 0 else DEFAULT_WINDOW_HEIGHT
     g_ctx.desc.sample_count = desc.sample_count if desc.sample_count != 0 else 1
 
     // Create window
     os_init(desc.title, g_ctx.width, g_ctx.height)
+    defer if !ok {os_quit()}
 
     when ODIN_DEBUG {
         g_ctx.exit_key = .Escape
@@ -124,10 +158,20 @@ run :: proc(
         }
     }
 
-    g_ctx.instance = gpu.create_instance(allocator, instance_descriptor)
+    g_ctx.instance = gpu.create_instance(g_ctx.allocator, instance_descriptor)
+    if g_ctx.instance == nil {
+        log.error("Failed to create the GPU instance")
+        return
+    }
+    defer if !ok {gpu.instance_release(g_ctx.instance)}
 
     // Create a platform surface
     g_ctx.surface = window_get_gpu_surface(g_ctx.instance, loc)
+    if g_ctx.surface == nil {
+        log.error("Failed to create the GPU surface")
+        return
+    }
+    defer if !ok {gpu.surface_release(g_ctx.surface)}
 
     // Create the adapter
     adapter_options := gpu.Request_Adapter_Options {
@@ -137,16 +181,27 @@ run :: proc(
     }
 
     g_ctx.adapter = gpu.instance_create_adapter(g_ctx.instance, adapter_options)
-    assert(g_ctx.adapter != {})
+    if g_ctx.adapter == nil {
+        log.error("No compatible GPU adapter")
+        return
+    }
+    defer if !ok {gpu.adapter_release(g_ctx.adapter)}
 
     // Get information about the selected adapter
     g_ctx.info = gpu.adapter_get_info(g_ctx.adapter, g_ctx.allocator)
+    defer if !ok {gpu.adapter_info_free_members(g_ctx.info, g_ctx.allocator)}
 
     log.debug("Selected adapter:")
     log_adapter_info(g_ctx.info)
 
     // Get surface capabilities supported by this surface and adapter
-    g_ctx.caps = gpu.surface_get_capabilities(g_ctx.surface, g_ctx.adapter)
+    g_ctx.caps = gpu.surface_get_capabilities(g_ctx.surface, g_ctx.adapter, g_ctx.allocator)
+    defer if !ok {gpu.surface_capabilities_free_members(g_ctx.caps, g_ctx.allocator)}
+
+    if len(g_ctx.caps.formats) == 0 {
+        log.error("Surface reports no supported formats")
+        return
+    }
 
     lost_callback_info := gpu.Device_Lost_Callback_Info {
         callback = device_lost_callback,
@@ -169,9 +224,19 @@ run :: proc(
         lost_callback_info             = lost_callback_info,
         uncaptured_error_callback_info = uncaptured_error_callback_info,
     })
+    if g_ctx.device == nil {
+        log.error("Failed to create the GPU device")
+        return
+    }
+    defer if !ok {gpu.device_release(g_ctx.device)}
 
     // Get the default queue
     g_ctx.queue = gpu.device_get_queue(g_ctx.device)
+    if g_ctx.queue == {} {
+        log.error("Failed to get the default GPU queue")
+        return
+    }
+    defer if !ok {gpu.queue_release(g_ctx.queue)}
 
     // Resolve requested present mode.
     present_mode := resolve_present_mode(g_ctx.desc.present_mode, g_ctx.caps.present_modes)
@@ -194,8 +259,8 @@ run :: proc(
     }
 
     // Frame latency defaults to 2 (balanced latency/throughput); 0 means default.
-    frame_latency := max(g_ctx.desc.max_frame_latency, 1) if
-        g_ctx.desc.max_frame_latency != 0 else 2
+    frame_latency :=
+        max(g_ctx.desc.max_frame_latency, 1) if g_ctx.desc.max_frame_latency != 0 else 2
     log.infof("Present mode %v, max frame latency %d", present_mode, frame_latency)
 
     // Create final surface configuration
@@ -232,6 +297,8 @@ run :: proc(
     g_ctx.initialized = true
 
     os_run()
+
+    return true
 }
 
 // Resolves the requested present mode against supported modes. Fifo is the default
@@ -294,10 +361,54 @@ uncaptured_error_callback :: proc "contextless" (
     log.error(message)
 }
 
+// Tears down the debug-only logger and tracking allocator. `run` owns them on
+// startup failure; `quit` owns them on a normal exit. The flag makes the call
+// idempotent so calling `quit` after a failed `run` is harmless.
+@(private)
+teardown_debug :: proc() {
+    when ODIN_DEBUG {
+        if g_ctx.debug_teardown_done {
+            return
+        }
+        g_ctx.debug_teardown_done = true
+
+        when ODIN_OS != .JS {
+            if len(g_ctx.track.allocation_map) > 0 {
+                log.errorf("=== %v allocations not freed: ===", len(g_ctx.track.allocation_map))
+                for _, entry in g_ctx.track.allocation_map {
+                    log.warnf("- %v bytes @ %v", entry.size, entry.location)
+                }
+            }
+            mem.tracking_allocator_destroy(&g_ctx.track)
+        }
+
+        log.destroy_console_logger(context.logger, g_ctx.allocator)
+
+        // The saved context must not keep pointing at the freed tracker. Its
+        // logger is dead too, so nothing may log through `custom_ctx` after
+        // this point.
+        g_ctx.custom_ctx.allocator = g_ctx.allocator
+    }
+}
+
 quit :: proc() {
+    // The frame loop calls this once, but user code may call it again. Also
+    // guards the JS path, where a repeated runtime step would otherwise run
+    // against released objects.
+    if g_ctx.quit_done do return
+    g_ctx.quit_done = true
+
     context = g_ctx.custom_ctx
 
-    log.debug("Exiting...")
+    if !g_ctx.debug_teardown_done {
+        log.debug("Exiting...")
+    }
+
+    defer teardown_debug()
+
+    if !g_ctx.initialized {
+        return
+    }
 
     hide_window()
 
@@ -307,13 +418,15 @@ quit :: proc() {
     }
 
     // Release GPU context
-    gpu.surface_capabilities_free_members(g_ctx.caps)
-    gpu.adapter_info_free_members(g_ctx.info)
+    gpu.surface_capabilities_free_members(g_ctx.caps, g_ctx.allocator)
+    gpu.adapter_info_free_members(g_ctx.info, g_ctx.allocator)
     gpu.adapter_release(g_ctx.adapter)
     gpu.surface_release(g_ctx.surface)
     gpu.queue_release(g_ctx.queue)
     gpu.device_release(g_ctx.device)
     gpu.instance_release(g_ctx.instance)
+
+    g_ctx.initialized = false
 
     os_quit()
 }

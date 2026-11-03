@@ -19,10 +19,8 @@ Ref:
 package prng
 
 // Core
-import "core:log"
 import "core:math"
 import "core:math/rand"
-import "core:mem"
 
 // Local packages
 import "../../gpu"
@@ -266,30 +264,6 @@ event :: proc(ctx: ^app.Application, event: app.Event) {
 }
 
 main :: proc() {
-    when ODIN_DEBUG {
-        context.logger = log.create_console_logger(
-            lowest = .Debug,
-            opt = {.Level, .Terminal_Color},
-        )
-        defer log.destroy_console_logger(context.logger)
-
-        when ODIN_OS != .JS {
-            track: mem.Tracking_Allocator
-            mem.tracking_allocator_init(&track, context.allocator)
-            context.allocator = mem.tracking_allocator(&track)
-
-            defer {
-                if len(track.allocation_map) > 0 {
-                    log.errorf("=== %v allocations not freed: ===", len(track.allocation_map))
-                    for _, entry in track.allocation_map {
-                        log.warnf("- %v bytes @ %v", entry.size, entry.location)
-                    }
-                }
-                mem.tracking_allocator_destroy(&track)
-            }
-        }
-    }
-
     // Initialize framework and run application
     app.run(app.Application_Descriptor{
         title      = TITLE,

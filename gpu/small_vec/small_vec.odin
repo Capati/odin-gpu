@@ -13,7 +13,7 @@ Example:
 
     small_vector_push_back(&v, 42)
 */
-package gpu
+package small_vec
 
 // Core
 import "base:runtime"

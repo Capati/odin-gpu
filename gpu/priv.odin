@@ -15,7 +15,7 @@ init_ref :: #force_inline proc "contextless" (
     obj: ^$T,
     loc := #caller_location,
 ) where intr.type_has_field(T, "ref") {
-    assert_contextless(obj.ref == 0, "[init_ref]: already initialized", loc)
+    assert_contextless(intr.atomic_load_explicit(&obj.ref, .Relaxed) == 0, "[init_ref]: already initialized", loc)
     intr.atomic_add(&obj.ref, 1)
 }
 
@@ -23,7 +23,7 @@ add_ref :: #force_inline proc "contextless" (
     obj: ^$T,
     loc := #caller_location,
 ) where intr.type_has_field(T, "ref") {
-    assert_contextless(obj.ref > 0, "[add_ref]: underflow", loc)
+    assert_contextless(intr.atomic_load_explicit(&obj.ref, .Relaxed) > 0, "[add_ref]: underflow", loc)
     intr.atomic_add(&obj.ref, 1)
 }
 
@@ -32,7 +32,7 @@ release_ref :: #force_inline proc "contextless" (
     obj: ^$T,
     loc := #caller_location,
 ) -> bool where intr.type_has_field(T, "ref") {
-    assert_contextless(obj.ref > 0, "[release_ref]: underflow", loc)
+    assert_contextless(intr.atomic_load_explicit(&obj.ref, .Relaxed) > 0, "[release_ref]: underflow", loc)
     return intr.atomic_sub(&obj.ref, 1) == 1 // Was this the last reference?
 }
 
@@ -122,6 +122,8 @@ Buffer_Map_Operation :: struct {
 Buffer_Pending_Mapping :: struct {
     range:         Range(u64),
     op:            Buffer_Map_Operation,
+    // The future `map_async` registered, so unmap/release can cancel it.
+    future_id:     u64,
     // hold the parent alive while the mapping is active
     parent_buffer: Buffer,
 }
@@ -356,16 +358,18 @@ device_describe_format_features :: proc(
     features: Texture_Format_Features,
     ok: bool,
 ) {
-    device_features := device_get_features_view(device, loc)
+    device_features := device_get_features(device, loc)
 
     required_features := texture_format_required_features(format, loc)
-    ok = device_has_feature(device, required_features)
+    // A zero feature is the "no extra feature required" sentinel here; texture
+    // formats never require the zero-valued feature.
+    ok = required_features == {} || device_has_feature(device, required_features)
 
     if device_has_feature(device, .Texture_Adapter_Specific_Format_Features) {
         features = device_texture_format_features(device, format, loc)
     } else {
         features = texture_format_guaranteed_format_features(
-            format, device_features, loc)
+            format, device_features[:], loc)
     }
 
     return
@@ -483,7 +487,7 @@ texture_descriptor_copy_extent :: proc(self: Texture_Descriptor) -> Copy_Extent 
 // A D2 texture is cube-compatible if it has square faces and a layer count
 // that is a multiple of 6.
 texture_descriptor_is_cube_compatible :: #force_inline proc "contextless" (
-    self: Texture_Descriptor_Impl,
+    self: _Texture_Descriptor_Impl,
 ) -> bool {
     return self.dimension == .D2 &&
            self.size.width == self.size.height &&
@@ -497,12 +501,11 @@ resolve_mapped_range_size :: proc(
     offset: uint = 0,
     loc := #caller_location,
 ) -> u64 {
-    assert(requested_size != 0, "mapped range size must not be zero", loc)
     assert(is_multiple_of(offset, MAP_ALIGNMENT), "unaligned offset", loc)
     assert(u64(offset) <= allocated_size, "offset past end of mapped range", loc)
 
     range_size: u64
-    if requested_size == WHOLE_MAP_SIZE {
+    if requested_size == WHOLE_MAP_SIZE || requested_size == 0 {
         range_size = intr.saturating_sub(allocated_size, u64(offset))
     } else {
         range_size = u64(requested_size)

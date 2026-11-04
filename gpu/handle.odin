@@ -1,4 +1,3 @@
-// #+build !js
 package gpu
 
 // Core
@@ -53,6 +52,12 @@ Handle_Packed :: u64
 Handle :: struct {
     device: Device,
     handle: Handle_Packed,
+}
+
+// Backend-reported state for a live handle.
+Handle_State :: struct {
+    device: Device,
+    live:   bool,
 }
 
 unpack_handle :: #force_inline proc "contextless" ($T: typeid, h: Handle_Packed) -> T {
@@ -138,8 +143,29 @@ get_handle_impl :: #force_inline proc "contextless" (
     loc := #caller_location,
 ) -> ^T {
     sync.shared_guard(&self.mtx)
-    return hm.dynamic_get(&self.resources, unpack_handle(Handle_Type, handle)) or_else \
+    return (
+        hm.dynamic_get(&self.resources, unpack_handle(Handle_Type, handle)) or_else
         panic_contextless("invalid handle", loc)
+    )
+}
+
+/*
+Single-probe validity + lookup for validation paths. Returns the impl or `nil`
+without panicking, so callers doing `dhm_is_valid` followed by `get_handle_impl`
+(which took the lock and probed the map twice) pay only one lock and one probe.
+Callers must still validate the returned impl's `destroyed`, device, and usage
+fields; this helper only proves the handle is live *right now*.
+*/
+@(require_results)
+dhm_get_if_valid :: #force_inline proc "contextless" (
+    self: ^$D/DHM_Resource($T, $Handle_Type),
+    handle: Handle_Type,
+) -> ^T {
+    sync.shared_guard(&self.mtx)
+    if !hm.dynamic_is_valid(&self.resources, handle) {
+        return nil
+    }
+    return hm.dynamic_get(&self.resources, handle)
 }
 
 /*

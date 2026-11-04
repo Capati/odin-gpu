@@ -14,8 +14,43 @@ import "base:runtime"
 // `GPUCommandBuffer`](https://gpuweb.github.io/gpuweb/#command-buffer).
 Command_Buffer :: distinct Handle
 
-@private
-Command_Buffer_Impl :: struct {
+// Describes a `Command_Buffer`.
+//
+// Corresponds to [WebGPU `GPUCommandBufferDescriptor`](
+// https://gpuweb.github.io/gpuweb/#dictdef-gpucommandbufferdescriptor).
+Command_Buffer_Descriptor :: struct {
+    // Debug label of this command buffer.
+    label: string,
+}
+
+// Returns the `Command_Buffer`'s debug label.
+//
+// The string is owned by the `Command_Buffer` and stays valid until the next
+// `command_buffer_set_label()` or until the `Command_Buffer` is released.
+command_buffer_get_label: proc(command_buffer: Command_Buffer, loc := #caller_location) -> string
+
+// Sets the `Command_Buffer`'s debug label.
+//
+// The `Command_Buffer` keeps its own copy of `label`, so the caller may release
+// its copy immediately after this call.
+command_buffer_set_label: proc(
+    command_buffer: Command_Buffer,
+    label: string,
+    loc := #caller_location,
+)
+
+// Increments the command buffer's reference count.
+command_buffer_add_ref: proc(command_buffer: Command_Buffer, loc := #caller_location)
+
+// Decrements the command buffer's reference count, destroying it when it reaches
+// zero.
+command_buffer_release: proc(command_buffer: Command_Buffer, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Command_Buffer_Impl :: struct {
     device:       Device,
     commands:     Command_Allocator,
     tracker:      Tracker,
@@ -30,39 +65,15 @@ Command_Buffer_Impl :: struct {
     is_active:    bool,
 }
 
-@private
-command_buffer_get_public_impl: proc "contextless" (
+_command_buffer_get_impl: proc "contextless" (
     command_buffer: Command_Buffer,
     loc := #caller_location,
-) -> ^Command_Buffer_Impl
-
-// Describes a `Command_Buffer`.
-//
-// Corresponds to [WebGPU `GPUCommandBufferDescriptor`](
-// https://gpuweb.github.io/gpuweb/#dictdef-gpucommandbufferdescriptor).
-Command_Buffer_Descriptor :: struct {
-    // Debug label of this command buffer.
-    label: string,
-}
-
-command_buffer_set_label: proc(
-    command_buffer: Command_Buffer,
-    label: string,
-    loc := #caller_location,
-)
-
-command_buffer_add_ref: proc(command_buffer: Command_Buffer, loc := #caller_location)
-
-command_buffer_release: proc(command_buffer: Command_Buffer, loc := #caller_location)
-
-// -----------------------------------------------------------------------------
-// @private procedures
-// -----------------------------------------------------------------------------
+) -> ^_Command_Buffer_Impl
 
 // Temporary allocator used during the recording of this command buffer.
 //
 // The allocator is reset when the command buffer's completion fence signals.
-command_buffer_arena_allocator: proc(
+_command_buffer_arena_allocator: proc(
     command_buffer: Command_Buffer,
     loc := #caller_location,
 ) -> runtime.Allocator

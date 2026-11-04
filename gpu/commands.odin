@@ -1,4 +1,3 @@
-// #+build !js
 #+private
 package gpu
 
@@ -24,16 +23,9 @@ Begin_Render_Pass_Cmd :: struct {
     width:                    u32,
     height:                   u32,
     render_pass:              Render_Pass,
-    // Transitions from the states left by the previous scopes in this command
-    // buffer into the states this pass requires. They are only known once the
-    // whole pass scope has folded (at `render_pass_end`), at which point they
-    // are drained from the command buffer tracker into these lists so the
-    // recorder can emit them right before `vkCmdBeginRenderPass`, which
-    // finishes the pass, records the transitions in a separate transit command
-    // buffer, and jams it in just before the pass.
-    buffer_transitions:  []Pending_Buffer_Transition,
-    texture_transitions: []Pending_Texture_Transition,
-    loc:                 runtime.Source_Code_Location,
+    buffer_transitions:       []Buffer_State_Transition,
+    texture_transitions:      []Texture_State_Transition,
+    loc:                      runtime.Source_Code_Location,
 }
 
 Render_Pass_End_Cmd :: struct {
@@ -41,8 +33,32 @@ Render_Pass_End_Cmd :: struct {
 }
 
 Begin_Compute_Pass_Cmd :: struct {
-    timestamp_writes: Render_Pass_Timestamp_Writes,
-    loc:              runtime.Source_Code_Location,
+    timestamp_writes:    Render_Pass_Timestamp_Writes,
+    buffer_transitions:  []Buffer_State_Transition,
+    texture_transitions: []Texture_State_Transition,
+    loc:                 runtime.Source_Code_Location,
+}
+
+End_Compute_Pass_Cmd :: struct {
+    loc: runtime.Source_Code_Location,
+}
+
+Set_Compute_Pipeline_Cmd :: struct {
+    pipeline: Compute_Pipeline,
+    loc:      runtime.Source_Code_Location,
+}
+
+Dispatch_Workgroups_Cmd :: struct {
+    workgroup_count_x: u32,
+    workgroup_count_y: u32,
+    workgroup_count_z: u32,
+    loc:               runtime.Source_Code_Location,
+}
+
+Dispatch_Workgroups_Indirect_Cmd :: struct {
+    indirect_buffer: Buffer,
+    indirect_offset: u64,
+    loc:             runtime.Source_Code_Location,
 }
 
 Set_Bind_Group_Cmd :: struct {
@@ -102,10 +118,9 @@ Set_Scissor_Cmd :: struct {
 }
 
 Set_Immediate_Cmd :: struct {
-    offset:        u32,
-    size_bytes:    u32,
-    values_offset: u32,
-    loc:           runtime.Source_Code_Location,
+    offset: u32,
+    data:   []u8,
+    loc:    runtime.Source_Code_Location,
 }
 
 Draw_Cmd :: struct {
@@ -285,9 +300,12 @@ Transition_Resources_Cmd :: struct {
 }
 
 Command :: union {
-    Begin_Render_Pass_Cmd,
     Render_Pass_End_Cmd,
     Begin_Compute_Pass_Cmd,
+    End_Compute_Pass_Cmd,
+    Set_Compute_Pipeline_Cmd,
+    Dispatch_Workgroups_Cmd,
+    Dispatch_Workgroups_Indirect_Cmd,
     Set_Bind_Group_Cmd,
     Set_Render_Pipeline_Cmd,
     Set_Index_Buffer_Cmd,

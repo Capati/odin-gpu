@@ -134,17 +134,6 @@ command_encoder_clear_buffer: proc(
     loc := #caller_location,
 )
 
-// Internal zero-fill used for allocation padding. It records the clear without
-// the public range/usage validation; the caller owns tracker transitions and
-// initialization bookkeeping.
-_command_encoder_clear_buffer_internal: proc(
-    command_encoder: Command_Encoder,
-    buffer: Buffer,
-    offset: u64,
-    size: u64,
-    loc := #caller_location,
-)
-
 // Copies a buffer range into another buffer.
 //
 // Both offsets and `size` must be multiples of 4 and the ranges must stay in
@@ -303,5 +292,16 @@ _command_encoder_arena_allocator: proc(
 _command_encoder_transition_buffers: proc(
     command_encoder: Command_Encoder,
     barriers: []Buffer_State_Transition,
+    loc := #caller_location,
+)
+
+// Internal zero-fill used for allocation padding. It records the clear without
+// the public range/usage validation; the caller owns tracker transitions and
+// initialization bookkeeping.
+_command_encoder_clear_buffer: proc(
+    command_encoder: Command_Encoder,
+    buffer: Buffer,
+    offset: u64,
+    size: u64,
     loc := #caller_location,
 )

@@ -63,24 +63,6 @@ Queue_Work_Done_Callback :: #type proc "contextless" (
     userdata2: rawptr,
 )
 
-// Callback invoked when an adapter request completes.
-Request_Adapter_Callback :: #type proc "contextless" (
-    status: Request_Adapter_Status,
-    adapter: Adapter,
-    message: string,
-    userdata1: rawptr,
-    userdata2: rawptr,
-)
-
-// Callback invoked when a device request completes.
-Request_Device_Callback :: #type proc "contextless" (
-    status: Request_Device_Status,
-    device: Device,
-    message: string,
-    userdata1: rawptr,
-    userdata2: rawptr,
-)
-
 // Callback invoked for uncaptured errors on a device.
 Uncaptured_Error_Callback :: #type proc "contextless" (
     device: ^Device,
@@ -164,24 +146,6 @@ Pop_Error_Scope_Callback_Info :: struct {
 Queue_Work_Done_Callback_Info :: struct {
     mode:      Callback_Mode,
     callback:  Queue_Work_Done_Callback,
-    userdata1: rawptr,
-    userdata2: rawptr,
-}
-
-// Information used to register an adapter-request callback.
-// Passed to `instance_request_adapter`.
-Request_Adapter_Callback_Info :: struct {
-    mode:      Callback_Mode,
-    callback:  Request_Adapter_Callback,
-    userdata1: rawptr,
-    userdata2: rawptr,
-}
-
-// Information used to register a device-request callback.
-// Passed to `adapter_request_device`.
-Request_Device_Callback_Info :: struct {
-    mode:      Callback_Mode,
-    callback:  Request_Device_Callback,
     userdata1: rawptr,
     userdata2: rawptr,
 }

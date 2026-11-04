@@ -178,15 +178,15 @@ queue_write_texture: proc(
     loc := #caller_location,
 )
 
-// Returns the `Queue`'s debug label.
+// Returns the queue's debug label.
 //
-// The string is owned by the `Queue` and stays valid until the next
-// `queue_set_label()` or until the `Queue` is released.
+// The string is owned by the queue and stays valid until the next
+// `queue_set_label()` or until the queue is released.
 queue_get_label: proc(queue: Queue, loc := #caller_location) -> string
 
-// Sets the `Queue`'s debug label.
+// Sets the queue's debug label.
 //
-// The `Queue` keeps its own copy of `label`, so the caller may release its
+// The queue keeps its own copy of `label`, so the caller may release its
 // copy immediately after this call.
 queue_set_label: proc(queue: Queue, label: string, loc := #caller_location)
 
@@ -195,3 +195,19 @@ queue_add_ref: proc(queue: Queue, loc := #caller_location)
 
 // Decrements the queue's reference count, destroying it when it reaches zero.
 queue_release: proc(queue: Queue, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Queue_Impl :: struct {
+    device:          Device,
+    deferred_writes: Deferred_Writes,
+    ref:             Ref_Count_Type,
+}
+
+// Returns the concrete implementation behind a `Queue` handle.
+_queue_get_impl: proc "contextless" (
+    queue: Queue,
+    loc := #caller_location,
+) -> ^_Queue_Impl

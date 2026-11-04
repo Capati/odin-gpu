@@ -317,3 +317,18 @@ bind_group_layout_add_ref: proc(bind_group_layout: Bind_Group_Layout, loc := #ca
 
 // Releases `bind_group_layout`, destroying it when its reference count reaches zero.
 bind_group_layout_release: proc(bind_group_layout: Bind_Group_Layout, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Bind_Group_Layout_Impl :: struct {
+    device:  Device,
+    entries: map[u32]Bind_Group_Layout_Entry,
+}
+
+// Returns the concrete implementation behind a `Bind_Group_Layout` handle.
+_bind_group_layout_get_impl: proc "contextless" (
+    bind_group_layout: Bind_Group_Layout,
+    loc := #caller_location,
+) -> ^_Bind_Group_Layout_Impl

@@ -50,84 +50,84 @@ Limits :: struct {
 
     // Maximum allowed value for the `size.width` of a texture created with
     // `Texture_Dimension.D1`. Defaults to `8192`. Higher is "better".
-    max_texture_dimension_1d:                            u32,
+    max_texture_dimension_1d:                        u32,
     // Maximum allowed value for the `size.width` and `size.height` of a texture
     // created with `Texture_Dimension.D2`. Defaults to `8192`. Higher is "better".
-    max_texture_dimension_2d:                            u32,
+    max_texture_dimension_2d:                        u32,
     // Maximum allowed value for the `size.width`, `size.height`, and
     // `size.depth_or_array_layers` of a texture created with
     // `Texture_Dimension.D3`. Defaults to `2048`. Higher is "better".
-    max_texture_dimension_3d:                            u32,
+    max_texture_dimension_3d:                        u32,
     // Maximum allowed value for the `size.depth_or_array_layers` of a texture
     // created with `Texture_Dimension.D2`. Defaults to `256`. Higher is "better".
-    max_texture_array_layers:                            u32,
+    max_texture_array_layers:                        u32,
     // Amount of bind groups that can be attached to a pipeline at the same
     // time. Defaults to `4`. Higher is "better".
-    max_bind_groups:                                     u32,
+    max_bind_groups:                                 u32,
     // The maximum number of bind group and vertex buffer slots used
     // simultaneously, counting any empty slots below the highest index.
     // Defaults to `24`. Higher is "better".
-    max_bind_groups_plus_vertex_buffers:                 u32,
+    max_bind_groups_plus_vertex_buffers:             u32,
     // Maximum binding index allowed in `device_create_bind_group_layout`.
     // Defaults to `1000`. Higher is "better".
-    max_bindings_per_bind_group:                         u32,
+    max_bindings_per_bind_group:                     u32,
     // Amount of uniform buffer bindings that can be dynamic in a single
     // pipeline. Defaults to `8`. Higher is "better".
-    max_dynamic_uniform_buffers_per_pipeline_layout:     u32 `ord:"greater"`,
+    max_dynamic_uniform_buffers_per_pipeline_layout: u32 `ord:"greater"`,
     // Amount of storage buffer bindings that can be dynamic in a single
     // pipeline. Defaults to `4`. Higher is "better".
-    max_dynamic_storage_buffers_per_pipeline_layout:     u32 `ord:"greater"`,
+    max_dynamic_storage_buffers_per_pipeline_layout: u32 `ord:"greater"`,
     // Amount of sampled textures visible in a single shader stage. Defaults to
     // `16`. Higher is "better".
-    max_sampled_textures_per_shader_stage:               u32,
+    max_sampled_textures_per_shader_stage:           u32,
     // Amount of samplers visible in a single shader stage. Defaults to `16`.
     // Higher is "better".
-    max_samplers_per_shader_stage:                       u32,
+    max_samplers_per_shader_stage:                   u32,
     // Amount of storage buffers visible in a single shader stage. Defaults to `8`.
     // Higher is "better".
-    max_storage_buffers_per_shader_stage:                u32,
+    max_storage_buffers_per_shader_stage:            u32,
     // Amount of storage textures visible in a single shader stage. Defaults to `4`.
     // Higher is "better".
-    max_storage_textures_per_shader_stage:               u32,
+    max_storage_textures_per_shader_stage:           u32,
     // Amount of uniform buffers visible in a single shader stage. Defaults to `12`.
     // Higher is "better".
-    max_uniform_buffers_per_shader_stage:                u32,
+    max_uniform_buffers_per_shader_stage:            u32,
     // Maximum size in bytes of a binding to a uniform buffer. Defaults to `64`
     // KiB. Higher is "better".
-    max_uniform_buffer_binding_size:                     u64,
+    max_uniform_buffer_binding_size:                 u64,
     // Maximum size in bytes of a binding to a storage buffer. Defaults to `128`
     // MiB. Higher is "better".
-    max_storage_buffer_binding_size:                     u64,
+    max_storage_buffer_binding_size:                 u64,
     // Required `Buffer_Binding_Type.Uniform` alignment for
     // `Buffer_Binding.offset` when creating a `Bind_Group`, or for
     // `set_bind_group` `dynamic_offsets`. Defaults to `256`. Lower is "better".
-    min_uniform_buffer_offset_alignment:                 u32,
+    min_uniform_buffer_offset_alignment:             u32 `ord:"less"`,
     // Required `Buffer_Binding_Type.Storage` alignment for
     // `Buffer_Binding.offset` when creating a `Bind_Group`, or for
     // `set_bind_group` `dynamic_offsets`. Defaults to `256`. Lower is "better".
-    min_storage_buffer_offset_alignment:                 u32,
+    min_storage_buffer_offset_alignment:             u32 `ord:"less"`,
     // Maximum length of `Vertex_State.buffers` when creating a `Render_Pipeline`.
     // Defaults to `8`. Higher is "better".
-    max_vertex_buffers:                                  u32,
+    max_vertex_buffers:                              u32,
     // A limit above which buffer allocations are guaranteed to fail. Defaults
     // to `256` MiB. Higher is "better".
     //
     // Buffer allocations below the maximum buffer size may not succeed
     // depending on available memory, fragmentation and other factors.
-    max_buffer_size:                                     u64,
+    max_buffer_size:                                 u64,
     // Maximum length of `Vertex_Buffer_Layout.attributes`, summed over all
     // `Vertex_State.buffers`, when creating a `Render_Pipeline`. Defaults to
     // `16`. Higher is "better".
-    max_vertex_attributes:                               u32,
+    max_vertex_attributes:                           u32,
     // Maximum value for `Vertex_Buffer_Layout.array_stride` when creating a
     // `Render_Pipeline`. Defaults to `2048`. Higher is "better".
-    max_vertex_buffer_array_stride:                      u32,
+    max_vertex_buffer_array_stride:                  u32,
     // Maximum value for the number of input or output variables for inter-stage
     // communication (like vertex outputs or fragment inputs)  when creating a
     // `Render_Pipeline`. Defaults to `16`. Higher is "better".
-    max_inter_stage_shader_variables:                    u32,
+    max_inter_stage_shader_variables:                u32,
     // The maximum allowed number of color attachments.
-    max_color_attachments:                               u32,
+    max_color_attachments:                           u32,
     // The maximum number of bytes necessary to hold one sample (pixel or
     // subpixel) of render pipeline output data, across all color attachments as
     // described by `Texture_Format.target_pixel_byte_cost` and
@@ -136,26 +136,26 @@ Limits :: struct {
     //
     // ⚠️ `RGBA8_Unorm`/`RGBA8_Snorm`/`BGRA8_Unorm`/`BGRA8_Snorm` are
     // deceptively `8` bytes per sample. ⚠️
-    max_color_attachment_bytes_per_sample:               u32,
+    max_color_attachment_bytes_per_sample:           u32,
     // Maximum number of bytes used for workgroup memory in a compute entry
     // point. Defaults to `16384`. Higher is "better".
-    max_compute_workgroup_storage_size:                  u32,
+    max_compute_workgroup_storage_size:              u32,
     // Maximum value of the product of the `workgroup_size` dimensions for a
     // compute entry-point. Defaults to `256`. Higher is "better".
-    max_compute_invocations_per_workgroup:               u32,
+    max_compute_invocations_per_workgroup:           u32,
     // The maximum value of the `workgroup_size` X dimension for a compute stage
     // `ShaderModule` entry-point. Defaults to `256`. Higher is "better".
-    max_compute_workgroup_size_x:                        u32,
+    max_compute_workgroup_size_x:                    u32,
     // The maximum value of the `workgroup_size` Y dimension for a compute stage
     // `ShaderModule` entry-point. Defaults to `256`. Higher is "better".
-    max_compute_workgroup_size_y:                        u32,
+    max_compute_workgroup_size_y:                    u32,
     // The maximum value of the `workgroup_size` Z dimension for a compute stage
     // `ShaderModule` entry-point. Defaults to `64`. Higher is "better".
-    max_compute_workgroup_size_z:                        u32,
+    max_compute_workgroup_size_z:                    u32,
     // The maximum value for each dimension of a
     // `compute_pass_dispatch_workgroups(x, y, z)` operation. Defaults to
     // `65535`. Higher is "better".
-    max_compute_workgroups_per_dimension:                u32,
+    max_compute_workgroups_per_dimension:            u32,
     // Amount of storage available for immediates in bytes. Defaults to `0`.
     // Higher is "better". Requesting more than 0 during device creation
     // requires `Features.Immediates` to be enabled.
@@ -167,7 +167,7 @@ Limits :: struct {
     // - Metal: 4096 bytes
     // - OpenGL doesn't natively support immediates, and are emulated with
     //   uniforms, so this number is less useful but likely 256.
-    max_immediate_size:                                  u32,
+    max_immediate_size:                              u32,
 
     // Native
 
@@ -401,13 +401,13 @@ Limits_Fail_Proc :: #type proc(
     user_data: rawptr,
 )
 
-@private
+@(private)
 limits_field_ordering :: proc(tag: reflect.Struct_Tag) -> slice.Ordering {
     value := reflect.struct_tag_get(tag, "ord")
-    if value == "greater" {
-        return .Greater
+    if value == "less" {
+        return .Less
     }
-    return .Less
+    return .Greater
 }
 
 // Compares every limit in `requested` against the limits in `allowed`.
@@ -425,24 +425,31 @@ limits_check_ex :: proc(
     user_data: rawptr = nil,
 ) {
     requested := requested
-    allowed   := allowed
+    allowed := allowed
 
     fields := reflect.struct_fields_zipped(Limits)
 
     for field in fields {
-        requested_value := (^u64)(uintptr(&requested) + field.offset)^
-        alowed_value    := (^u64)(uintptr(&allowed) + field.offset)^
+        requested_value, requested_ok := reflect.as_u64(
+            reflect.struct_field_value(requested, field),
+        )
+        allowed_value, allowed_ok := reflect.as_u64(reflect.struct_field_value(allowed, field))
+        if !requested_ok || !allowed_ok {
+            continue
+        }
 
         invalid: bool
         switch limits_field_ordering(field.tag) {
-        case .Less:    invalid = requested_value < alowed_value
-        case .Greater: invalid = requested_value > alowed_value
+        case .Less:
+            invalid = requested_value < allowed_value
+        case .Greater:
+            invalid = requested_value > allowed_value
         case .Equal:
             unreachable()
         }
 
         if invalid {
-            fail_proc(field.name, requested_value, alowed_value, user_data)
+            fail_proc(field.name, requested_value, allowed_value, user_data)
             if fatal {
                 return
             }

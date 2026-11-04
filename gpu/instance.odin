@@ -10,29 +10,15 @@ import "core:reflect"
 // This is the first thing you create when using the api. Its primary use is to
 // create `Adapter`s and `Surface`s.
 //
-// Does not have to be kept alive.
+// Surfaces and adapters hold their own reference to the instance, so it does
+// not have to be kept alive after creating them. Call `instance_release()` when
+// done with it.
 //
 // Corresponds to [WebGPU
 // `GPU`](https://gpuweb.github.io/gpuweb/#gpu-interface).
 Instance :: distinct rawptr
 
-@private
-Instance_Impl :: struct {
-    backend:     Backend_Type,
-    ctx:         runtime.Context,
-    is_embedded: bool,
-    headless:    bool,
-    flags:       Instance_Flags,
-    allocator:   runtime.Allocator,
-    ref:         Ref_Count_Type,
-}
-
-@private
-instance_get_public_impl: proc "contextless" (
-    instance: Instance,
-    loc := #caller_location,
-) -> ^Instance_Impl
-
+// A graphics API that the instance can use.
 Backend :: enum i32 {
     Vulkan,
     GL,
@@ -43,11 +29,13 @@ Backend :: enum i32 {
 }
 
 // Represents the backends the gpu will use.
+//
+// An empty set means "every backend supported by this build".
 Backends :: bit_set[Backend;Flags]
 
 BACKENDS_ALL       :: Backends{}
-BACKENDS_PRIMARY   :: Backends{.Vulkan, .Metal, .DX11, .DX12, .BrowserWebGPU}
-BACKENDS_SECONDARY :: Backends{.GL, .DX11}
+BACKENDS_PRIMARY   :: Backends{.Vulkan, .Metal, .DX12, .BrowserWebGPU}
+BACKENDS_SECONDARY :: Backends{.GL}
 
 // Instance debugging flags.
 Instance_Flag :: enum i32 {
@@ -156,25 +144,34 @@ Instance_Flag :: enum i32 {
 //
 // These are not part of the WebGPU standard.
 //
-// Defaults to enabling debugging-related flags if `ODIN_DEBUG` is set.
+// Defaults to enabling debugging-related flags if `ODIN_DEBUG` or the
+// corresponding `GPU_*` config is set. Flags that the active backend does not
+// implement are ignored.
 Instance_Flags :: bit_set[Instance_Flag;Flags]
 
 // Enable recommended debugging and validation flags.
-INSTANCE_FLAGS_DEFAULT :: Instance_Flags{ .Debug, .Validation }
+INSTANCE_FLAGS_DEFAULT :: Instance_Flags{.Debug, .Validation}
 
 // Enable recommended debugging and validation flags.
-INSTANCE_FLAGS_DEBUGGING :: Instance_Flags{ .Debug, .Validation, .Validation_Indirect_Call }
+INSTANCE_FLAGS_DEBUGGING :: Instance_Flags{.Debug, .Validation, .Validation_Indirect_Call}
 
 // Enable advanced debugging and validation flags (potentially very slow).
-INSTANCE_FLAGS_ADVANCED_DEBUGGING :: Instance_Flags{
+INSTANCE_FLAGS_ADVANCED_DEBUGGING :: Instance_Flags {
     .Debug,
     .Validation,
     .Validation_Indirect_Call,
     .GPU_Based_Validation,
 }
 
+// Memory budget thresholds used by backends to avoid high memory pressure.
+//
+// Enforced only by backends that support memory budgeting; the Vulkan backend
+// currently does not.
 Memory_Budget_Thresholds :: struct {
+    // Percentage of the reported memory budget at which resource creation
+    // starts returning out-of-memory errors.
     for_resource_creation: u8,
+    // Percentage of the reported memory budget at which devices become lost.
     for_device_loss:       u8,
 }
 
@@ -353,34 +350,47 @@ Native_Display_Handle :: union {
 // Options for creating an instance.
 Instance_Descriptor :: struct {
     // Which backends to enable.
+    //
+    // Intersected with the backends this build supports. An empty set means
+    // "all supported backends".
     backends:                 Backends,
     // Flags to tune the behavior of the instance.
     flags:                    Instance_Flags,
-    // Memory budget thresholds used by some backends.
+    // Memory budget thresholds used by backends that support memory budgeting.
     memory_budget_thresholds: Memory_Budget_Thresholds,
     // Options for configuring the behavior of specific backends.
     backend_options:          Backend_Options,
     // System platform or compositor connection to connect this `Instance` to.
+    //
+    // Currently unused by the Vulkan backend; surfaces carry their own native
+    // handles.
     display:                  Native_Display_Handle,
 }
 
 // Additional information required when requesting an adapter.
 //
-// For use with `instance_request_adapter`.
+// For use with `instance_create_adapter`.
+//
+// Some options are advisory (power preference); others are hard filters
+// (`force_fallback_adapter`, `compatible_surface`, `backend_type`).
 //
 // Corresponds to [WebGPU `GPURequestAdapterOptions`](
 // https://gpuweb.github.io/gpuweb/#dictdef-gpurequestadapteroptions).
 Request_Adapter_Options :: struct {
     // The feature level to request (`Compatibility` or `Core`).
-    // Defaults to `Core` when left unspecified.
+    //
+    // This implementation exposes only Core adapters; `Compatibility` is
+    // currently treated as `Core`. Defaults to `Core`.
     feature_level:          Feature_Level,
-    // Power preference for the adapter.
+    // Power preference for the adapter. Advisory: it influences ranking but
+    // does not exclude adapters.
     power_preference:       Power_Preference,
     // Indicates that only a fallback adapter can be returned. This is generally
     // a “software” implementation on the system.
     force_fallback_adapter: bool,
     // Optional backend type filter. When set to a specific backend, only
-    // adapters of that backend will be considered.
+    // adapters of that backend will be considered. `.Undefined` disables the
+    // filter.
     backend_type:           Backend_Type,
     // Surface that is required to be presentable with the requested adapter.
     // This does not create the surface, only guarantees that the adapter can
@@ -411,10 +421,10 @@ Feature_Level :: enum i32 {
     Compatibility,
 }
 
-// Optional features that can be requested when creating a `Instance` (via
-// `Instance_Descriptor.required_features`).
+// Instance-level features that are not part of the core WebGPU API.
 //
-// These control instance-level capabilities that are not part of the core WebGPU.
+// Query the supported set with `get_instance_features()` and test individual
+// features with `has_instance_feature()`.
 Instance_Feature_Name :: enum i32 {
     // Enable use of `instance_wait_any` with `timeout_ns > 0`.
     Timed_Wait_Any,
@@ -429,8 +439,9 @@ Instance_Feature_Name :: enum i32 {
 
 INSTANCE_FEATURE_COUNT :: len(Instance_Feature_Name)
 
-Instance_Features :: [dynamic;INSTANCE_FEATURE_COUNT]Instance_Feature_Name
+Instance_Features :: [dynamic; INSTANCE_FEATURE_COUNT]Instance_Feature_Name
 
+// Resource registry counts returned by `generate_report`.
 Registry_Report :: struct {
     num_allocated:          uint,
     num_kept_from_user:     uint,
@@ -438,6 +449,7 @@ Registry_Report :: struct {
     element_size:           uint,
 }
 
+// Per-resource-type registry counts returned by `generate_report`.
 Hub_Report :: struct {
     adapters:           Registry_Report,
     devices:            Registry_Report,
@@ -458,15 +470,25 @@ Hub_Report :: struct {
     samplers:           Registry_Report,
 }
 
+// Snapshot of registry bookkeeping, including surfaces and the hub.
 Global_Report :: struct {
     surfaces: Registry_Report,
     hub:      Hub_Report,
 }
 
+// Features advertised by `get_instance_features`.
+//
+// The slice is owned by the backend; release it with
+// `supported_instance_features_free_members()`.
 Supported_Instance_Features :: struct {
     features: []Instance_Feature_Name,
 }
 
+// WGSL language extensions advertised by
+// `instance_get_wgsl_language_features`.
+//
+// The slice is owned by the backend; release it with
+// `supported_wgsl_language_features_free_members()`.
 Supported_WGSL_Language_Features :: struct {
     features: []WGSL_Language_Feature_Name,
 }
@@ -481,14 +503,17 @@ Instance_Limits :: struct {
     timed_wait_any_max_count: uint,
 }
 
+// Options for `instance_enumerate_adapters`.
 Instance_Enumerate_Adapter_Options :: struct {
+    // Backends to enumerate adapters from. An empty set means "all backends
+    // supported by the instance".
     backends: Backends,
 }
 
 when ODIN_OS == .JS {
     SUPPORTED_BACKENDS :: Backends{.BrowserWebGPU, .GL}
 } else when ODIN_OS == .Windows {
-    SUPPORTED_BACKENDS :: Backends{.DX12, .DX11, .Vulkan, .GL}
+    SUPPORTED_BACKENDS :: Backends{.DX12, .Vulkan, .DX11, .GL}
 } else when ODIN_OS == .Linux {
     SUPPORTED_BACKENDS :: Backends{.Vulkan, .GL}
 } else when ODIN_OS == .Darwin {
@@ -506,6 +531,14 @@ DEFAULT_BACKEND :: #config(GPU_DEFAULT_BACKEND, "")
 // - `allocator`: Allocator used for internal API allocations.
 // - `descriptor`: Describes the instance options and enabled backends.
 //
+// The enabled backends are the intersection of `descriptor.backends` and the
+// backends supported by this build. An empty `descriptor.backends` means all
+// supported backends. The `GPU_DEFAULT_BACKEND` config can restrict the set to
+// a single backend.
+//
+// Flags requested through `ODIN_DEBUG` / `GPU_*` configs are added to
+// `descriptor.flags`.
+//
 // Returns: A new `Instance`, or `nil` if creation fails.
 @(require_results)
 create_instance :: proc(
@@ -513,6 +546,7 @@ create_instance :: proc(
     descriptor: Instance_Descriptor = {},
     loc := #caller_location,
 ) -> Instance {
+    descriptor := descriptor
     backends := SUPPORTED_BACKENDS
 
     if DEFAULT_BACKEND != "" {
@@ -523,9 +557,33 @@ create_instance :: proc(
                 "Invalid GPU_DEFAULT_BACKEND value: %q\n\t" +
                 "Expected a case-sensitive name from [Backend] (e.g. Vulkan).\n\t" +
                 "Defaulting to supported backends...",
-                backend,
+                DEFAULT_BACKEND,
             )
         }
+    }
+
+    if descriptor.backends != {} {
+        backends &= descriptor.backends
+    }
+
+    // Config flags enable the same behavior as passing them in the descriptor.
+    if DEBUG {
+        descriptor.flags |= {.Debug}
+    }
+    if VALIDATION {
+        descriptor.flags |= {.Validation}
+    }
+    if ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER {
+        descriptor.flags |= {.Allow_Underlying_Noncompliant_Adapter}
+    }
+    if BASED_VALIDATION {
+        descriptor.flags |= {.Validation, .GPU_Based_Validation}
+    }
+    if VALIDATION_INDIRECT_CALL {
+        descriptor.flags |= {.Validation_Indirect_Call}
+    }
+    if STRICT_WEBGPU_COMPLIANCE {
+        descriptor.flags |= {.Strict_Webgpu_Compliance}
     }
 
     when ODIN_OS == .JS {
@@ -541,8 +599,10 @@ create_instance :: proc(
         }
         return nil
     } else {
-        // TODO: currently default for native
-        return vk_create_instance(allocator, descriptor, loc)
+        if .Vulkan in backends {
+            return vk_create_instance(allocator, descriptor, loc)
+        }
+        return nil
     }
 }
 
@@ -551,9 +611,9 @@ create_instance :: proc(
 // filtered by `context.logger`. Installing a callback diverts them to the
 // callback instead, and diverting is all it does: `context.logger` remains the
 // authority for every `log.*` call in the package.
-@private
+@(private)
 g_log_callback: Log_Callback
-@private
+@(private)
 g_log_callback_userdata: rawptr
 
 // Minimum severity for messages routed to `g_log_callback`. It gates only the
@@ -562,30 +622,45 @@ g_log_callback_userdata: rawptr
 //
 // Like `log.Level`, `Log_Level` is ordered least-verbose-first, so a message is
 // emitted when its level compares `<=` this value.
-@private
+@(private)
 g_log_level: Log_Level = .Info
 
+// Installs a callback for backend diagnostics, currently Vulkan validation
+// messages. While this is `nil`, those messages go through `log.*` and are
+// filtered by `context.logger`. Installing a callback diverts them instead;
+// `context.logger` still filters every other `log.*` call.
 set_log_callback :: proc(callback: Log_Callback, userdata: rawptr, loc := #caller_location) {
     g_log_callback = callback
     g_log_callback_userdata = userdata
 }
 
+// Sets the minimum severity forwarded to the callback installed with
+// `set_log_callback`. It does not change the `context.logger` level.
 set_log_level :: proc(level: Log_Level, loc := #caller_location) {
     g_log_level = level
 }
 
-get_version :: proc(loc := #caller_location) -> u32 {
-    return 0
-}
-
+// Returns the instance-level features supported by the active backend.
 get_instance_features: proc(loc := #caller_location) -> Instance_Features
 
+// Returns the instance-level limits of the active backend.
 get_instance_limits: proc(loc := #caller_location) -> Instance_Limits
 
+// Reports whether the active backend supports an instance-level feature.
 has_instance_feature: proc(feature: Instance_Feature_Name, loc := #caller_location) -> bool
 
+// Returns resource registry bookkeeping for the instance.
+//
+// Backends that do not track registries return a zeroed report.
 generate_report: proc(instance: Instance, loc := #caller_location) -> Global_Report
 
+// Returns every adapter that matches `options`.
+//
+// The returned slice is allocated with `allocator`; the caller owns the slice
+// and one reference to each adapter. Release each adapter with
+// `adapter_release()` and free the slice with `delete(adapters, allocator)`.
+//
+// An empty `options.backends` means all backends supported by the instance.
 instance_enumerate_adapters: proc(
     instance: Instance,
     options: Instance_Enumerate_Adapter_Options,
@@ -593,31 +668,67 @@ instance_enumerate_adapters: proc(
     loc := #caller_location,
 ) -> []Adapter
 
+// Creates a surface for a native window, display, or canvas.
+//
+// The returned surface holds its own reference to the instance; release it with
+// `surface_release()`. Invalid or unsupported surface sources panic.
 instance_create_surface: proc(
     instance: Instance,
     descriptor: Surface_Descriptor,
     loc := #caller_location,
 ) -> Surface
 
+// Returns the WGSL language extensions supported by the instance.
+//
+// The returned slice is owned by the backend; release it with
+// `supported_wgsl_language_features_free_members()`.
 instance_get_wgsl_language_features: proc(
     instance: Instance,
     loc := #caller_location,
 ) -> Supported_WGSL_Language_Features
 
+// Reports whether the instance supports a WGSL language extension.
 instance_has_wgsl_language_feature: proc(
     instance: Instance,
     feature: WGSL_Language_Feature_Name,
     loc := #caller_location,
 ) -> bool
 
+// Pumps backend event processing.
+//
+// This is a no-op on the Vulkan backend, where pending work is resolved by
+// `queue_submit()` and `instance_wait_any()`. The browser backend forwards it
+// to the WebGPU implementation.
 instance_process_events: proc(instance: Instance, loc := #caller_location)
 
+// Returns the adapter that best matches `options`.
+//
+// Adapters that lack capabilities `odin-gpu` itself depends on (a graphics
+// queue, storage-buffer support, and so on) are discarded while the adapter is
+// created, so they are never returned and cannot reach this call.
+//
+// `force_fallback_adapter`, `backend_type`, and `compatible_surface` are hard
+// filters; power preference only affects ranking. Returns `{}` when no adapter
+// matches.
 instance_create_adapter: proc(
     instance: Instance,
     options: Request_Adapter_Options = {},
     loc := #caller_location,
 ) -> Adapter
 
+// Waits for the given futures to complete.
+//
+// Each entry's `completed` flag is set when its future is resolved. Returns
+// `.Success` when at least one future completed, `.Timed_Out` when none did,
+// and `.Error` for an invalid request.
+//
+// Lost-device futures are signalled by the future readiness condition, so they
+// do not need to be polled. When the pending futures span multiple devices,
+// the wait wakes and re-scans instead of blocking behind one device.
+//
+// `timeout_ns == 0` polls once; `max(u64)` waits indefinitely. Any other
+// timeout requires the `Timed_Wait_Any` instance feature and must respect
+// `Instance_Limits.timed_wait_any_max_count`.
 instance_wait_any: proc(
     instance: Instance,
     futures: []^Future_Wait_Info = {},
@@ -625,30 +736,57 @@ instance_wait_any: proc(
     loc := #caller_location,
 ) -> Wait_Status
 
+// Frees a slice returned by `get_instance_features()`.
 supported_instance_features_free_members: proc(
     features: []Instance_Feature_Name,
     allocator := context.allocator,
     loc := #caller_location,
 )
+// Frees the slice inside a `Supported_WGSL_Language_Features` value.
 supported_wgsl_language_features_free_members: proc(
     features: []WGSL_Language_Feature_Name,
     allocator := context.allocator,
     loc := #caller_location,
 )
 
-// Get the current active backend.
-instance_backend :: proc(instance: Instance, loc := #caller_location) -> Backend_Type {
-    impl := instance_get_public_impl(instance, loc)
-    return impl.backend
-}
+// Returns the backend that created the instance.
+instance_backend: proc(instance: Instance, loc := #caller_location) -> Backend_Type
 
-// Check for embedded backend.
-instance_is_embedded :: proc(instance: Instance, loc := #caller_location) -> bool {
-    impl := instance_get_public_impl(instance, loc)
-    return impl.is_embedded
-}
+// Reports whether the instance uses an embedded (in-process) backend.
+instance_is_embedded: proc(instance: Instance, loc := #caller_location) -> bool
 
+// Returns the `Instance`'s debug label.
+//
+// The string is owned by the `Instance` and stays valid until the next
+// `instance_set_label()` or until the `Instance` is released.
+instance_get_label: proc(instance: Instance, loc := #caller_location) -> string
+
+// Sets the `Instance`'s debug label.
+//
+// The `Instance` keeps its own copy of `label`, so the caller may release its
+// copy immediately after this call.
+instance_set_label: proc(instance: Instance, label: string, loc := #caller_location)
+
+// Increments the instance's reference count.
 instance_add_ref: proc(instance: Instance, loc := #caller_location)
 
+// Decrements the instance's reference count, destroying it when it reaches zero.
 instance_release: proc(instance: Instance, loc := #caller_location)
 
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Instance_Impl :: struct {
+    backend:     Backend_Type,
+    ctx:         runtime.Context,
+    is_embedded: bool,
+    flags:       Instance_Flags,
+    allocator:   runtime.Allocator,
+    ref:         Ref_Count_Type,
+}
+
+_instance_get_impl: proc "contextless" (
+    instance: Instance,
+    loc := #caller_location,
+) -> ^_Instance_Impl

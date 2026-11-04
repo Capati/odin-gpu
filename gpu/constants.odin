@@ -133,7 +133,6 @@ MAX_DYNAMIC_STORAGE_BUFFERS_PER_PIPELINE_LAYOUT :: 16
 
 // Maximum resource table size.
 MAX_RESOURCE_TABLE_SIZE :: 64 * 1024
-// TODO: find if this is a reasonable amount to reserve for placeholders.
 RESERVED_RESOURCE_TABLE_SLOTS :: 1000
 
 // Required D3D12 shared buffer memory file mapping handle size alignment.

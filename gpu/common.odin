@@ -1,19 +1,5 @@
 package gpu
 
-// Supported physical device types.
-Device_Type :: enum i32 {
-    // Other or Unknown.
-    Unknown,
-    // Integrated GPU with shared CPU/GPU memory.
-    Integrated_Gpu,
-    // Discrete GPU with separate CPU/GPU memory.
-    Discrete_Gpu,
-    // Virtual / Hosted.
-    Virtual_Gpu,
-    // Cpu / Software Rendering.
-    Cpu,
-}
-
 // How edges should be handled in texture addressing.
 Address_Mode :: enum i32 {
     // Clamp the value to the edge of the texture:
@@ -127,35 +113,6 @@ Blend_Operation :: enum i32 {
     Max,
 }
 
-// Specific type of a buffer binding.
-//
-// Corresponds to [WebGPU `GPUBufferBindingType`](
-// https://gpuweb.github.io/gpuweb/#enumdef-gpubufferbindingtype).
-Buffer_Binding_Type :: enum i32 {
-    // Indicates that this `Buffer_Binding_Layout` member of its parent
-    // `Bind_Group_Layout_Entry` is not used.
-    Binding_Not_Used,
-    // Indicates no value is passed for this argument.
-    Undefined,
-    // A buffer for uniform values.
-    Uniform,
-    // A storage buffer.
-    Storage,
-    // A storage buffer that can only be read in the shader.
-    Read_Only_Storage,
-}
-
-// Specific state of a buffer.
-Buffer_Map_State :: enum i32 {
-    // The buffer is not mapped.
-    Unmapped,
-    // A mapping of the buffer has been requested, but is pending. It may
-    // succeed, or fail validation in `buffer_map_async`.
-    Pending,
-    // The buffer is mapped.
-    Mapped,
-}
-
 // The callback mode controls how a callback for an asynchronous operation may
 // be fired.
 Callback_Mode :: enum i32 {
@@ -192,7 +149,8 @@ Compare_Function :: enum i32 {
 // Returns true if the comparison depends on the reference value.
 compare_function_needs_ref_value :: proc "contextless" (self: Compare_Function) -> bool {
     #partial switch self {
-    case .Never, .Always: return false
+    case .Never, .Always:
+        return false
     }
     return true
 }
@@ -248,6 +206,14 @@ Component_Swizzle :: enum i32 {
     B,
     // Take its value from the alpha channel of the texture.
     A,
+}
+
+// Per-component swizzle applied to a texture view.
+Texture_Component_Swizzle :: struct {
+    r: Component_Swizzle,
+    g: Component_Swizzle,
+    b: Component_Swizzle,
+    a: Component_Swizzle,
 }
 
 // Specifies how the alpha channel of the textures should be handled during
@@ -489,19 +455,6 @@ Pop_Error_Scope_Status :: enum i32 {
     Error,
 }
 
-// Power Preference when choosing a physical adapter.
-//
-// Corresponds to [WebGPU `GPUPowerPreference`](
-// https://gpuweb.github.io/gpuweb/#enumdef-gpupowerpreference).
-Power_Preference :: enum i32 {
-    // Power usage is not considered when choosing an adapter.
-    None,
-    // Adapter that uses the least possible power. This is often an integrated GPU.
-    Low_Power,
-    // Adapter that has the highest performance. This is often a discrete GPU.
-    High_Performance,
-}
-
 // Color spaces supported on the web.
 //
 // Corresponds to [HTML Canvas `PredefinedColorSpace`](
@@ -699,44 +652,6 @@ Queue_Work_Done_Status :: enum i32 {
     Error,
 }
 
-// Status code delivered to the callback of `instance_request_adapter()`.
-Request_Adapter_Status :: enum i32 {
-    // An adapter was successfully obtained. The callback receives a valid `Adapter`.
-    Success,
-    // The callback was cancelled (for example because the last external
-    // reference to the instance was dropped).
-    Callback_Cancelled,
-    // No suitable adapter could be found that matches the requested options
-    // (power preference, feature level, backend, etc.).
-    Unavailable,
-    // An unexpected error occurred while trying to request an adapter.
-    Error,
-}
-
-// Specific type of a sampler binding.
-//
-// For use in `Binding_Type.Sampler`.
-//
-// Corresponds to [WebGPU `GPUSamplerBindingType`](
-// https://gpuweb.github.io/gpuweb/#enumdef-gpusamplerbindingtype).
-Sampler_Binding_Type :: enum i32 {
-    // Indicates that this `Sampler_Binding_Layout` member of its parent
-    // `Bind_Group_Layout_Entry` is not used.
-    Binding_Not_Used,
-    // Indicates no value is passed for this argument.
-    Undefined,
-    // The sampling result is produced based on more than a single color sample
-    // from a texture, e.g. when bilinear interpolation is enabled.
-    Filtering,
-    // The sampling result is produced based on a single color sample from a texture.
-    Non_Filtering,
-    // Use as a comparison sampler instead of a normal sampler. For more info
-    // take a look at the analogous functionality in OpenGL:
-    //
-    // https://www.khronos.org/opengl/wiki/Sampler_Object#Comparison_mode.
-    Comparison,
-}
-
 // Operation to perform on the stencil value.
 //
 // Corresponds to [WebGPU `GPUStencilOperation`](
@@ -760,37 +675,6 @@ Stencil_Operation :: enum i32 {
     Increment_Wrap,
     // Decrements stencil value by one, wrapping on underflow.
     Decrement_Wrap,
-}
-
-// Specific type of a sample in a texture binding.
-//
-// For use in `Binding_Type.Storage_Texture`.
-//
-// Corresponds to [WebGPU `GPUStorageTextureAccess`](
-// https://gpuweb.github.io/gpuweb/#enumdef-gpustoragetextureaccess).
-Storage_Texture_Access :: enum i32 {
-    // Indicates that this `Storage_Texture_Binding_Layout` member of its
-    // parent `Bind_Group_Layout_Entry` is not used.
-    Binding_Not_Used,
-    // Indicates no value is passed for this argument.
-    Undefined,
-    // The texture can only be written in the shader.
-    Write_Only,
-    // The texture can only be read in the shader.
-    //
-    // `Texture_Adapter_Specific_Format_Features` feature must be enabled to
-    // use this access mode. This is a native-only extension.
-    Read_Only,
-    // The texture can be both read and written in the shader.
-    //
-    // `Texture_Adapter_Specific_Format_Features` feature must be enabled to use
-    // this access mode.  This is a nonstandard, native-only extension.
-    Read_Write,
-    // The texture can be both read and written in the shader via atomics.
-    //
-    // `Texture_Adapter_Specific_Format_Features` feature must be enabled to
-    // use this access mode.  This is a nonstandard, native-only extension.
-    Atomic,
 }
 
 // Operation to perform to the output attachment at the end of a render pass.
@@ -874,13 +758,14 @@ Texture_Aspect :: enum i32 {
 
 aspect_index :: proc "contextless" (aspect: Texture_Aspect, loc := #caller_location) -> u32 {
     switch aspect {
-    case .Plane0: return 0
-    case .Plane1: return 1
-    case .Plane2: return 2
-    case .Depth_Only,
-         .Stencil_Only,
-         .All:
-            return 0
+    case .Plane0:
+        return 0
+    case .Plane1:
+        return 1
+    case .Plane2:
+        return 2
+    case .Depth_Only, .Stencil_Only, .All:
+        return 0
     }
     unreachable()
 }
@@ -908,40 +793,17 @@ Texture_Dimension :: enum i32 {
     D3,
 }
 
-// Specific type of a sample in a texture binding.
-//
-// Corresponds to [WebGPU `GPUTextureSampleType`](
-// https://gpuweb.github.io/gpuweb/#enumdef-gputexturesampletype).
-Texture_Sample_Type :: enum i32 {
-    // Indicates that this `Texture_Binding_Layout` member of its parent
-    // `Bind_Group_Layout_Entry` is not used.
-    Binding_Not_Used,
-    // Indicates no value is passed for this argument.
-    Undefined,
-    // Sampling returns floating-point values. Compatible with filtering samplers.
-    Float,
-    // Sampling returns floating-point values, but the texture cannot be sampled
-    // with a filtering sampler.
-    Unfilterable_Float,
-    // Sampling does the depth reference comparison.
-    //
-    // This is also compatible with a non-filtering sampler.
-    Depth,
-    // Sampling returns signed integers.
-    Sint,
-    // Sampling returns unsigned integers.
-    Uint,
-}
-
 // Dimensions of a particular texture view.
 //
 // Corresponds to [WebGPU `GPUTextureViewDimension`](
 // https://gpuweb.github.io/gpuweb/#enumdef-gputextureviewdimension).
 Texture_View_Dimension :: enum i32 {
-    // A two dimensional texture.
-    D2,
+    // No dimension specified; resolves from the texture's dimension.
+    Undefined,
     // A one dimensional texture.
     D1,
+    // A two dimensional texture.
+    D2,
     // A two dimensional array texture.
     D2_Array,
     // A cubemap texture.
@@ -1059,6 +921,45 @@ Vertex_Format :: enum i32 {
     Unorm8x4BGRA,
 }
 
+// Byte size of one vertex attribute in `Vertex_Format`.
+vertex_format_size :: proc "contextless" (format: Vertex_Format) -> u32 {
+    #partial switch format {
+    case .Uint8, .Sint8, .Unorm8, .Snorm8:
+        return 1
+    case .Uint8x2, .Sint8x2, .Unorm8x2, .Snorm8x2, .Uint16, .Sint16, .Unorm16, .Snorm16, .Float16:
+        return 2
+    case .Uint8x4,
+         .Sint8x4,
+         .Unorm8x4,
+         .Snorm8x4,
+         .Uint16x2,
+         .Sint16x2,
+         .Unorm16x2,
+         .Snorm16x2,
+         .Float16x2,
+         .Float32,
+         .Uint32,
+         .Sint32,
+         .Unorm10_10_10_2,
+         .Unorm8x4BGRA:
+        return 4
+    case .Uint16x4,
+         .Sint16x4,
+         .Unorm16x4,
+         .Snorm16x4,
+         .Float16x4,
+         .Float32x2,
+         .Uint32x2,
+         .Sint32x2:
+        return 8
+    case .Float32x3, .Uint32x3, .Sint32x3:
+        return 12
+    case .Float32x4, .Uint32x4, .Sint32x4:
+        return 16
+    }
+    return 0
+}
+
 // Whether a vertex buffer is indexed by vertex or by instance.
 //
 // Consider a call to `render_pass_draw` like this:
@@ -1137,75 +1038,6 @@ WGSL_Language_Feature_Name :: enum i32 {
     Buffer_View,
 }
 
-// Different ways that you can use a buffer.
-Buffer_Usage :: enum i32 {
-    // Allow a buffer to be mapped for reading using `buffer_map_async` +
-    // `buffer_get_mapped_range`. This does not include creating a buffer with
-    // `Buffer_Descriptor.mapped_at_creation` set.
-    //
-    // If `Mappable_Primary_Buffers` feature isn't enabled, the only other usage
-    // a buffer may have is `Copy_Dst`.
-    Map_Read,
-    // Allow a buffer to be mapped for writing using `buffer_map_async` +
-    // `buffer_get_mapped_range_mut`. This does not include creating a buffer
-    // with `Buffer_Descriptor.mapped_at_creation` set.
-    //
-    // If `Mappable_Primary_Buffers` feature feature isn't enabled, the only
-    // other usage a buffer may have is `Copy_Src`.
-    Map_Write,
-    // Allow a buffer to be the source buffer for a
-    // `command_encoder_copy_buffer_to_buffer` or
-    // `command_encoder_copy_buffer_to_texture` / operation.
-    Copy_Src,
-    // Allow a buffer to be the destination buffer for a
-    // `command_encoder_copy_buffer_to_buffer`,
-    // `command_encoder_copy_texture_to_buffer`, `command_encoder_clear_buffer`
-    // or `queue_write_buffer` operation.
-    Copy_Dst,
-    // Allow a buffer to be the index buffer in a draw operation.
-    Index,
-    // Allow a buffer to be the vertex buffer in a draw operation.
-    Vertex,
-    // Allow a buffer to be a `Buffer_Binding_Type.Uniform` inside a bind group.
-    Uniform,
-    // Allow a buffer to be a `Buffer_Binding_Type.Storage` inside a bind group.
-    Storage,
-    // Allow a buffer to be the indirect buffer in an indirect draw call.
-    Indirect,
-    // Allow a buffer to be the destination buffer for a
-    // `command_encoder_resolve_query_set` operation.
-    Query_Resolve,
-    // Allows a buffer to be used as input for a bottom level acceleration
-    // structure build
-    Blas_Input,
-    // Allows a buffer to be used as input for a top level acceleration
-    // structure build
-    Tlas_Input,
-}
-
-// Different ways that you can use a buffer.
-//
-// The usages determine what kind of memory the buffer is allocated from and
-// what actions the buffer can partake in.
-//
-// Specifying only usages the application will actually perform may increase
-// performance. Additionally, on the WebGL backend, there are restrictions on
-// `Index`.
-//
-// Corresponds to [WebGPU `GPUBufferUsageFlags`](
-// https://gpuweb.github.io/gpuweb/#typedefdef-gpubufferusageflags).
-Buffer_Usages :: bit_set[Buffer_Usage;Flags]
-
-// Whether any usages in `other` are also set in `self`.
-buffer_usage_intersects :: #force_inline proc "contextless" (self, mask: Buffer_Usages) -> bool {
-    return (self & mask) != {}
-}
-
-// Whether all usages in `other` are also set in `self`.
-buffer_usage_contains :: #force_inline proc "contextless" (self, other: Buffer_Usages) -> bool {
-    return (self & other) == other
-}
-
 // Color write mask. Disabled color channels will not be written to.
 Color_Write :: enum i32 {
     // Enable red channel writes.
@@ -1235,17 +1067,6 @@ COLOR_WRITES_ALL :: Color_Writes{.Red, .Green, .Blue, .Alpha}
 
 // Enable writes to all channels.
 COLOR_WRITES_DEFAULT :: COLOR_WRITES_ALL
-
-// Type of buffer mapping.
-Map_Mode :: enum i32 {
-    // Map only for reading.
-    Read,
-    // Map only for writing.
-    Write,
-}
-
-// Types of buffer mapping.
-Map_Modes :: bit_set[Map_Mode;Flags]
 
 Shader_Stage :: enum i32 {
     // Binding is visible from the vertex shader of a render pipeline.
@@ -1348,6 +1169,10 @@ Pipeline_Statistics_Types :: enum i32 {
     Compute_Shader_Invocations,
 }
 
+// Identifier for a particular `queue_submit_for_index` call.
+//
+// The value is implementation-defined and only meaningful with the backend
+// that produced it. A value of `0` means no submission.
 Submission_Index :: distinct u64
 
 // RGBA double precision color.

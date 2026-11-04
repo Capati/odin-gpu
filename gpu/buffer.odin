@@ -32,7 +32,9 @@ import intr "base:intrinsics"
 //
 // A mapped range must be within the mapped region, start at a multiple of
 // `MAP_ALIGNMENT`, and have a length that is a multiple of 4. Only access
-// mapped memory while the buffer is mapped.
+// mapped memory while the buffer is mapped. Multiple ranges may overlap; the
+// API does not track views, so avoiding aliasing is the caller's
+// responsibility.
 //
 // On the browser backend, mapping and unmapping involve copies between
 // WebAssembly memory and the browser's GPU buffers.
@@ -266,8 +268,12 @@ buffer_flush_mapped_ranges: proc(buffer: Buffer, offset: uint, size: uint, loc :
 //
 // `offset` must be a multiple of `MAP_ALIGNMENT`, `size` must be a multiple of
 // 4, and `size == 0` means "until the end of the mapped range". The range must
-// lie within the currently mapped region. Returns `nil` when the buffer is not
-// mapped or the range is invalid.
+// lie within the currently mapped region. This works for both read and write
+// mappings, and for buffers mapped at creation. Returns `nil` when the buffer
+// is not mapped or the range is invalid.
+//
+// Overlapping mapped ranges are not tracked; the caller must avoid aliasing
+// them.
 buffer_get_const_mapped_range: proc(
     buffer: Buffer,
     offset: uint = 0,
@@ -279,8 +285,12 @@ buffer_get_const_mapped_range: proc(
 //
 // `offset` must be a multiple of `MAP_ALIGNMENT`, `size` must be a multiple of
 // 4, and `size == 0` means "until the end of the mapped range". The range must
-// lie within the currently mapped region. Returns `nil` when the buffer is not
+// lie within the currently mapped region. The buffer must be mapped for
+// writing, or mapped at creation. Returns `nil` when the buffer is read-only
 // mapped or the range is invalid.
+//
+// Overlapping mapped ranges are not tracked; the caller must avoid aliasing
+// them.
 buffer_get_mapped_range: proc(
     buffer: Buffer,
     offset: uint = 0,
@@ -335,6 +345,8 @@ buffer_map_sync: proc(
 ) -> rawptr
 
 // Copies data out of a mapped buffer range into `data`.
+//
+// Works with both read and write mappings, and with buffers mapped at creation.
 buffer_read_mapped_range: proc(
     buffer: Buffer,
     offset: uint,
@@ -350,6 +362,8 @@ buffer_read_mapped_range: proc(
 buffer_unmap: proc(buffer: Buffer, loc := #caller_location)
 
 // Copies `data` into a mapped buffer range.
+//
+// The buffer must be mapped for writing, or mapped at creation.
 buffer_write_mapped_range: proc(
     buffer: Buffer,
     offset: uint,
@@ -431,3 +445,31 @@ buffer_add_ref: proc(buffer: Buffer, loc := #caller_location)
 
 // Release the `Buffer` resources, use to decrease the reference counter.
 buffer_release: proc(buffer: Buffer, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Buffer_Impl :: struct {
+    device:        Device,
+    size:          u64,
+    visible_size:  u64,
+    tracker_index: Tracker_Index,
+    map_state:     Buffer_Map_State_Impl,
+    usage:         Buffer_Uses,
+    mapped_ptr:    rawptr,
+    is_coherent:   bool,
+    // Memory-initialisation state: which byte ranges hold defined contents.
+    init:          Buffer_Init_Tracker,
+    ref:           Ref_Count_Type,
+}
+
+// Returns the concrete implementation behind a `Buffer` handle.
+_buffer_get_impl: proc "contextless" (buffer: Buffer, loc := #caller_location) -> ^_Buffer_Impl
+
+_buffer_tracker_index :: proc "contextless" (
+    buffer: Buffer,
+    loc := #caller_location,
+) -> Tracker_Index {
+    return _buffer_get_impl(buffer, loc).tracker_index
+}

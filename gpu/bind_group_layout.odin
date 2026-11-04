@@ -100,7 +100,8 @@ Sampler_Binding_Type :: enum i32 {
 Sampler_Binding_Layout :: struct {
     // Specific type of a sampler binding.
     //
-    // `.Undefined` accepts any non-comparison sampler.
+    // `.Undefined` accepts any non-comparison sampler. `.Non_Filtering`
+    // requires a sampler without linear filtering.
     type: Sampler_Binding_Type,
 }
 
@@ -316,19 +317,3 @@ bind_group_layout_add_ref: proc(bind_group_layout: Bind_Group_Layout, loc := #ca
 
 // Releases `bind_group_layout`, destroying it when its reference count reaches zero.
 bind_group_layout_release: proc(bind_group_layout: Bind_Group_Layout, loc := #caller_location)
-
-// -----------------------------------------------------------------------------
-// @private
-// -----------------------------------------------------------------------------
-
-@private
-Bind_Group_Layout_Impl :: struct {
-    device:  Device,
-    entries: map[u32]Bind_Group_Layout_Entry,
-}
-
-@private
-bind_group_layout_get_public_impl: proc "contextless" (
-    bind_group_layout: Bind_Group_Layout,
-    loc := #caller_location,
-) -> ^Bind_Group_Layout_Impl

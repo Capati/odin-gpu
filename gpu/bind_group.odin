@@ -113,6 +113,12 @@ device_create_bind_group: proc(
     loc := #caller_location,
 ) -> Bind_Group
 
+// Returns the `Bind_Group`'s debug label.
+//
+// The string is owned by the `Bind_Group` and stays valid until the next
+// `bind_group_set_label()` or until the `Bind_Group` is released.
+bind_group_get_label: proc(bind_group: Bind_Group, loc := #caller_location) -> string
+
 // Sets the `Bind_Group`'s debug label.
 //
 // The `Bind_Group` keeps its own copy of `label`, so the caller may release its

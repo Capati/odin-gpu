@@ -320,9 +320,10 @@ buffer_get_usage: proc(buffer: Buffer, loc := #caller_location) -> Buffer_Usages
 // buffer". The range must lie within the buffer, and the buffer must not
 // already be mapped or have a pending mapping.
 //
-// The mapping completes when the returned `Future` is resolved by a queue
-// submission or `instance_wait_any()`, at which point `callback_info` is
-// invoked. No callback is invoked if the request fails validation.
+// Pending host writes to the buffer are submitted first. The mapping completes
+// after that work and any earlier queue work has finished, when the returned
+// `Future` is resolved by `instance_wait_any()`; `callback_info` is invoked at
+// that point. No callback is invoked if the request fails validation.
 buffer_map_async: proc(
     buffer: Buffer,
     mode: Map_Mode,

@@ -1,5 +1,8 @@
 package gpu
 
+// Core
+import "base:runtime"
+
 // Handle to a physical graphics and/or compute device.
 //
 // Adapters can be created using `instance_create_adapter()` or
@@ -133,11 +136,7 @@ adapter_get_limits: proc(adapter: Adapter, loc := #caller_location) -> Limits
 //
 // Adapter support does not enable the feature on a device: it must also be
 // listed in `Device_Descriptor.required_features` when the device is created.
-adapter_has_feature: proc(
-    adapter: Adapter,
-    feature: Feature_Name,
-    loc := #caller_location,
-) -> bool
+adapter_has_feature: proc(adapter: Adapter, feature: Feature_Name, loc := #caller_location) -> bool
 
 // Reports whether this adapter supports all `features`.
 //
@@ -207,3 +206,21 @@ adapter_add_ref: proc(adapter: Adapter, loc := #caller_location)
 
 // Releases `adapter`, destroying it when its reference count reaches zero.
 adapter_release: proc(adapter: Adapter, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Adapter_Impl :: struct {
+    instance:    Instance,
+    features:    Features,
+    dl_features: Downlevel_Features,
+    limits:      Limits,
+    alignments:  Alignments,
+    ref:         Ref_Count_Type,
+    allocator:   runtime.Allocator,
+    label:       string,
+}
+
+// Returns the concrete implementation behind a `Adapter` handle.
+_adapter_get_impl: proc "contextless" (adapter: Adapter, loc := #caller_location) -> ^_Adapter_Impl

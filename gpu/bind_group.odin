@@ -131,3 +131,20 @@ bind_group_add_ref: proc(bind_group: Bind_Group, loc := #caller_location)
 // Decrements the reference count of `bind_group`, destroying it when the count
 // reaches zero.
 bind_group_release: proc(bind_group: Bind_Group, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Bind_Group_Impl :: struct {
+    device: Device,
+    layout: Bind_Group_Layout,
+    used:   Bind_Group_States,
+    ref:    Ref_Count_Type,
+}
+
+// Returns the concrete implementation behind a `Bind_Group` handle.
+_bind_group_get_impl: proc "contextless" (
+    bind_group: Bind_Group,
+    loc := #caller_location,
+) -> ^_Bind_Group_Impl

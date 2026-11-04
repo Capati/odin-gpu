@@ -31,9 +31,7 @@ Pipeline_Layout_Descriptor :: struct {
     immediate_size:     u32,
 }
 
-// Advanced options for use when a pipeline is compiled
-//
-// This implements `Default`, and for most users can be set to `Default::default()`
+// Advanced options for use when a pipeline is compiled.
 Pipeline_Compilation_Options :: struct {
     // Specifies the values of pipeline-overridable constants in the shader module.
     //
@@ -65,18 +63,56 @@ Constant_Entry :: struct {
     value: f64,
 }
 
+// Creates a pipeline layout.
+//
+// `bind_group_layouts` maps group 0, 1, ... to their layouts. A null handle
+// occupies its group slot. `immediate_size` must be zero unless the
+// `Immediates` feature is enabled.
+//
+// Returns `{}` when the descriptor is invalid.
 device_create_pipeline_layout: proc(
     device: Device,
     descriptor: Pipeline_Layout_Descriptor,
     loc := #caller_location,
 ) -> Pipeline_Layout
 
+// Returns the pipeline layout's debug label.
+//
+// The string is owned by the pipeline layout and stays valid until the next
+// `pipeline_layout_set_label()` or until the pipeline layout is released.
+pipeline_layout_get_label: proc(
+    pipeline_layout: Pipeline_Layout,
+    loc := #caller_location,
+) -> string
+
+// Sets the pipeline layout's debug label.
+//
+// The pipeline layout keeps its own copy of `label`, so the caller may release
+// its copy immediately after this call.
 pipeline_layout_set_label: proc(
     pipeline_layout: Pipeline_Layout,
     label: string,
     loc := #caller_location,
 )
 
+// Increments the pipeline layout's reference count.
 pipeline_layout_add_ref: proc(pipeline_layout: Pipeline_Layout, loc := #caller_location)
 
+// Decrements the pipeline layout's reference count, destroying it when it
+// reaches zero.
 pipeline_layout_release: proc(pipeline_layout: Pipeline_Layout, loc := #caller_location)
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Pipeline_Layout_Impl :: struct {
+    device: Device,
+    ref:    Ref_Count_Type,
+}
+
+// Backend hook: resolve a pipeline layout to its owning device and liveness.
+_pipeline_layout_get_state: proc "contextless" (
+    pipeline_layout: Pipeline_Layout,
+    loc := #caller_location,
+) -> Handle_State

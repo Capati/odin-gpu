@@ -11,8 +11,11 @@ byte_arr_str :: #force_inline proc "contextless" (arr: ^[$N]byte) -> string {
     return strings.truncate_to_byte(string(arr[:]), 0)
 }
 
-max_mip_levels :: #force_inline proc "contextless" (width, height: u32) -> u32 {
-    max_dim := max(width, height)
+max_mip_levels :: #force_inline proc "contextless" (
+    width, height: u32,
+    depth: u32 = 1,
+) -> u32 {
+    max_dim := max(width, max(height, depth))
     return u32(1 + math.floor(math.log2(f32(max_dim))))
 }
 
@@ -20,28 +23,18 @@ is_multiple_of :: #force_inline proc "contextless" (#any_int lhs, rhs: int) -> b
     return lhs == 0 || lhs % rhs == 0
 }
 
-align :: proc "contextless" (
-    value: $T,
-    alignment: T,
-    loc := #caller_location,
-) -> T where intr.type_is_numeric(T) {
-    assert_contextless(value <= max(T) - (alignment - 1), loc = loc)
-    assert_contextless(math.is_power_of_two(int(alignment)), loc = loc)
-    assert_contextless(alignment != 0, loc = loc)
-    alignment_t := T(alignment)
-    return (value + (alignment_t - 1)) & ~(alignment_t - 1)
-}
-
-// Aligns the given size to the specified alignment.
+// Aligns the given size up to the specified alignment. An alignment of 0 or 1
+// leaves the value unchanged.
+//
+// Kept here rather than routed through `core:mem`: its integer helpers take
+// `int`/`uint`, which are 32 bits on the `js_wasm32` target, while every size
+// this backend aligns is a `u64`.
 @(require_results)
 align_size :: #force_inline proc "contextless" (#any_int size, align: u64) -> u64 {
+    if align <= 1 {
+        return size
+    }
     return (size + (align - 1)) & ~(align - 1)
-}
-
-// Check if the given value is aligned to the specified alignment.
-@(require_results)
-is_aligned :: #force_inline proc "contextless" (#any_int value, align: u64) -> bool {
-    return (value & (align - 1)) == 0
 }
 
 clone_to_cstring_buf :: #force_inline proc "contextless" (

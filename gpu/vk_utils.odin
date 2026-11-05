@@ -9,19 +9,58 @@ import "core:slice"
 // Vendor
 import vk "vendor:vulkan"
 
-// Misc
-// Create utils
-// Memory allocation/barrier
-// Image layout transition
-
 // -----------------------------------------------------------------------------
 // Misc
 // -----------------------------------------------------------------------------
 
+// Aborts on a Vulkan failure. Reserved for calls whose failure leaves the
+// process with no coherent state to continue from; anything a caller can react
+// to belongs in `vk_try`.
 vk_check :: proc(result: vk.Result, loc := #caller_location) {
     if result != .SUCCESS {
         log.panicf("Vulkan API call failed: %v", result, location = loc)
     }
+}
+
+// Maps a Vulkan result onto the API's error taxonomy. `Error_Type.No_Error` is
+// the zero value, which is what makes `vk_try` usable with `or_return`.
+vk_result_to_error :: proc(result: vk.Result) -> Error_Type {
+    #partial switch result {
+    case .SUCCESS:
+        return .No_Error
+    case .ERROR_OUT_OF_HOST_MEMORY, .ERROR_OUT_OF_DEVICE_MEMORY:
+        return .Out_Of_Memory
+    case .ERROR_VALIDATION_FAILED:
+        return .Validation
+    }
+    return .Internal
+}
+
+// Runs a Vulkan call, reports any failure through the device's error path (error
+// scope, then uncaptured-error callback, then the log) and returns the error so
+// the caller can propagate it:
+//
+//     vk_try(device, vk.CreateBuffer(...), "create buffer") or_return
+//
+// Device loss is fatal rather than returned: every later call on the device is
+// meaningless, so trapping names the cause instead of failing one call at a time.
+vk_try :: proc(
+    device: Device,
+    result: vk.Result,
+    message: string,
+    loc := #caller_location,
+) -> (
+    err: Error_Type,
+) {
+    if result == .SUCCESS {
+        return .No_Error
+    }
+    if result == .ERROR_DEVICE_LOST {
+        ensure(false, "Vulkan device lost", loc = loc)
+    }
+    err = vk_result_to_error(result)
+    gpu_report_error(device, err, message, loc)
+    return
 }
 
 vk_has_layer_property :: proc(props: []vk.LayerProperties, ext: string) -> bool {
@@ -34,20 +73,6 @@ vk_has_layer_property :: proc(props: []vk.LayerProperties, ext: string) -> bool 
     return false
 }
 
-vk_has_layer_name :: proc(layers: []string, ext: string) -> bool {
-    for layer_name in layers {
-        if layer_name == ext {
-            return true
-        }
-    }
-    return false
-}
-
-vk_has_layer :: proc {
-    vk_has_layer_property,
-    vk_has_layer_name,
-}
-
 vk_has_extension_property :: proc(props: []vk.ExtensionProperties, ext: string) -> bool {
     for &p in props {
         ext_name := byte_arr_str(&p.extensionName)
@@ -58,6 +83,7 @@ vk_has_extension_property :: proc(props: []vk.ExtensionProperties, ext: string) 
     return false
 }
 
+@(require_results)
 vk_has_extension_property_dyn :: proc(
     props: [dynamic]vk.ExtensionProperties,
     ext: string,
@@ -65,20 +91,16 @@ vk_has_extension_property_dyn :: proc(
     return #force_inline vk_has_extension_property(props[:], ext)
 }
 
+@(require_results)
 vk_has_extension_name :: proc(extensions: []string, ext: string) -> (found: bool) {
     _, found = slice.binary_search(extensions[:], ext)
     return
-}
-
-vk_has_extension_name_dyn :: proc(extensions: [dynamic]string, ext: string) -> (found: bool) {
-    return #force_inline vk_has_extension_name(extensions[:], ext)
 }
 
 vk_has_extension :: proc {
     vk_has_extension_property,
     vk_has_extension_property_dyn,
     vk_has_extension_name,
-    vk_has_extension_name_dyn,
 }
 
 // Finds the first queue which supports the desired operations.
@@ -124,72 +146,6 @@ vk_get_present_queue_index :: proc(
         }
     }
     return vk.QUEUE_FAMILY_IGNORED
-}
-
-vk_find_queue_family_index :: proc(
-    families: []vk.QueueFamilyProperties,
-    flags: vk.QueueFlags,
-) -> (
-    index: u32,
-) {
-    find_dedicated_queue_family_index :: proc(
-        props: []vk.QueueFamilyProperties,
-        require: vk.QueueFlags,
-        avoid: vk.QueueFlags,
-    ) -> u32 {
-        for &prop, i in props {
-            is_suitable := (prop.queueFlags >= require)
-            is_dedicated := (prop.queueFlags & avoid) == {}
-
-            if prop.queueCount > 0 && is_suitable && is_dedicated {
-                return u32(i)
-            }
-        }
-        return vk.QUEUE_FAMILY_IGNORED
-    }
-
-    // Try to find dedicated compute queue (no graphics)
-    if .COMPUTE in flags {
-        q := find_dedicated_queue_family_index(families, flags, {.GRAPHICS})
-        if q != vk.QUEUE_FAMILY_IGNORED {
-            return q
-        }
-    }
-
-    // Try to find dedicated transfer queue: first prefer transfer-only
-    // (no graphics, no compute), then relax to just "not graphics".
-    if .TRANSFER in flags {
-        q := find_dedicated_queue_family_index(families, flags, {.GRAPHICS, .COMPUTE})
-        if q != vk.QUEUE_FAMILY_IGNORED {
-            return q
-        }
-        q = find_dedicated_queue_family_index(families, flags, {.GRAPHICS})
-        if q != vk.QUEUE_FAMILY_IGNORED {
-            return q
-        }
-    }
-
-    // Fall back to any suitable queue (no avoidance)
-    return find_dedicated_queue_family_index(families, flags, {})
-}
-
-vk_utils_supports_format :: proc(
-    pd: vk.PhysicalDevice,
-    format: vk.Format,
-    tiling: vk.ImageTiling,
-    features: vk.FormatFeatureFlags,
-) -> bool {
-    properties: vk.FormatProperties
-    vk.GetPhysicalDeviceFormatProperties(pd, format, &properties)
-    #partial switch tiling {
-    case .LINEAR:
-        return features & properties.linearTilingFeatures != {}
-    case .OPTIMAL:
-        return features & properties.optimalTilingFeatures != {}
-    case:
-        return false
-    }
-    unreachable()
 }
 
 vk_setup_pnext_chain :: proc(
@@ -268,6 +224,7 @@ vk_debug_callback :: proc "system" (
     return false
 }
 
+@(require_results)
 vk_supports_format :: proc "contextless" (
     pd: vk.PhysicalDevice,
     format: vk.Format,
@@ -278,46 +235,15 @@ vk_supports_format :: proc "contextless" (
     vk.GetPhysicalDeviceFormatProperties(pd, format, &properties)
     #partial switch tiling {
     case .LINEAR:
-        return features & properties.linearTilingFeatures != {}
+        return features & properties.linearTilingFeatures == features
     case .OPTIMAL:
-        return features & properties.optimalTilingFeatures != {}
+        return features & properties.optimalTilingFeatures == features
     case:
         return false
     }
 }
 
-is_float32_filterable_supported :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
-    FORMATS :: []vk.Format {
-        .R32_SFLOAT,
-        .R32G32_SFLOAT,
-        .R32G32B32A32_SFLOAT,
-    }
-
-    for vk_format in FORMATS {
-        if (!vk_supports_format(pd, vk_format, .OPTIMAL, {.SAMPLED_IMAGE_FILTER_LINEAR})) {
-            return false
-        }
-    }
-
-    return true
-}
-
-vk_is_float32_blendable_supported :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
-    FORMATS :: []vk.Format {
-        .R32_SFLOAT,
-        .R32G32_SFLOAT,
-        .R32G32B32A32_SFLOAT,
-    }
-
-    for vk_format in FORMATS {
-        if (!vk_supports_format(pd, vk_format, .OPTIMAL, {.COLOR_ATTACHMENT_BLEND})) {
-            return false
-        }
-    }
-
-    return true
-}
-
+@(require_results)
 vk_is_format_16bit_norm_supported :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
     FORMATS :: []vk.Format {
         .R16_UNORM,
@@ -344,7 +270,67 @@ vk_is_format_16bit_norm_supported :: proc "contextless" (pd: vk.PhysicalDevice) 
     return true
 }
 
-supports_astc_3d :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
+@(require_results)
+vk_is_float32_filterable :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
+    FORMATS :: []vk.Format {
+        .R32_SFLOAT,
+        .R32G32_SFLOAT,
+        .R32G32B32A32_SFLOAT,
+    }
+
+    for vk_format in FORMATS {
+        if !vk_supports_format(pd, vk_format, .OPTIMAL, {.SAMPLED_IMAGE_FILTER_LINEAR}) {
+            return false
+        }
+    }
+
+    return true
+}
+
+@(require_results)
+vk_is_float32_blendable :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
+    FORMATS :: []vk.Format {
+        .R32_SFLOAT,
+        .R32G32_SFLOAT,
+        .R32G32B32A32_SFLOAT,
+    }
+
+    for vk_format in FORMATS {
+        if !vk_supports_format(pd, vk_format, .OPTIMAL, {.COLOR_ATTACHMENT_BLEND}) {
+            return false
+        }
+    }
+
+    return true
+}
+
+@(require_results)
+vk_supports_bgra8_unorm_storage :: proc "contextless" (
+    pd: vk.PhysicalDevice,
+    api_version: u32,
+) -> bool {
+    if api_version < vk.API_VERSION_1_3 || vk.GetPhysicalDeviceFormatProperties2 == nil {
+        return false
+    }
+
+    properties3 := vk.FormatProperties3 {
+        sType = .FORMAT_PROPERTIES_3,
+    }
+    properties2 := vk.FormatProperties2 {
+        sType = .FORMAT_PROPERTIES_2,
+        pNext = &properties3,
+    }
+    vk.GetPhysicalDeviceFormatProperties2(pd, .B8G8R8A8_UNORM, &properties2)
+
+    features := properties2.formatProperties.optimalTilingFeatures
+    return(
+        .STORAGE_IMAGE in features &&
+        .STORAGE_WRITE_WITHOUT_FORMAT in properties3.optimalTilingFeatures \
+    )
+}
+
+@(require_results)
+vk_supports_astc_3d :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
     FORMATS :: []vk.Format {
         .ASTC_4x4_UNORM_BLOCK,
         .ASTC_4x4_SRGB_BLOCK,
@@ -379,13 +365,27 @@ supports_astc_3d :: proc "contextless" (pd: vk.PhysicalDevice) -> bool {
     for vk_format in FORMATS {
         properties: vk.ImageFormatProperties
         res := vk.GetPhysicalDeviceImageFormatProperties(
-            pd, vk_format, .D3, .OPTIMAL, {.SAMPLED}, {}, &properties)
+            pd,
+            vk_format,
+            .D3,
+            .OPTIMAL,
+            {.SAMPLED},
+            {},
+            &properties,
+        )
         if res != .SUCCESS {
             return false
         }
     }
 
     return true
+}
+
+@(require_results)
+vk_image_usage_flags_is_depth_attachment :: #force_inline proc "contextless" (
+    self: vk.ImageUsageFlags,
+) -> bool {
+    return .DEPTH_STENCIL_ATTACHMENT in self
 }
 
 // -----------------------------------------------------------------------------
@@ -432,31 +432,6 @@ vk_utils_create_semaphore :: proc(
     return
 }
 
-vk_utils_create_semaphore_timeline :: proc(
-    device: VK_Device_VTable,
-    #any_int initial_value: u64,
-    debug_name: string,
-    loc := #caller_location,
-) -> (
-    semaphore: vk.Semaphore,
-) {
-    semaphore_type_create_info := vk.SemaphoreTypeCreateInfo {
-        sType         = .SEMAPHORE_TYPE_CREATE_INFO,
-        semaphoreType = .TIMELINE,
-        initialValue  = initial_value,
-    }
-
-    ci := vk.SemaphoreCreateInfo {
-        sType = .SEMAPHORE_CREATE_INFO,
-        pNext = &semaphore_type_create_info,
-    }
-
-    vk_check(device.fp.CreateSemaphore(device.vk_device, &ci, nil, &semaphore))
-    vk_utils_set_debug_object_name(device, .SEMAPHORE, semaphore, debug_name, loc)
-
-    return
-}
-
 vk_utils_create_fence :: proc(
     device: VK_Device_VTable,
     debug_name: string,
@@ -476,349 +451,3 @@ vk_utils_create_fence :: proc(
     return
 }
 
-// -----------------------------------------------------------------------------
-// Memory allocation/barrier
-// -----------------------------------------------------------------------------
-
-vk_utils_find_memory_type :: proc(
-    vk_physical_device: vk.PhysicalDevice,
-    memory_type_bits: u32,
-    flags: vk.MemoryPropertyFlags,
-    loc := #caller_location,
-) -> (
-    index:      u32,
-    mem_flags:  vk.MemoryPropertyFlags,
-) {
-    props: vk.PhysicalDeviceMemoryProperties
-    vk.GetPhysicalDeviceMemoryProperties(vk_physical_device, &props)
-
-    for i: u32 = 0; i < props.memoryTypeCount; i += 1 {
-        has_properties := (props.memoryTypes[i].propertyFlags & flags) == flags
-        if (memory_type_bits & (1 << i) != {}) && has_properties {
-            return i, props.memoryTypes[i].propertyFlags
-        }
-    }
-
-    assert(false, loc = loc)
-
-    return {}, {}
-}
-
-vk_utils_allocate_memory :: proc(
-    vk_physical_device: vk.PhysicalDevice,
-    device: vk.Device,
-    mem_requirements: ^vk.MemoryRequirements,
-    props: vk.MemoryPropertyFlags,
-    allocate_flags: vk.MemoryAllocateFlags,
-    out_mem_flags: ^vk.MemoryPropertyFlags,
-    out_memory: ^vk.DeviceMemory,
-    loc := #caller_location,
-) -> vk.Result {
-    assert(mem_requirements != nil, loc = loc)
-
-    memory_type_index, memory_type_flags := vk_utils_find_memory_type(
-        vk_physical_device,
-        mem_requirements.memoryTypeBits,
-        props,
-        loc,
-    )
-
-    ai := vk.MemoryAllocateInfo {
-        sType           = .MEMORY_ALLOCATE_INFO,
-        allocationSize  = mem_requirements.size,
-        memoryTypeIndex = memory_type_index,
-    }
-
-    memory_allocate_flags_info := vk.MemoryAllocateFlagsInfo {
-        sType = .MEMORY_ALLOCATE_FLAGS_INFO,
-        flags = allocate_flags,
-    }
-    if allocate_flags != {} {
-        ai.pNext = &memory_allocate_flags_info
-    }
-
-    result := vk.AllocateMemory(device, &ai, nil, out_memory)
-    if result == .SUCCESS && out_mem_flags != nil {
-        out_mem_flags^ = memory_type_flags
-    }
-
-    return result
-}
-
-vk_utils_is_coherent_memory :: #force_inline proc "contextless" (
-    mem_props: vk.PhysicalDeviceMemoryProperties,
-    memory_type_bits: u32,
-) -> bool #no_bounds_check {
-    for i in 0 ..< mem_props.memoryTypeCount {
-        if memory_type_bits & (1 << i) != 0 {
-            if .HOST_COHERENT in mem_props.memoryTypes[i].propertyFlags {
-                return true
-            }
-        }
-    }
-    return false
-}
-
-vk_command_buffer_barrier :: proc "contextless" (
-    device: ^VK_Device_Impl,
-    command_buffer: vk.CommandBuffer,
-    buffer: vk.Buffer,
-    state_from: Buffer_Uses,
-    state_to: Buffer_Uses,
-    offset: vk.DeviceSize = 0,
-    size: vk.DeviceSize = vk.DeviceSize(WHOLE_SIZE),
-    loc := #caller_location,
-) {
-    src_stage, src_access := vk_conv_buffer_uses_to_barrier(state_from, device.queue_flags)
-    dst_stage, dst_access := vk_conv_buffer_uses_to_barrier(state_to, device.queue_flags)
-
-    // Note: this is done so that we never end up with empty stage flags
-    if src_stage == {} {
-        src_stage = {.TOP_OF_PIPE}
-    }
-    if dst_stage == {} {
-        dst_stage = {.BOTTOM_OF_PIPE}
-    }
-
-    barrier := vk.BufferMemoryBarrier {
-        sType               = .BUFFER_MEMORY_BARRIER,
-        srcAccessMask       = src_access,
-        dstAccessMask       = dst_access,
-        srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-        dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-        buffer              = buffer,
-        offset              = offset,
-        size                = size,
-    }
-
-    device.fp.CmdPipelineBarrier(
-        commandBuffer            = command_buffer,
-        srcStageMask             = src_stage,
-        dstStageMask             = dst_stage,
-        dependencyFlags          = {},
-        memoryBarrierCount       = 0,
-        pMemoryBarriers          = nil,
-        bufferMemoryBarrierCount = 1,
-        pBufferMemoryBarriers    = &barrier,
-        imageMemoryBarrierCount  = 0,
-        pImageMemoryBarriers     = nil,
-    )
-}
-
-// -----------------------------------------------------------------------------
-// Image layout transition
-// -----------------------------------------------------------------------------
-
-vk_image_usage_flags_is_sampled :: #force_inline proc "contextless" (
-    self: vk.ImageUsageFlags,
-) -> bool {
-    return .SAMPLED in self
-}
-
-vk_image_usage_flags_is_storage :: #force_inline proc "contextless" (
-    self: vk.ImageUsageFlags,
-) -> bool {
-    return .STORAGE in self
-}
-
-vk_image_usage_flags_is_color_attachment :: #force_inline proc "contextless" (
-    self: vk.ImageUsageFlags,
-) -> bool {
-    return .COLOR_ATTACHMENT in self
-}
-
-vk_image_usage_flags_is_depth_attachment :: #force_inline proc "contextless" (
-    self: vk.ImageUsageFlags,
-) -> bool {
-    return .DEPTH_STENCIL_ATTACHMENT in self
-}
-
-vk_image_usage_flags_is_attachment :: #force_inline proc "contextless" (
-    self: vk.ImageUsageFlags,
-) -> bool {
-    return .COLOR_ATTACHMENT in self || .DEPTH_STENCIL_ATTACHMENT in self
-}
-
-VK_Stage_Access :: struct {
-    stage:  vk.PipelineStageFlags,
-    access: vk.AccessFlags,
-}
-
-vk_image_layout_get_stage_access :: #force_inline proc "contextless" (
-    layout: vk.ImageLayout,
-    queue_flags: vk.QueueFlags,
-    loc := #caller_location,
-) -> VK_Stage_Access {
-    shader_stages := vk_shader_stages(queue_flags)
-
-    #partial switch layout {
-    case .UNDEFINED:
-        return {stage = {.TOP_OF_PIPE}, access = {}}
-    case .COLOR_ATTACHMENT_OPTIMAL:
-        return {
-            stage = {.COLOR_ATTACHMENT_OUTPUT},
-            access = {.COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE},
-        }
-    case .DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-        return {
-            stage = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
-            access = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE},
-        }
-    case .DEPTH_ATTACHMENT_OPTIMAL:
-        return {
-            stage = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
-            access = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE},
-        }
-    case .STENCIL_ATTACHMENT_OPTIMAL:
-        return {
-            stage = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
-            access = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE},
-        }
-    case .DEPTH_STENCIL_READ_ONLY_OPTIMAL:
-        return {
-            stage = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS} | shader_stages,
-            access = {.DEPTH_STENCIL_ATTACHMENT_READ, .SHADER_READ},
-        }
-    case .DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
-        return {
-            stage = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS} | shader_stages,
-            access = {
-                .DEPTH_STENCIL_ATTACHMENT_READ,
-                .DEPTH_STENCIL_ATTACHMENT_WRITE,
-                .SHADER_READ,
-            },
-        }
-    case .DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
-        return {
-            stage = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS} | shader_stages,
-            access = {
-                .DEPTH_STENCIL_ATTACHMENT_READ,
-                .DEPTH_STENCIL_ATTACHMENT_WRITE,
-                .SHADER_READ,
-            },
-        }
-    case .SHADER_READ_ONLY_OPTIMAL:
-        return {
-            stage = shader_stages,
-            access = {.SHADER_READ},
-        }
-    case .TRANSFER_SRC_OPTIMAL:
-        return {stage = {.TRANSFER}, access = {.TRANSFER_READ}}
-    case .TRANSFER_DST_OPTIMAL:
-        return {stage = {.TRANSFER}, access = {.TRANSFER_WRITE}}
-    case .GENERAL:
-        return {
-            stage = {.COMPUTE_SHADER, .TRANSFER},
-            access = {.SHADER_READ, .SHADER_WRITE, .TRANSFER_READ, .TRANSFER_WRITE},
-        }
-    case .PRESENT_SRC_KHR:
-        return {stage = {.BOTTOM_OF_PIPE}, access = {}}
-    case:
-        panic_contextless("Unsupported image layout transition!", loc)
-    }
-}
-
-vk_texture_transition_layout :: proc(
-    device: ^VK_Device_Impl,
-    texture: ^VK_Texture_Impl,
-    vk_command_buffer: vk.CommandBuffer,
-    state_from: Texture_Uses,
-    state_to: Texture_Uses,
-    subresource_range: vk.ImageSubresourceRange,
-    loc := #caller_location,
-) {
-    // Both layouts come from the tracker states, so they are always specific
-    // (`.ATTACHMENT_OPTIMAL` never appears) and never need normalizing.
-    old_image_layout := vk_conv_texture_uses_to_image_layout(state_from, texture.format)
-    new_image_layout := vk_conv_texture_uses_to_image_layout(state_to, texture.format)
-
-    if old_image_layout == new_image_layout {
-        return // no-op
-    }
-
-    is_depth_attachment := vk_image_usage_flags_is_depth_attachment(texture.vk_usage_flags)
-
-    src := vk_image_layout_get_stage_access(old_image_layout, device.queue_flags)
-    dst := vk_image_layout_get_stage_access(new_image_layout, device.queue_flags)
-
-    if is_depth_attachment && texture.is_resolve_attachment {
-        // https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#renderpass-resolve-operations
-        src.stage |= {.COLOR_ATTACHMENT_OUTPUT}
-        dst.stage |= {.COLOR_ATTACHMENT_OUTPUT}
-        src.access |= {.COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE}
-        dst.access |= {.COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE}
-    }
-
-    barrier := vk.ImageMemoryBarrier {
-        sType               = .IMAGE_MEMORY_BARRIER,
-        srcAccessMask       = src.access,
-        dstAccessMask       = dst.access,
-        oldLayout           = old_image_layout,
-        newLayout           = new_image_layout,
-        srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-        dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-        image               = texture.vk_image,
-        subresourceRange    = subresource_range,
-    }
-
-    device.fp.CmdPipelineBarrier(
-        commandBuffer            = vk_command_buffer,
-        srcStageMask             = src.stage,
-        dstStageMask             = dst.stage,
-        dependencyFlags          = {},
-        memoryBarrierCount       = 0,
-        pMemoryBarriers          = nil,
-        bufferMemoryBarrierCount = 0,
-        pBufferMemoryBarriers    = nil,
-        imageMemoryBarrierCount  = 1,
-        pImageMemoryBarriers     = &barrier,
-    )
-}
-
-vk_texture_barrier :: proc "contextless" (
-    device: ^VK_Device_Impl,
-    texture: ^VK_Texture_Impl,
-    vk_command_buffer: vk.CommandBuffer,
-    layout: vk.ImageLayout,
-    subresource_range: vk.ImageSubresourceRange,
-    loc := #caller_location,
-) {
-    is_depth_attachment := vk_image_usage_flags_is_depth_attachment(texture.vk_usage_flags)
-
-    resolved_layout := layout
-    if resolved_layout == .ATTACHMENT_OPTIMAL {
-        resolved_layout = is_depth_attachment ? .DEPTH_STENCIL_ATTACHMENT_OPTIMAL : .COLOR_ATTACHMENT_OPTIMAL
-    }
-
-    stage_access := vk_image_layout_get_stage_access(resolved_layout, device.queue_flags)
-
-    if is_depth_attachment && texture.is_resolve_attachment {
-        stage_access.stage |= {.COLOR_ATTACHMENT_OUTPUT}
-        stage_access.access |= {.COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE}
-    }
-
-    barrier := vk.ImageMemoryBarrier {
-        sType               = .IMAGE_MEMORY_BARRIER,
-        srcAccessMask       = stage_access.access,
-        dstAccessMask       = stage_access.access,
-        oldLayout           = resolved_layout,
-        newLayout           = resolved_layout,
-        srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-        dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-        image               = texture.vk_image,
-        subresourceRange    = subresource_range,
-    }
-
-    vk.CmdPipelineBarrier(
-        commandBuffer            = vk_command_buffer,
-        srcStageMask             = stage_access.stage,
-        dstStageMask             = stage_access.stage,
-        dependencyFlags          = {},
-        memoryBarrierCount       = 0,
-        pMemoryBarriers          = nil,
-        bufferMemoryBarrierCount = 0,
-        pBufferMemoryBarriers    = nil,
-        imageMemoryBarrierCount  = 1,
-        pImageMemoryBarriers     = &barrier,
-    )
-}

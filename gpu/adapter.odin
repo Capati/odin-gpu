@@ -223,4 +223,7 @@ _Adapter_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a `Adapter` handle.
-_adapter_get_impl: proc "contextless" (adapter: Adapter, loc := #caller_location) -> ^_Adapter_Impl
+_adapter_get_internal_impl: proc "contextless" (
+    adapter: Adapter,
+    loc := #caller_location,
+) -> ^_Adapter_Impl

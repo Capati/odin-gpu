@@ -105,7 +105,7 @@ _Compute_Pipeline_Impl :: struct {
     is_empty_layout: bool,
 }
 
-_compute_pipeline_get_impl: proc "contextless" (
+_compute_pipeline_get_internal_impl: proc "contextless" (
     compute_pipeline: Compute_Pipeline,
     loc := #caller_location,
 ) -> ^_Compute_Pipeline_Impl

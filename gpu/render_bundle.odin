@@ -72,7 +72,7 @@ _Render_Bundle_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a render bundle handle.
-_render_bundle_get_impl: proc "contextless" (
+_render_bundle_get_internal_impl: proc "contextless" (
     render_bundle: Render_Bundle,
     loc := #caller_location,
 ) -> ^_Render_Bundle_Impl

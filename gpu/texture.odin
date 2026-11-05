@@ -192,13 +192,16 @@ _Texture_Impl :: struct {
     ref:             Ref_Count_Type,
 }
 
-_texture_get_impl: proc "contextless" (texture: Texture, loc := #caller_location) -> ^_Texture_Impl
+_texture_get_internal_impl: proc "contextless" (
+    texture: Texture,
+    loc := #caller_location,
+) -> ^_Texture_Impl
 
 _texture_tracker_index :: proc "contextless" (
     texture: Texture,
     loc := #caller_location,
 ) -> Tracker_Index {
-    impl := _texture_get_impl(texture, loc)
+    impl := _texture_get_internal_impl(texture, loc)
     return impl.tracker_index
 }
 
@@ -243,7 +246,7 @@ _resolve_texture_descriptor :: proc(
         mip_level_count = 1
     }
 
-    limits := _device_get_impl(device, loc).limits
+    limits := _device_get_internal_impl(device, loc).limits
     #partial switch desc.dimension {
     case .D1:
         valid &= gpu_validate(

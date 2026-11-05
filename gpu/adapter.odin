@@ -227,3 +227,9 @@ _adapter_get_internal_impl: proc "contextless" (
     adapter: Adapter,
     loc := #caller_location,
 ) -> ^_Adapter_Impl
+
+_adapter_texture_format_capabilities: proc(
+    adapter: Adapter,
+    format: Texture_Format,
+    loc := #caller_location,
+) -> Texture_Format_Capabilities

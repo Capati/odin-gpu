@@ -226,8 +226,8 @@ deferred_writes_clear_buffer_locked :: proc(
     assert(offset % 4 == 0, "clear offset must be a multiple of 4", loc)
     assert(size % 4 == 0, "clear size must be a multiple of 4", loc)
 
-    device_impl := _device_get_impl(self.device, loc)
-    buffer_impl := _buffer_get_impl(buffer, loc)
+    device_impl := _device_get_internal_impl(self.device, loc)
+    buffer_impl := _buffer_get_internal_impl(buffer, loc)
 
     // Written to avoid u64 overflow in offset + size.
     assert(

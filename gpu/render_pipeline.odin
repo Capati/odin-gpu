@@ -557,7 +557,7 @@ _Render_Pipeline_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a render pipeline handle.
-_render_pipeline_get_impl: proc "contextless" (
+_render_pipeline_get_internal_impl: proc "contextless" (
     render_pipeline: Render_Pipeline,
     loc := #caller_location,
 ) -> ^_Render_Pipeline_Impl
@@ -622,7 +622,7 @@ _validate_render_pipeline_descriptor :: proc(
     }
 
     if descriptor.layout != {} {
-        layout_state := _pipeline_layout_get_impl(descriptor.layout, loc)
+        layout_state := _pipeline_layout_get_internal_impl(descriptor.layout, loc)
         valid &= gpu_validate(
             device,
             layout_state != nil,
@@ -685,7 +685,7 @@ _validate_render_pipeline_descriptor :: proc(
 
         targets := descriptor.fragment.targets
         if len(targets) > 1 &&
-           .Independent_Blend not_in _device_get_impl(device, loc).dl_features {
+           .Independent_Blend not_in _device_get_internal_impl(device, loc).dl_features {
             first := targets[0]
             for target in targets[1:] {
                 same_blend :=
@@ -739,7 +739,7 @@ _validate_render_pipeline_descriptor :: proc(
 
     valid = true
 
-    limits := _device_get_impl(device, loc).limits
+    limits := _device_get_internal_impl(device, loc).limits
     if descriptor.fragment != nil {
         target_count := len(descriptor.fragment.targets)
         valid &= gpu_validate(

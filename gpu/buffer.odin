@@ -466,11 +466,11 @@ _Buffer_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a `Buffer` handle.
-_buffer_get_impl: proc "contextless" (buffer: Buffer, loc := #caller_location) -> ^_Buffer_Impl
+_buffer_get_internal_impl: proc "contextless" (buffer: Buffer, loc := #caller_location) -> ^_Buffer_Impl
 
 _buffer_tracker_index :: proc "contextless" (
     buffer: Buffer,
     loc := #caller_location,
 ) -> Tracker_Index {
-    return _buffer_get_impl(buffer, loc).tracker_index
+    return _buffer_get_internal_impl(buffer, loc).tracker_index
 }

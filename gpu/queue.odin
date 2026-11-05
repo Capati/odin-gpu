@@ -207,7 +207,7 @@ _Queue_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a `Queue` handle.
-_queue_get_impl: proc "contextless" (
+_queue_get_internal_impl: proc "contextless" (
     queue: Queue,
     loc := #caller_location,
 ) -> ^_Queue_Impl

@@ -13,7 +13,7 @@ gpu_report_error :: proc(
     loc := #caller_location,
 ) {
     if device != nil {
-        impl := _device_get_impl(device, loc)
+        impl := _device_get_internal_impl(device, loc)
         if _device_capture_error_scope != nil &&
            _device_capture_error_scope(device, error_type, message, loc) {
             return

@@ -112,7 +112,7 @@ _Pipeline_Layout_Impl :: struct {
 }
 
 // Backend hook: resolve a pipeline layout to its owning device and liveness.
-_pipeline_layout_get_impl: proc "contextless" (
+_pipeline_layout_get_internal_impl: proc "contextless" (
     pipeline_layout: Pipeline_Layout,
     loc := #caller_location,
 ) -> ^_Pipeline_Layout_Impl

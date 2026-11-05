@@ -376,7 +376,7 @@ webgpu_set_procedures :: proc() {
     adapter_release = webgpu_adapter_release
 
     // Private procedures of Adapter
-    adapter_texture_format_capabilities = webgpu_adapter_texture_format_capabilities
+    _adapter_texture_format_capabilities = webgpu_adapter_texture_format_capabilities
 
     // Procedures of Bind_Group
     bind_group_set_label = webgpu_bind_group_set_label

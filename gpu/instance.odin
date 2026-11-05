@@ -786,7 +786,7 @@ _Instance_Impl :: struct {
     ref:         Ref_Count_Type,
 }
 
-_instance_get_impl: proc "contextless" (
+_instance_get_internal_impl: proc "contextless" (
     instance: Instance,
     loc := #caller_location,
 ) -> ^_Instance_Impl

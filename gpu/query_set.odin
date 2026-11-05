@@ -100,7 +100,7 @@ _Query_Set_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a query set handle.
-_query_set_get_impl: proc "contextless" (
+_query_set_get_internal_impl: proc "contextless" (
     query_set: Query_Set,
     loc := #caller_location,
 ) -> ^_Query_Set_Impl
@@ -146,7 +146,7 @@ _resolve_query_set_descriptor :: proc(
         return {}, false
     }
 
-    results_per_query : u32 = 1
+    results_per_query: u32 = 1
     if descriptor.type == .Pipeline_Statistics {
         if !gpu_validate(
             device,

@@ -144,7 +144,7 @@ _Bind_Group_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a `Bind_Group` handle.
-_bind_group_get_impl: proc "contextless" (
+_bind_group_get_internal_impl: proc "contextless" (
     bind_group: Bind_Group,
     loc := #caller_location,
 ) -> ^_Bind_Group_Impl

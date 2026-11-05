@@ -119,7 +119,7 @@ _Texture_View_Impl :: struct {
     ref:          Ref_Count_Type,
 }
 
-_texture_view_get_impl: proc "contextless" (
+_texture_view_get_internal_impl: proc "contextless" (
     texture_view: Texture_View,
     loc := #caller_location,
 ) -> ^_Texture_View_Impl
@@ -145,7 +145,7 @@ _resolve_texture_view_descriptor :: proc(
     _Texture_View_Descriptor_Impl,
     bool,
 ) {
-    texture_impl := _texture_get_impl(texture, loc)
+    texture_impl := _texture_get_internal_impl(texture, loc)
     if texture_impl.destroyed {
         gpu_report_validation_error(device, "texture has been destroyed", loc)
         return {}, false
@@ -160,7 +160,10 @@ _resolve_texture_view_descriptor :: proc(
     if swizzle != {} {
         valid &= gpu_validate(
             device,
-            has_features(_device_get_impl(device, loc).features[:], {.Texture_Component_Swizzle}),
+            has_features(
+                _device_get_internal_impl(device, loc).features[:],
+                {.Texture_Component_Swizzle},
+            ),
             "texture view swizzle requires the [Texture_Component_Swizzle] feature",
             loc,
         )

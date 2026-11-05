@@ -125,7 +125,10 @@ _Sampler_Impl :: struct {
     filtering:  bool,
 }
 
-_sampler_get_impl: proc "contextless" (sampler: Sampler, loc := #caller_location) -> ^_Sampler_Impl
+_sampler_get_internal_impl: proc "contextless" (
+    sampler: Sampler,
+    loc := #caller_location,
+) -> ^_Sampler_Impl
 
 _Sampler_Descriptor_Impl :: struct {
     lod_max_clamp:    f32,

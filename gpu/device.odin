@@ -286,7 +286,10 @@ _Device_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a `Device` handle.
-_device_get_impl: proc "contextless" (device: Device, loc := #caller_location) -> ^_Device_Impl
+_device_get_internal_impl: proc "contextless" (
+    device: Device,
+    loc := #caller_location,
+) -> ^_Device_Impl
 
 // Backend hook used by the shared validation/reporting path. Returns true when
 // an active error scope accepted the error; false lets `gpu_report_error` fall

@@ -399,7 +399,7 @@ _Render_Pass_Impl :: struct {
     is_rendering:      bool,
 }
 
-_render_pass_get_impl: proc "contextless" (
+_render_pass_get_internal_impl: proc "contextless" (
     render_pass: Render_Pass,
     loc := #caller_location,
 ) -> ^_Render_Pass_Impl
@@ -425,7 +425,7 @@ _resolve_render_pass_descriptor :: proc(
     descriptor: Render_Pass_Descriptor,
     loc := #caller_location,
 ) -> _Render_Pass_Descriptor_Impl {
-    device_impl := _device_get_impl(device, loc)
+    device_impl := _device_get_internal_impl(device, loc)
 
     max_color_attachments := min(MAX_COLOR_ATTACHMENTS, device_impl.limits.max_color_attachments)
     assert(
@@ -444,7 +444,7 @@ _resolve_render_pass_descriptor :: proc(
 
         append(&rpass_data.color_attachments, color)
 
-        view_impl := _texture_view_get_impl(color.view, loc)
+        view_impl := _texture_view_get_internal_impl(color.view, loc)
         size := texture_get_size(view_impl.texture, loc)
 
         // The framebuffer dimensions must match the attachment view's
@@ -455,7 +455,7 @@ _resolve_render_pass_descriptor :: proc(
             size.height >>= base_mip
         }
 
-        texture_impl := _texture_get_impl(view_impl.texture, loc)
+        texture_impl := _texture_get_internal_impl(view_impl.texture, loc)
         append(&rpass_data.color_formats, texture_impl.format)
         rpass_data.sample_count = texture_impl.sample_count
 
@@ -475,8 +475,8 @@ _resolve_render_pass_descriptor :: proc(
         ds := descriptor.depth_stencil_attachment^
         rpass_data.depth_stencil_attachment = ds
 
-        ds_view_impl := _texture_view_get_impl(ds.view, loc)
-        ds_texture_impl := _texture_get_impl(ds_view_impl.texture, loc)
+        ds_view_impl := _texture_view_get_internal_impl(ds.view, loc)
+        ds_texture_impl := _texture_get_internal_impl(ds_view_impl.texture, loc)
 
         dim := ds_texture_impl.size
         if base_mip := ds_view_impl.selector.mip_start; base_mip > 0 {

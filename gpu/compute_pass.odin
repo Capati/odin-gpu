@@ -135,7 +135,7 @@ _Compute_Pass_Impl :: struct {
     ref:     Ref_Count_Type,
 }
 
-_compute_pass_get_impl: proc "contextless" (
+_compute_pass_get_internal_impl: proc "contextless" (
     compute_pass: Compute_Pass,
     loc := #caller_location,
 ) -> ^_Compute_Pass_Impl

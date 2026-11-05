@@ -276,7 +276,7 @@ _Command_Encoder_Impl :: struct {
     is_rendering:   bool,
 }
 
-_command_encoder_get_impl: proc "contextless" (
+_command_encoder_get_internal_impl: proc "contextless" (
     command_encoder: Command_Encoder,
     loc := #caller_location,
 ) -> ^_Command_Encoder_Impl

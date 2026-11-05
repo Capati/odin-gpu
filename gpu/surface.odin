@@ -415,7 +415,7 @@ surface_capabilities_free_members: proc(
 // @private - Not part of the public API
 // -----------------------------------------------------------------------------
 
-_Surface_impl :: struct {
+_Surface_Impl :: struct {
     instance:  Instance,
     device:    Device,
     ref:       Ref_Count_Type,
@@ -424,4 +424,7 @@ _Surface_impl :: struct {
 }
 
 // Returns the concrete implementation behind a surface handle.
-_surface_get_impl: proc "contextless" (surface: Surface, loc := #caller_location) -> ^_Surface_impl
+_surface_get_internal_impl: proc "contextless" (
+    surface: Surface,
+    loc := #caller_location,
+) -> ^_Surface_Impl

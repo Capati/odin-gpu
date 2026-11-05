@@ -278,18 +278,12 @@ map_texture_usage_for_texture :: proc(
     return
 }
 
-adapter_texture_format_capabilities: proc(
-    adapter: Adapter,
-    format: Texture_Format,
-    loc := #caller_location,
-) -> Texture_Format_Capabilities
-
 adaper_texture_format_features :: proc(
     adapter: Adapter,
     format: Texture_Format,
     loc := #caller_location,
 ) -> Texture_Format_Features {
-    caps := adapter_texture_format_capabilities(adapter, format, loc)
+    caps := _adapter_texture_format_capabilities(adapter, format, loc)
     allowed_usages: Texture_Usages
 
     if .Copy_Src in caps { allowed_usages |= {.Copy_Src} }

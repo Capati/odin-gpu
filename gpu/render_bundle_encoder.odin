@@ -231,7 +231,7 @@ _Render_Bundle_Encoder_Impl :: struct {
 }
 
 // Returns the concrete implementation behind a render bundle encoder handle.
-_render_bundle_encoder_get_impl: proc "contextless" (
+_render_bundle_encoder_get_internal_impl: proc "contextless" (
     render_bundle_encoder: Render_Bundle_Encoder,
     loc := #caller_location,
 ) -> ^_Render_Bundle_Encoder_Impl

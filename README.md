@@ -55,7 +55,7 @@ parked until the Vulkan implementation stabilizes.
 
 ## Installation
 
-Tested in Odin version: `dev-2026-10`
+Tested in Odin version: `dev-2026-11`
 
 Only the `gpu/` folder is required to use the library. Copy this folder next
 to your project, then import it:

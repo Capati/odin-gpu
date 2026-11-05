@@ -54,12 +54,6 @@ Handle :: struct {
     handle: Handle_Packed,
 }
 
-// Backend-reported state for a live handle.
-Handle_State :: struct {
-    device: Device,
-    live:   bool,
-}
-
 unpack_handle :: #force_inline proc "contextless" ($T: typeid, h: Handle_Packed) -> T {
     return transmute(T)h
 }

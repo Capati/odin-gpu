@@ -3,877 +3,27 @@ package gpu
 // Core
 import intr "base:intrinsics"
 import "base:runtime"
-import "core:math/bits"
-import "core:slice"
 import "core:sync"
 
-// -----------------------------------------------------------------------------
-// Retain/Release Hooks
-// -----------------------------------------------------------------------------
-
-// Strong command/usage trackers own the resources they hold for as long as
-// they hold them, so a resource recorded into a command buffer stays alive
-// until that command buffer's scope is dropped. Device trackers are explicitly
-// weak and opt out of these hooks. The actual reference counting is delegated
-// to the active backend through these hooks.
+// Resource-state tracker.
 //
-// They are left nil by default so the tracker stays backend-agnostic and can be
-// exercised by unit tests without a device. A nil hook is a no-op, which is why
-// tests may pass zero-valued resources.
-
-tracker_retain_buffer: proc(buffer: Buffer, loc := #caller_location)
-tracker_release_buffer: proc(buffer: Buffer, loc := #caller_location)
-tracker_retain_texture: proc(texture: Texture, loc := #caller_location)
-tracker_release_texture: proc(texture: Texture, loc := #caller_location)
-tracker_retain_texture_view: proc(view: Texture_View, loc := #caller_location)
-tracker_release_texture_view: proc(view: Texture_View, loc := #caller_location)
-
-// Retain/release of a texture, used by the texture trackers and the
-// texture-view bind group state.
-resource_retain_texture :: proc(texture: Texture, loc := #caller_location) {
-    if tracker_retain_texture != nil {
-        tracker_retain_texture(texture, loc)
-    }
-}
-
-resource_release_texture :: proc(texture: Texture, loc := #caller_location) {
-    if tracker_release_texture != nil {
-        tracker_release_texture(texture, loc)
-    }
-}
-
-// Retain/release of a buffer, used by the buffer trackers and the buffer bind
-// group state.
-resource_retain_buffer :: proc(buffer: Buffer, loc := #caller_location) {
-    if tracker_retain_buffer != nil {
-        tracker_retain_buffer(buffer, loc)
-    }
-}
-
-resource_release_buffer :: proc(buffer: Buffer, loc := #caller_location) {
-    if tracker_release_buffer != nil {
-        tracker_release_buffer(buffer, loc)
-    }
-}
-
-bind_group_retain_buffer :: proc(buffer: Buffer, loc := #caller_location) {
-    resource_retain_buffer(buffer, loc)
-}
-
-bind_group_release_buffer :: proc(buffer: Buffer, loc := #caller_location) {
-    resource_release_buffer(buffer, loc)
-}
-
-// Retain/release of a texture view, used by the texture-view bind group state.
-// The view is what the bind group holds, and it in turn keeps its parent
-// texture alive.
-bind_group_retain_texture_view :: proc(view: Texture_View, loc := #caller_location) {
-    if tracker_retain_texture_view != nil {
-        tracker_retain_texture_view(view, loc)
-    }
-}
-
-bind_group_release_texture_view :: proc(view: Texture_View, loc := #caller_location) {
-    if tracker_release_texture_view != nil {
-        tracker_release_texture_view(view, loc)
-    }
-}
+//  metadata    - occupancy sets keyed by tracker index
+//  range       - ordered partitions of a key range
+//  uses        - the semantic use sets and selectors
+//  stateless   - trackers that only record resource handles
+//  blas        - bottom-level acceleration structures
+//  query_set   - query sets
+//  buffer      - buffer usage scopes, transcripts and device state
+//  texture     - texture usage scopes, transcripts and device state
+//  memory_init - which subresources hold defined bytes
+//  tracker     - the command buffer / device tracker shell
+//
+// Resource identity: every entry point takes the handle plus the dense tracker
+// index it is addressed by, because an Odin handle does not expose one.
 
 // -----------------------------------------------------------------------------
-// Buffer
+// Tracker index
 // -----------------------------------------------------------------------------
-
-// Similar to `Buffer_Usages`, but for internal use.
-Buffer_Uses :: bit_set[Buffer_Use;u16]
-Buffer_Use :: enum u16 {
-    // The argument to a read-only mapping.
-    Map_Read,
-    // The argument to a write-only mapping.
-    Map_Write,
-    // The source of a hardware copy.
-    // cbindgen:ignore
-    Copy_Src,
-    // The destination of a hardware copy.
-    // cbindgen:ignore
-    Copy_Dst,
-    // The index buffer used for drawing.
-    Index,
-    // A vertex buffer used for drawing.
-    Vertex,
-    // A uniform buffer bound in a bind group.
-    Uniform,
-    // A read-only storage buffer used in a bind group.
-    // cbindgen:ignore
-    Storage_Read_Only,
-    // A read-write buffer used in a bind group.
-    // cbindgen:ignore
-    Storage_Read_Write,
-    // The indirect or count buffer in a indirect draw or dispatch.
-    Indirect,
-    // A buffer used to store query results.
-    Query_Resolve,
-    // Buffer used for acceleration structure building.
-    Acceleration_Structure_Scratch,
-    // Buffer used for bottom level acceleration structure building.
-    Bottom_Level_Acceleration_Structure_Input,
-    // Buffer used for top level acceleration structure building.
-    Top_Level_Acceleration_Structure_Input,
-    // A buffer used to store the compacted size of an acceleration structure
-    Acceleration_Structure_Query,
-}
-
-// The combination of states that a buffer may be in _at the same time_.
-BUFFER_USES_INCLUSIVE :: Buffer_Uses {
-    .Map_Read,
-    .Copy_Src,
-    .Index,
-    .Vertex,
-    .Uniform,
-    .Storage_Read_Only,
-    .Indirect,
-    .Bottom_Level_Acceleration_Structure_Input,
-    .Top_Level_Acceleration_Structure_Input,
-}
-
-// The combination of states that a buffer must exclusively be in.
-BUFFER_USES_EXCLUSIVE :: Buffer_Uses {
-    .Map_Write,
-    .Copy_Dst,
-    .Storage_Read_Write,
-    .Acceleration_Structure_Scratch,
-}
-
-BUFFER_USES_TIMESTAMP_NORMALIZATION :: Buffer_Uses{.Storage_Read_Write}
-
-BUFFER_USES_MAPPABLE :: Buffer_Uses{.Map_Read, .Map_Write}
-
-BUFFER_USES_COPY :: Buffer_Uses{.Copy_Src, .Copy_Dst}
-
-BUFFER_USES_STAGING :: BUFFER_USES_MAPPABLE | BUFFER_USES_COPY
-
-buffer_uses_is_empty :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
-    return u == {}
-}
-
-buffer_uses_intersects :: #force_inline proc "contextless" (u, mask: Buffer_Uses) -> bool {
-    return (u & mask) != {}
-}
-
-buffer_uses_contains :: #force_inline proc "contextless" (u, other: Buffer_Uses) -> bool {
-    return (u & other) == other
-}
-
-buffer_uses_remove :: #force_inline proc "contextless" (u, mask: Buffer_Uses) -> Buffer_Uses {
-    return u & ~mask
-}
-
-// Returns true if any of the uses are exclusive.
-buffer_uses_any_exclusive :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
-    return buffer_uses_intersects(u, BUFFER_USES_EXCLUSIVE)
-}
-
-// Returns true if the given state violates the usage scope rule of
-// any(inclusive) XOR one(exclusive).
-buffer_uses_is_invalid :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
-    return buffer_uses_any_exclusive(u) && bits.count_ones(transmute(u16)u) != 1
-}
-
-buffer_uses_is_mappable :: #force_inline proc "contextless" (uses: Buffer_Uses) -> bool {
-    return (uses & BUFFER_USES_MAPPABLE) != {}
-}
-
-// True if `uses` contains only bits that are also in `superset` (possibly empty).
-buffer_uses_is_subset :: #force_inline proc "contextless" (
-    uses: Buffer_Uses,
-    superset: Buffer_Uses,
-) -> bool {
-    return uses != {} && (uses & superset) == uses
-}
-
-// Turns the resource into a pile of bits.
-buffer_uses_bits :: proc(u: Buffer_Uses) -> u32 {
-    return u32(transmute(u16)u)
-}
-
-Buffer_Usage_Error :: struct {
-    buffer:        Buffer,
-    current_state: Buffer_Uses,
-    new_state:     Buffer_Uses,
-}
-
-// The conflicting usage pair of a failed texture merge.
-Texture_Usage_Error :: struct {
-    texture:       Texture,
-    mip_levels:    Range(u32),
-    array_layers:  Range(u32),
-    current_state: Texture_Uses,
-    new_state:     Texture_Uses,
-}
-
-// Error returned when merging two resource usages conflicts.
-Usage_Error :: union {
-    Buffer_Usage_Error,
-    Texture_Usage_Error,
-}
-
-// A barrier between two states of a resource.
-State_Transition :: struct($T: typeid) {
-    from: T,
-    to:   T,
-}
-
-Buffer_Barrier :: struct {
-    buffer: Buffer,
-    usage:  State_Transition(Buffer_Uses),
-}
-
-// A single ordered range `start..end` associated with a value.
-Ranged_State_Entry :: struct($I: typeid, $T: typeid) {
-    using range: Range(I),
-    value:       T,
-}
-
-// Keeps track of an index -> value mapping, optimized for the case where
-// keys of the same value are often grouped together linearly. Ranges of
-// keys must be non-intersecting and ordered.
-Ranged_States :: struct($I: typeid, $T: typeid) {
-    ranges: [dynamic]Ranged_State_Entry(I, T),
-}
-
-ranged_states_init :: proc(
-    rs: ^$R/Ranged_States($I, $T),
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(rs != nil, loc = loc)
-    rs^ = {} // reset memory
-    rs.ranges.allocator = allocator
-}
-
-ranged_states_uninit :: proc(rs: ^$R/Ranged_States($I, $T), loc := #caller_location) {
-    assert(rs != nil, loc = loc)
-    delete(rs.ranges)
-    rs^ = {} // reset memory
-}
-
-// Constructs a new instance holding a single range. `value` is copied into
-// the table.
-ranged_states_init_from_range :: proc(
-    rs: ^$R/Ranged_States($I, $T),
-    range: Range(I),
-    value: T,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(rs != nil, loc = loc)
-    rs^ = {} // reset memory
-    rs.ranges.allocator = allocator
-    append(
-        &rs.ranges,
-        Ranged_State_Entry(I, T){start = range.start, end = range.end, value = value},
-    )
-}
-
-// Constructs a new instance from a slice of ranges. Each `value` is copied
-// into the table.
-ranged_states_init_from_slice :: proc(
-    rs: ^$R/Ranged_States($I, $T),
-    values: []Ranged_State_Entry(I, T),
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(rs != nil, loc = loc)
-    rs^ = {} // reset memory
-    rs.ranges = make([dynamic]Ranged_State_Entry(I, T), 0, len(values), allocator)
-    for &e in values {
-        append(&rs.ranges, e)
-    }
-}
-
-// Deep clone. Unlike a struct copy, the result owns its own backing, so the
-// two instances can be mutated and freed independently.
-ranged_states_clone :: proc(
-    rs: ^$R/Ranged_States($I, $T),
-    rs_out: ^Ranged_States(I, T),
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(rs != nil, loc = loc)
-    assert(rs_out != nil, loc = loc)
-    rs_out^ = {} // reset memory
-    ranged_states_init(rs_out, allocator)
-    resize(&rs_out.ranges, len(rs.ranges))
-    copy(rs_out.ranges[:], rs.ranges[:])
-}
-
-// Check that all ranges are non-intersecting and ordered. Panics otherwise.
-ranged_states_check_sanity :: proc(rs: ^$R/Ranged_States($I, $T), loc := #caller_location) {
-    for e in 0 ..< len(rs.ranges) {
-        assert(rs.ranges[e].start < rs.ranges[e].end, loc = loc)
-    }
-    for e in 1 ..< len(rs.ranges) {
-        assert(rs.ranges[e - 1].end <= rs.ranges[e].start, loc = loc)
-    }
-}
-
-// Merge neighboring ranges together where possible.
-ranged_states_coalesce :: proc(rs: ^$R/Ranged_States($I, $T)) {
-    if len(rs.ranges) == 0 {return}
-
-    write := 1
-    prev := &rs.ranges[0]
-    for read in 1 ..< len(rs.ranges) {
-        entry := rs.ranges[read]
-        if prev.range.end == entry.range.start && prev.value == entry.value {
-            prev.range.end = entry.range.end
-        } else {
-            rs.ranges[write] = entry
-            prev = &rs.ranges[write]
-            write += 1
-        }
-    }
-    if write != len(rs.ranges) {
-        resize(&rs.ranges, write)
-    }
-}
-
-ranged_states_isolate :: proc(
-    rs: ^$R/Ranged_States($I, $T),
-    index: Range(I),
-    default: T,
-) -> []Ranged_State_Entry(I, T) {
-    start_pos := 0
-    for start_pos < len(rs.ranges) && rs.ranges[start_pos].end <= index.start {
-        start_pos += 1
-    }
-    if start_pos == len(rs.ranges) {
-        append(
-            &rs.ranges,
-            Ranged_State_Entry(I, T){start = index.start, end = index.end, value = default},
-        )
-        return rs.ranges[start_pos:]
-    }
-
-    {
-        e := rs.ranges[start_pos]
-        if e.start < index.start {
-            rs.ranges[start_pos].start = index.start
-            ok, _ := inject_at(
-                &rs.ranges,
-                start_pos,
-                Ranged_State_Entry(I, T){start = e.start, end = index.start, value = e.value},
-            )
-            assert(ok)
-            start_pos += 1
-        }
-    }
-
-    pos := start_pos
-    range_pos := index.start
-    for {
-        e := rs.ranges[pos]
-        if e.start >= index.end {
-            ok, _ := inject_at(
-                &rs.ranges,
-                pos,
-                Ranged_State_Entry(I, T){start = range_pos, end = index.end, value = default},
-            )
-            assert(ok)
-            pos += 1
-            break
-        }
-        if e.start > range_pos {
-            ok, _ := inject_at(
-                &rs.ranges,
-                pos,
-                Ranged_State_Entry(I, T){start = range_pos, end = e.start, value = default},
-            )
-            assert(ok)
-            pos += 1
-            range_pos = e.start
-        }
-        if e.end >= index.end {
-            if e.end != index.end {
-                rs.ranges[pos].start = index.end
-                ok, _ := inject_at(
-                    &rs.ranges,
-                    pos,
-                    Ranged_State_Entry(I, T){start = range_pos, end = index.end, value = e.value},
-                )
-                assert(ok)
-            }
-            pos += 1
-            break
-        }
-        pos += 1
-        range_pos = e.end
-        if pos == len(rs.ranges) {
-            append(
-                &rs.ranges,
-                Ranged_State_Entry(I, T){start = range_pos, end = index.end, value = default},
-            )
-            pos += 1
-            break
-        }
-    }
-
-    return rs.ranges[start_pos:pos]
-}
-
-// Iterator over the entries overlapping `[range_start, range_end)`, with each
-// returned range clipped to the requested one.
-Ranged_Filter_Iterator :: struct($I: typeid, $T: typeid) {
-    rs:          ^Ranged_States(I, T),
-    range_start: I,
-    range_end:   I,
-    pos:         int,
-}
-
-ranged_filter_iterator :: proc(
-    rs: ^$R/Ranged_States($I, $T),
-    range_start, range_end: I,
-) -> Ranged_Filter_Iterator(I, T) {
-    return {rs = rs, range_start = range_start, range_end = range_end}
-}
-
-Ranged_Filter_Iterator_Result :: struct($T: typeid) {
-    start: u32,
-    end:   u32,
-    value: ^T,
-}
-
-ranged_filter_iterator_next :: proc(
-    it: ^$R/Ranged_Filter_Iterator($I, $T),
-) -> (
-    res: Ranged_Filter_Iterator_Result(T),
-    cond: bool,
-) {
-    for it.pos < len(it.rs.ranges) {
-        e := &it.rs.ranges[it.pos]
-        it.pos += 1
-        if e.end > it.range_start && e.start < it.range_end {
-            res.start = max(e.start, it.range_start)
-            res.end = min(e.end, it.range_end)
-            res.value = &e.value
-            return res, true
-        }
-    }
-    return {0, 0, {}}, false
-}
-
-BITS_PER_WORD :: 64
-
-// A dense, growable bit set.
-//
-// `size` is the logical index space. The backing `words` array is always
-// exactly `ceil(size / BITS_PER_WORD)` words long, and the invariant
-// "no bit with index >= size is ever set" is maintained by masking the tail
-// word on every size-changing operation. As a consequence, `any`, `count_ones`,
-// and `next_set_bit` never observe stale bits, and shrinking then growing a
-// vector does not resurrect bits that were dropped.
-//
-// The backing array retains its capacity across shrinks, so resizing up and
-// down within the same range does not reallocate.
-Bit_Vector :: struct {
-    words: [dynamic]u64, // ceil(size / BITS_PER_WORD) words
-    size:  int, // logical length in bits
-}
-
-bits_per_word :: #force_inline proc "contextless" (size: int) -> int {
-    return (size + BITS_PER_WORD - 1) / BITS_PER_WORD
-}
-
-bit_vector_init :: proc(
-    bv: ^Bit_Vector,
-    size: int,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(bv != nil, loc = loc)
-    n := max(size, 0)
-    // bv.words = make([dynamic]u64, bits_per_word(n), allocator)
-    bv.words.allocator = allocator
-    bit_vector_resize(bv, size)
-    bv.size = n
-}
-
-bit_vector_uninit :: proc(bv: ^Bit_Vector, loc := #caller_location) {
-    assert(bv != nil, loc = loc)
-    delete(bv.words)
-    bv^ = {}
-}
-
-// Number of bits in the pre-sized index space.
-bit_vector_len :: #force_inline proc "contextless" (
-    bv: ^Bit_Vector,
-    loc := #caller_location,
-) -> int {
-    assert_contextless(bv != nil, loc = loc)
-    return bv.size
-}
-
-// Sets the logical `size`, growing the backing as needed, masks the tail word past
-// `size`, and wipes the words that drop off the end when shrinking so `any` and
-// the index iterators never observe stale bits.
-bit_vector_resize :: proc(bv: ^Bit_Vector, size: int) {
-    needed_words := bits_per_word(size)
-    old_words := len(bv.words)
-    resize(&bv.words, needed_words)
-    for i in old_words ..< needed_words {
-        bv.words[i] = 0
-    }
-    // Mask off any bits beyond the new length that still live in the
-    // last word, so a shrink-then-grow doesn't resurrect stale bits.
-    if needed_words > 0 {
-        valid_bits := uint(size - (needed_words - 1) * BITS_PER_WORD)
-        if valid_bits < BITS_PER_WORD {
-            mask := (u64(1) << valid_bits) - 1
-            bv.words[needed_words - 1] &= mask
-        }
-    }
-    bv.size = size
-}
-
-// Zeroes every bit without changing the vector's length or capacity.
-bit_vector_clear :: proc(bv: ^Bit_Vector) {
-    for i in 0 ..< len(bv.words) {
-        bv.words[i] = 0
-    }
-}
-
-bit_vector_get :: proc(bv: ^Bit_Vector, #any_int index: int) -> bool {
-    if index < 0 || index >= bv.size {
-        return false
-    }
-    word := bv.words[index / BITS_PER_WORD]
-    return word & (u64(1) << uint(index % BITS_PER_WORD)) != 0
-}
-
-bit_vector_set :: proc(bv: ^Bit_Vector, #any_int index: int, value: bool) {
-    word_index := index / BITS_PER_WORD
-    bit := u64(1) << uint(index % BITS_PER_WORD)
-    if value {
-        bv.words[word_index] |= bit
-    } else {
-        bv.words[word_index] &~= bit
-    }
-}
-
-// Returns true if any bit is set. O(words) in the number of words.
-bit_vector_any :: proc(bv: ^Bit_Vector) -> bool {
-    for w in bv.words {
-        if w != 0 {
-            return true
-        }
-    }
-    return false
-}
-
-bit_vector_count_ones :: proc(bv: ^Bit_Vector) -> int {
-    total: u64
-    for w in bv.words {
-        total += bits.count_ones(w)
-    }
-    return int(total)
-}
-
-bit_vector_fill :: proc(bv: ^Bit_Vector, value: bool) {
-    w := u64(0) if !value else ~u64(0)
-    for i in 0 ..< len(bv.words) {
-        bv.words[i] = w
-    }
-    // Mask the tail word so no bit >= size is set. Without this, `any`,
-    // `count_ones`, and the iterator would observe bits beyond the logical
-    // length, while `get` would hide them behind its bounds check.
-    if len(bv.words) > 0 {
-        if ri := bv.size % BITS_PER_WORD; ri != 0 {
-            bv.words[len(bv.words) - 1] &= (u64(1) << uint(ri)) - 1
-        }
-    }
-}
-
-// Iterates set bit indices in ascending order. Whole zero words are
-// skipped with one comparison.
-Bit_Vector_Iterator :: struct {
-    bv:         ^Bit_Vector,
-    word_index: int,
-    cur_word:   u64,
-    base:       int,
-}
-
-bit_vector_iterate :: proc(bv: ^Bit_Vector) -> Bit_Vector_Iterator {
-    it := Bit_Vector_Iterator {
-        bv         = bv,
-        word_index = 0,
-    }
-    if len(bv.words) > 0 {
-        it.cur_word = bv.words[0]
-    }
-    return it
-}
-
-@(require_results)
-bit_vector_iterator_next :: proc(it: ^Bit_Vector_Iterator) -> (index: int, ok: bool) {
-    for {
-        if it.cur_word == 0 {
-            it.word_index += 1
-            if it.word_index >= len(it.bv.words) {
-                return 0, false
-            }
-            it.cur_word = it.bv.words[it.word_index]
-            it.base = it.word_index * BITS_PER_WORD
-            continue
-        }
-        bit := intr.count_trailing_zeros(it.cur_word)
-        it.cur_word &~= u64(1) << bit
-        return it.base + int(bit), true
-    }
-}
-
-// A set of resources.
-Resource_Metadata :: struct($T: typeid) {
-    owned:     Bit_Vector,
-    resources: [dynamic]T,
-}
-
-resource_metadata_init :: proc(
-    md: ^$R/Resource_Metadata($T),
-    size: int,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(md != nil, loc = loc)
-    md^ = {} // reset memory
-    md.resources.allocator = allocator
-    bit_vector_init(&md.owned, size, allocator, loc)
-    resource_metadata_set_size(md, size, loc)
-}
-
-resource_metadata_uninit :: proc(md: ^$R/Resource_Metadata($T), loc := #caller_location) {
-    assert(md != nil, loc = loc)
-    delete(md.resources)
-    bit_vector_uninit(&md.owned)
-    md^ = {} // reset memory
-}
-
-// Returns true if the tracker owns no resources. O(n) in the number of words.
-resource_metadata_is_empty :: proc(
-    md: ^$R/Resource_Metadata($T),
-    loc := #caller_location,
-) -> bool {
-    assert(md != nil, loc = loc)
-    return !bit_vector_any(&md.owned)
-}
-
-// Returns true if the set contains the resource with the given index.
-resource_metadata_contains :: proc(
-    md: ^$R/Resource_Metadata($T),
-    #any_int index: int,
-    loc := #caller_location,
-) -> bool {
-    assert(md != nil, loc = loc)
-    if index < 0 || index >= bit_vector_len(&md.owned) {
-        return false
-    }
-    return bit_vector_get(&md.owned, index)
-}
-
-// Same as contains, but the index must be in bounds.
-resource_metadata_contains_unchecked :: proc(
-    md: ^$R/Resource_Metadata($T),
-    #any_int index: int,
-    loc := #caller_location,
-) -> bool {
-    assert(md != nil, loc = loc)
-    return bit_vector_get(&md.owned, index)
-}
-
-// Grows (or, in principle, shrinks) the tables to cover `size` indices.
-resource_metadata_set_size :: proc(
-    md: ^$R/Resource_Metadata($T),
-    size: int,
-    loc := #caller_location,
-) {
-    assert(md != nil, loc = loc)
-    resize(&md.resources, size)
-    bit_vector_resize(&md.owned, size)
-}
-
-// Drops every owned resource and resets the tables to zero length. The
-// caller is responsible for releasing the resources, since this table is
-// type-generic and cannot know how.
-resource_metadata_clear :: proc(md: ^$R/Resource_Metadata($T), loc := #caller_location) {
-    assert(md != nil, loc = loc)
-    for index in 0 ..< bit_vector_len(&md.owned) {
-        if bit_vector_get(&md.owned, index) {
-            md.resources[index] = {}
-        }
-    }
-    clear(&md.resources)
-    bit_vector_resize(&md.owned, 0)
-}
-
-resource_metadata_assert_in_bounds :: proc(
-    m: ^$R/Resource_Metadata($T),
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(m != nil, loc = loc)
-    assert(index < m.owned.size, loc = loc)
-    assert(index < len(m.resources), loc = loc)
-}
-
-// Adds the resource with the given index to the set and returns a reference
-// to the stored copy. If the set already owns the index, the stored copy is
-// replaced without changing ownership, so the caller must retain only when
-// the index was not already owned. This table is type-generic and cannot know
-// how to retain; see `buffer_state_insert` for the buffer path.
-resource_metadata_insert :: proc(
-    md: ^$R/Resource_Metadata($T),
-    #any_int index: int,
-    resource: T,
-    loc := #caller_location,
-) -> ^T {
-    assert(md != nil, loc = loc)
-    assert(index >= 0 && index < bit_vector_len(&md.owned), "index out of bounds")
-    bit_vector_set(&md.owned, index, true)
-    #no_bounds_check {
-        md.resources[index] = resource
-    }
-    return &md.resources[index]
-}
-
-// Returns a pointer to the stored resource at the given owned index.
-resource_metadata_get_unchecked :: proc(
-    md: ^$R/Resource_Metadata($T),
-    #any_int index: int,
-    loc := #caller_location,
-) -> T {
-    assert(md != nil, loc = loc)
-    assert(bit_vector_get(&md.owned, index), "resource not owned")
-    #no_bounds_check {
-        return md.resources[index]
-    }
-}
-
-// Removes the resource with the given index from the set, dropping it. The
-// caller is responsible for releasing the resource, since this table is
-// type-generic and cannot know how.
-resource_metadata_remove :: proc(
-    md: ^$R/Resource_Metadata($T),
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(md != nil, loc = loc)
-    assert(bit_vector_get(&md.owned, index), "resource not owned")
-    md.resources[index] = {}
-    bit_vector_set(&md.owned, index, false)
-}
-
-// Releases every resource held strongly by a command/usage metadata table,
-// then clears it. Device tracker metadata is weak and must not use these
-// helpers; tables of unref-counted types have nothing to do.
-buffer_metadata_release_all :: proc(md: ^Resource_Metadata(Buffer), loc := #caller_location) {
-    assert(md != nil, loc = loc)
-    for index in 0 ..< bit_vector_len(&md.owned) {
-        if bit_vector_get(&md.owned, index) {
-            resource_release_buffer(md.resources[index], loc)
-        }
-    }
-    resource_metadata_clear(md, loc)
-}
-
-texture_metadata_release_all :: proc(md: ^Resource_Metadata(Texture), loc := #caller_location) {
-    assert(md != nil, loc = loc)
-    for index in 0 ..< bit_vector_len(&md.owned) {
-        if bit_vector_get(&md.owned, index) {
-            resource_release_texture(md.resources[index], loc)
-        }
-    }
-    resource_metadata_clear(md, loc)
-}
-
-// Iterate every tracked index, ascending. See resource_metadata_owned_resources
-// below for the version that yields the stored T instead.
-resource_metadata_indices :: proc(md: ^$R/Resource_Metadata($T)) -> Bit_Vector_Iterator {
-    return bit_vector_iterate(&md.owned)
-}
-
-Resource_Metadata_Iterator :: struct($T: typeid) {
-    metadata: ^Resource_Metadata(T),
-    bits:     Bit_Vector_Iterator,
-}
-
-resource_metadata_iterate :: proc(
-    m: ^Resource_Metadata($T),
-    loc := #caller_location,
-) -> Resource_Metadata_Iterator(T) {
-    return Resource_Metadata_Iterator(T){metadata = m, bits = bit_vector_iterate(&m.owned)}
-}
-
-resource_metadata_iterate_next :: proc(
-    it: ^Resource_Metadata_Iterator($T),
-    loc := #caller_location,
-) -> (
-    resource: T,
-    ok: bool,
-) {
-    index := bit_vector_iterator_next(&it.bits) or_return
-    return it.metadata.resources[index], true
-}
-
-Direct_Resource_Provider :: struct($T: typeid) {
-    resource: T,
-}
-
-Indirect_Resource_Provider :: struct($T: typeid) {
-    metadata: ^Resource_Metadata(T),
-}
-
-Resource_Metadata_Provider :: union($T: typeid) {
-    Direct_Resource_Provider(T),
-    Indirect_Resource_Provider(T),
-}
-
-resource_metadata_provider_direct :: #force_inline proc "contextless" (
-    resource: $T,
-) -> Resource_Metadata_Provider(T) {
-    return Direct_Resource_Provider(T){resource}
-}
-
-resource_metadata_provider_indirect :: #force_inline proc "contextless" (
-    metadata: ^Resource_Metadata($T),
-) -> Resource_Metadata_Provider(T) {
-    return Indirect_Resource_Provider(T){metadata}
-}
-
-// Caller must ensure `index` is in bounds for the indirect source.
-resource_metadata_provider_get :: #force_inline proc(
-    p: ^$D/Resource_Metadata_Provider($T),
-    #any_int index: int,
-    loc := #caller_location,
-) -> T {
-    assert(p != nil, loc = loc)
-    switch v in p {
-    case Direct_Resource_Provider(T):
-        return v.resource
-    case Indirect_Resource_Provider(T):
-        return resource_metadata_get_unchecked(v.metadata, index, loc)
-    case:
-        panic("invalid resource provider type", loc)
-    }
-}
-
-// A structure containing all the information about a particular resource
-// transition. User code can build a pipeline barrier from its contents.
-Pending_Transition :: struct($Uses: typeid, $Selector: typeid) {
-    id:       u32,
-    selector: Selector,
-    usage:    State_Transition(Uses),
-}
-
-// Buffers have no subresources, so their transitions carry a unit selector.
-Pending_Buffer_Transition :: Pending_Transition(Buffer_Uses, struct {})
 
 // A densely-indexed per-resource-type id used to address the tracker tables.
 Tracker_Index :: distinct u32
@@ -883,25 +33,18 @@ Tracker_Index_Allocator :: struct {
     next_index: Tracker_Index,
 }
 
-tracker_index_allocator_init :: proc(
-    a: ^Tracker_Index_Allocator,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(a != nil, loc = loc)
+tracker_index_allocator_init :: proc(a: ^Tracker_Index_Allocator, allocator: runtime.Allocator) {
+    a.unused = nil
     a.unused.allocator = allocator
+    a.next_index = 0
 }
 
-tracker_index_allocator_uninit :: proc(a: ^Tracker_Index_Allocator, loc := #caller_location) {
-    assert(a != nil, loc = loc)
+tracker_index_allocator_uninit :: proc(a: ^Tracker_Index_Allocator) {
     delete(a.unused)
+    a.unused = nil
 }
 
-tracker_index_allocator_alloc :: proc(
-    a: ^Tracker_Index_Allocator,
-    loc := #caller_location,
-) -> Tracker_Index {
-    assert(a != nil, loc = loc)
+tracker_index_allocator_alloc :: proc(a: ^Tracker_Index_Allocator) -> Tracker_Index {
     if len(a.unused) > 0 {
         return pop(&a.unused)
     }
@@ -910,24 +53,18 @@ tracker_index_allocator_alloc :: proc(
     return index
 }
 
-tracker_index_allocator_free :: proc(
-    a: ^Tracker_Index_Allocator,
-    #any_int index: Tracker_Index,
-    loc := #caller_location,
-) {
-    assert(a != nil, loc = loc)
+tracker_index_allocator_free :: proc(a: ^Tracker_Index_Allocator, index: Tracker_Index) {
     append(&a.unused, index)
 }
 
-// Highest index ever handed out. Used to pre-size tracker storage with
-// resource_metadata_set_size / etc. before doing unchecked accesses.
-tracker_index_allocator_size :: proc(a: ^Tracker_Index_Allocator, loc := #caller_location) -> int {
-    assert(a != nil, loc = loc)
+// Highest index ever handed out. Used to pre-size tracker storage before doing
+// unchecked accesses.
+tracker_index_allocator_size :: proc(a: ^Tracker_Index_Allocator) -> int {
     return int(a.next_index)
 }
 
-// A thread-safe tracker index allocator. There is one of these per resource
-// type, shared by a device and its hubs.
+// A thread-safe tracker index allocator. There is one of these per resource type,
+// shared by a device and its hubs.
 Shared_Tracker_Index_Allocator :: struct {
     mtx:   sync.Mutex,
     inner: Tracker_Index_Allocator,
@@ -936,44 +73,30 @@ Shared_Tracker_Index_Allocator :: struct {
 shared_tracker_index_allocator_init :: proc(
     a: ^Shared_Tracker_Index_Allocator,
     allocator: runtime.Allocator,
-    loc := #caller_location,
 ) {
-    assert(a != nil, loc = loc)
+    sync.guard(&a.mtx)
     tracker_index_allocator_init(&a.inner, allocator)
 }
 
-shared_tracker_index_allocator_uninit :: proc(
-    a: ^Shared_Tracker_Index_Allocator,
-    loc := #caller_location,
-) {
-    assert(a != nil, loc = loc)
+shared_tracker_index_allocator_uninit :: proc(a: ^Shared_Tracker_Index_Allocator) {
+    sync.guard(&a.mtx)
     tracker_index_allocator_uninit(&a.inner)
 }
 
-shared_tracker_index_allocator_alloc :: proc(
-    a: ^Shared_Tracker_Index_Allocator,
-    loc := #caller_location,
-) -> Tracker_Index {
-    assert(a != nil, loc = loc)
+shared_tracker_index_allocator_alloc :: proc(a: ^Shared_Tracker_Index_Allocator) -> Tracker_Index {
     sync.guard(&a.mtx)
     return tracker_index_allocator_alloc(&a.inner)
 }
 
 shared_tracker_index_allocator_free :: proc(
     a: ^Shared_Tracker_Index_Allocator,
-    #any_int index: Tracker_Index,
-    loc := #caller_location,
+    index: Tracker_Index,
 ) {
-    assert(a != nil, loc = loc)
     sync.guard(&a.mtx)
     tracker_index_allocator_free(&a.inner, index)
 }
 
-shared_tracker_index_allocator_size :: proc(
-    a: ^Shared_Tracker_Index_Allocator,
-    loc := #caller_location,
-) -> int {
-    assert(a != nil, loc = loc)
+shared_tracker_index_allocator_size :: proc(a: ^Shared_Tracker_Index_Allocator) -> int {
     sync.guard(&a.mtx)
     return tracker_index_allocator_size(&a.inner)
 }
@@ -991,12 +114,7 @@ Tracker_Index_Allocators :: struct {
     blas_s:            Shared_Tracker_Index_Allocator,
 }
 
-tracker_index_allocators_init :: proc(
-    a: ^Tracker_Index_Allocators,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(a != nil, loc = loc)
+tracker_index_allocators_init :: proc(a: ^Tracker_Index_Allocators, allocator: runtime.Allocator) {
     shared_tracker_index_allocator_init(&a.buffers, allocator)
     shared_tracker_index_allocator_init(&a.textures, allocator)
     shared_tracker_index_allocator_init(&a.samplers, allocator)
@@ -1008,8 +126,7 @@ tracker_index_allocators_init :: proc(
     shared_tracker_index_allocator_init(&a.blas_s, allocator)
 }
 
-tracker_index_allocators_uninit :: proc(a: ^Tracker_Index_Allocators, loc := #caller_location) {
-    assert(a != nil, loc = loc)
+tracker_index_allocators_uninit :: proc(a: ^Tracker_Index_Allocators) {
     shared_tracker_index_allocator_uninit(&a.buffers)
     shared_tracker_index_allocator_uninit(&a.textures)
     shared_tracker_index_allocator_uninit(&a.samplers)
@@ -1022,1139 +139,524 @@ tracker_index_allocators_uninit :: proc(a: ^Tracker_Index_Allocators, loc := #ca
 }
 
 // Convenience wrappers used to size the buffer tracker tables.
-tracker_index_allocators_buffer_size :: proc(
-    a: ^Tracker_Index_Allocators,
-    loc := #caller_location,
-) -> int {
+tracker_index_allocators_buffer_size :: proc(a: ^Tracker_Index_Allocators) -> int {
     return shared_tracker_index_allocator_size(&a.buffers)
 }
 
-tracker_index_allocators_texture_size :: proc(
-    a: ^Tracker_Index_Allocators,
-    loc := #caller_location,
-) -> int {
+tracker_index_allocators_texture_size :: proc(a: ^Tracker_Index_Allocators) -> int {
     return shared_tracker_index_allocator_size(&a.textures)
 }
 
-Stateless_Tracker :: struct($T: typeid) {
-    resources: [dynamic]T,
-}
+// -----------------------------------------------------------------------------
+// Metadata
+// -----------------------------------------------------------------------------
 
-stateless_tracker_init :: proc(
-    t: ^$S/Stateless_Tracker($T),
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    t.resources.allocator = allocator
-}
-
-stateless_tracker_uninit :: proc(t: ^$S/Stateless_Tracker($T), loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    delete(t.resources)
-}
-
-// Returns a pointer to the stored copy.
-stateless_tracker_insert_single :: proc(
-    t: ^$S/Stateless_Tracker($T),
-    resource: T,
-    loc := #caller_location,
-) -> ^T {
-    assert(t != nil, loc = loc)
-    append(&t.resources, resource)
-    return &t.resources[len(t.resources) - 1]
-}
-
-stateless_tracker_clear :: proc(t: ^$A/Stateless_Tracker($T), loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    clear(&t.resources)
-}
-
-// Transfers ownership of the reference list out, leaving an empty list with
-// the same allocator behind. The caller releases the returned references
-// under whatever lock discipline applies to its tracker.
-stateless_tracker_take :: proc(t: ^$S/Stateless_Tracker($T)) -> [dynamic]T {
-    refs := t.resources
-    t.resources = [dynamic]T{}
-    t.resources.allocator = refs.allocator
-    return refs
-}
-
-// Blas_Tracker
-Blas_Tracker :: struct {
-    metadata: Resource_Metadata(Blas),
-    size:     int,
-}
-
-blas_tracker_init :: proc(
-    t: ^Blas_Tracker,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    resource_metadata_init(&t.metadata, 0, allocator)
-}
-
-blas_tracker_uninit :: proc(t: ^Blas_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    resource_metadata_uninit(&t.metadata, loc)
-    t^ = {} // reset memory
-}
-
-blas_tracker_clear :: proc(t: ^Blas_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    resource_metadata_clear(&t.metadata, loc)
-}
-
-blas_tracker_set_size :: proc(t: ^Blas_Tracker, size: int, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    t.size = size
-    resource_metadata_set_size(&t.metadata, size, loc)
-}
-
-blas_tracker_allow_index :: proc(t: ^Blas_Tracker, #any_int index: int, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    if index >= t.size {
-        blas_tracker_set_size(t, index + 1, loc)
-    }
-}
-
-// Returns a pointer to the stored copy.
-blas_tracker_insert_single :: proc(
-    t: ^Blas_Tracker,
-    #any_int index: Tracker_Index,
-    resource: Blas,
-    loc := #caller_location,
-) -> ^Blas {
-    blas_tracker_allow_index(t, index, loc)
-    return resource_metadata_insert(&t.metadata, index, resource)
-}
-
-blas_tracker_contains :: proc(t: ^Blas_Tracker, #any_int index: Tracker_Index) -> bool {
-    return resource_metadata_contains(&t.metadata, index)
-}
-
-blas_tracker_used_resources :: proc(t: ^Blas_Tracker) -> Resource_Metadata_Iterator(Blas) {
-    return resource_metadata_iterate(&t.metadata)
-}
-
-// Query_Set_Tracker
-Query_Set_Tracker :: struct {
-    metadata: Resource_Metadata(Query_Set),
-    size:     int,
-}
-
-query_set_tracker_init :: proc(
-    t: ^Query_Set_Tracker,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    resource_metadata_init(&t.metadata, 0, allocator)
-}
-
-query_set_tracker_uninit :: proc(t: ^Query_Set_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    resource_metadata_uninit(&t.metadata, loc)
-    t^ = {} // reset memory
-}
-
-query_set_tracker_clear :: proc(t: ^Query_Set_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    resource_metadata_clear(&t.metadata, loc)
-}
-
-query_set_tracker_set_size :: proc(t: ^Query_Set_Tracker, size: int, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    t.size = size
-    resource_metadata_set_size(&t.metadata, size, loc)
-}
-
-query_set_tracker_allow_index :: proc(
-    t: ^Query_Set_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    if index >= t.size {
-        query_set_tracker_set_size(t, index + 1, loc)
-    }
-}
-
-// Returns a pointer to the stored copy.
-query_set_tracker_insert_single :: proc(
-    t: ^Query_Set_Tracker,
-    #any_int index: Tracker_Index,
-    resource: Query_Set,
-    loc := #caller_location,
-) -> ^Query_Set {
-    query_set_tracker_allow_index(t, index, loc)
-    return resource_metadata_insert(&t.metadata, index, resource)
-}
-
-query_set_tracker_contains :: proc(t: ^Query_Set_Tracker, #any_int index: Tracker_Index) -> bool {
-    return resource_metadata_contains(&t.metadata, index)
-}
-
-query_set_tracker_used_resources :: proc(
-    t: ^Query_Set_Tracker,
-) -> Resource_Metadata_Iterator(Query_Set) {
-    return resource_metadata_iterate(&t.metadata)
-}
-
-Buffer_Bind_Group_Entry :: struct {
-    index:  Tracker_Index,
-    buffer: Buffer,
-    state:  Buffer_Uses,
-}
-
-Buffer_Bind_Group_State :: struct {
-    buffers: [dynamic]Buffer_Bind_Group_Entry,
-}
-
-buffer_bind_group_state_init :: proc(
-    s: ^Buffer_Bind_Group_State,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    s.buffers.allocator = allocator
-}
-
-buffer_bind_group_state_uninit :: proc(s: ^Buffer_Bind_Group_State, loc := #caller_location) {
-    assert(s != nil, loc = loc)
-    buffer_bind_group_state_clear(s, loc)
-    delete(s.buffers)
-}
-
-// Releases every buffer the state owns and empties the list, without changing
-// the allocator.
-buffer_bind_group_state_clear :: proc(s: ^Buffer_Bind_Group_State, loc := #caller_location) {
-    assert(s != nil, loc = loc)
-    for entry in s.buffers {
-        bind_group_release_buffer(entry.buffer, loc)
-    }
-    clear(&s.buffers)
-}
-
-buffer_bind_group_state_insert_single :: proc(
-    s: ^Buffer_Bind_Group_State,
-    #any_int index: Tracker_Index,
-    buffer: Buffer,
-    state: Buffer_Uses,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    bind_group_retain_buffer(buffer, loc)
-    append(&s.buffers, Buffer_Bind_Group_Entry{index, buffer, state})
-}
-
-// Sorts by tracker index, so merging this bind group into a tracker
-// later walks memory in ascending order.
-buffer_bind_group_state_optimize :: proc(s: ^Buffer_Bind_Group_State) {
-    slice.sort_by(s.buffers[:], proc(a, b: Buffer_Bind_Group_Entry) -> bool {
-        return a.index < b.index
-    })
-}
-
-Direct_Buffer_State :: struct {
-    state: Buffer_Uses,
-}
-
-Indirect_Buffer_State :: struct {
-    state: []Buffer_Uses,
-}
-
-Buffer_State_Provider :: union {
-    Direct_Buffer_State,
-    Indirect_Buffer_State,
-}
-
-buffer_state_provider_get :: #force_inline proc(
-    p: ^Buffer_State_Provider,
-    #any_int index: int,
-    loc := #caller_location,
-) -> Buffer_Uses {
-    assert(p != nil, loc = loc)
-    switch v in p {
-    case Direct_Buffer_State:
-        return v.state
-    case Indirect_Buffer_State:
-        #no_bounds_check {
-            return v.state[index]
-        }
-    }
-    return {}
-}
-
-buffer_state_provider_direct :: proc(state: Buffer_Uses) -> (out: Buffer_State_Provider) {
-    out = Direct_Buffer_State {
-        state = state,
-    }
-    return
-}
-
-buffer_state_provider_indirect :: proc(state: []Buffer_Uses) -> (out: Buffer_State_Provider) {
-    out = Indirect_Buffer_State {
-        state = state,
-    }
-    return
-}
-
-buffer_state_insert :: proc(
-    start_states: []Buffer_Uses, // nil => don't record a start state
-    current_states: []Buffer_Uses,
-    resource_metadata: ^Resource_Metadata(Buffer),
-    #any_int index: int,
-    start_state_provider: ^Buffer_State_Provider,
-    end_state_provider: ^Buffer_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Buffer),
-    retain_resource := true,
-    loc := #caller_location,
-) {
-    new_start_state := buffer_state_provider_get(start_state_provider, index, loc)
-    new_end_state := new_start_state
-    if end_state_provider != nil {
-        new_end_state = buffer_state_provider_get(end_state_provider, index, loc)
-    }
-
-    // This should only ever happen with a bug.
-    assert(!buffer_uses_is_invalid(new_start_state), loc = loc)
-    assert(!buffer_uses_is_invalid(new_end_state), loc = loc)
-
-    if start_states != nil {
-        start_states[index] = new_start_state
-    }
-    current_states[index] = new_end_state
-
-    resource := resource_metadata_provider_get(metadata_provider, index, loc)
-    // Strong command/usage trackers retain on first insertion. The device
-    // tracker passes `retain_resource = false` because its metadata is weak.
-    if retain_resource && !resource_metadata_contains(resource_metadata, index) {
-        resource_retain_buffer(resource, loc)
-    }
-    resource_metadata_insert(resource_metadata, index, resource, loc)
-}
-
-// If `index` is already tracked: merges the incoming state with the current one,
-// reporting a conflict if the result would be invalid.
-buffer_state_merge :: proc(
-    current_states: []Buffer_Uses,
-    #any_int index: int,
-    state_provider: ^Buffer_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Buffer),
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    current_state := current_states[index]
-    new_state := buffer_state_provider_get(state_provider, index)
-
-    merged_state := current_state | new_state
-
-    if buffer_uses_is_invalid(merged_state) {
-        resource := resource_metadata_provider_get(metadata_provider, index)
-        return Buffer_Usage_Error{resource, current_state, new_state}
-    }
-
-    current_states[index] = merged_state
-    return
-}
-
-// True if going from old_state to new_state needs no barrier: the state didn't
-// change, and every usage involved is one the backend already guarantees ordering
-// for (ordered_uses_mask), so hardware/driver order is enough on its own.
-skip_barrier :: #force_inline proc "contextless" (
-    old_state, ordered_uses_mask, new_state: $F,
-) -> bool {
-    return old_state == new_state && old_state <= ordered_uses_mask
-}
-
-// Compares the current state against the incoming one and, if a real transition is
-// needed, appends a pending barrier.
-buffer_state_barrier :: proc(
-    current_states: []Buffer_Uses,
-    #any_int index: int,
-    state_provider: ^Buffer_State_Provider,
-    barriers: ^[dynamic]Pending_Buffer_Transition,
-    ordered_uses_mask: Buffer_Uses,
-    loc := #caller_location,
-) {
-    current_state := current_states[index]
-    new_state := buffer_state_provider_get(state_provider, index, loc)
-
-    if skip_barrier(current_state, ordered_uses_mask, new_state) {
-        return
-    }
-
-    append(
-        barriers,
-        Pending_Buffer_Transition {
-            id = u32(index),
-            selector = {},
-            usage = {from = current_state, to = new_state},
-        },
-    )
-}
-
-buffer_state_update :: proc(
-    current_states: []Buffer_Uses,
-    #any_int index: int,
-    state_provider: ^Buffer_State_Provider,
-    loc := #caller_location,
-) {
-    current_states[index] = buffer_state_provider_get(state_provider, index, loc)
-}
-
-// All buffer state touched within a single usage scope (a render pass, a
-// compute dispatch, ...). Uses of the same buffer within the scope are merged;
-// a conflicting merge (e.g. Storage_Read_Write + Vertex) is reported rather
-// than silently resolved.
-Buffer_Usage_Scope :: struct {
-    state:             [dynamic]Buffer_Uses,
-    metadata:          Resource_Metadata(Buffer),
-    ordered_uses_mask: Buffer_Uses,
-}
-
-buffer_usage_scope_init :: proc(
-    s: ^Buffer_Usage_Scope,
-    size: int,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    s.state = make([dynamic]Buffer_Uses, allocator)
-    resize(&s.state, size)
-    resource_metadata_init(&s.metadata, size, allocator)
-}
-
-buffer_usage_scope_uninit :: proc(s: ^Buffer_Usage_Scope, loc := #caller_location) {
-    assert(s != nil, loc = loc)
-    delete(s.state)
-    buffer_metadata_release_all(&s.metadata, loc)
-    resource_metadata_uninit(&s.metadata)
-}
-
-buffer_usage_scope_assert_in_bounds :: proc(
-    s: ^Buffer_Usage_Scope,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    assert(index < len(s.state), loc = loc)
-    resource_metadata_assert_in_bounds(&s.metadata, index, loc)
-}
-
-buffer_usage_scope_clear :: proc(s: ^Buffer_Usage_Scope, loc := #caller_location) {
-    assert(s != nil, loc = loc)
-    clear(&s.state)
-    buffer_metadata_release_all(&s.metadata, loc)
-}
-
-// Must be called with the highest possible buffer tracker index before any
-// of the *_unchecked-backed operations below run.
-buffer_usage_scope_set_size :: proc(s: ^Buffer_Usage_Scope, size: int, loc := #caller_location) {
-    assert(s != nil, loc = loc)
-    resize(&s.state, size)
-    resource_metadata_set_size(&s.metadata, size)
-}
-
-buffer_usage_scope_set_ordered_uses_mask :: proc(
-    s: ^Buffer_Usage_Scope,
-    mask: Buffer_Uses,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    s.ordered_uses_mask = mask
-}
-
-buffer_usage_scope_allow_index :: proc(
-    s: ^Buffer_Usage_Scope,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    if index >= len(s.state) {
-        buffer_usage_scope_set_size(s, index + 1, loc)
-    }
-}
-
-buffer_usage_scope_insert_or_merge :: proc(
-    s: ^Buffer_Usage_Scope,
-    #any_int index: int,
-    state_provider: ^Buffer_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Buffer),
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    assert(s != nil, loc = loc)
-    if !resource_metadata_contains_unchecked(&s.metadata, index) {
-        buffer_state_insert(
-            nil,
-            s.state[:],
-            &s.metadata,
-            index,
-            state_provider,
-            {},
-            metadata_provider,
-            retain_resource = true,
-            loc = loc,
-        )
-        return
-    }
-    return buffer_state_merge(s.state[:], index, state_provider, metadata_provider, loc)
-}
-
-// Merges a bind group's buffer states into this scope. Because bind groups don't
-// pre-validate their own internal usage union, this may legitimately fail on the
-// very first bind group merged in.
+// A set of resources keyed by tracker index: one occupancy bit per index plus the
+// resource stored at it.
 //
-// The scope grows as needed, so no prior `set_size` call is required: a bind
-// group can reference buffers whose tracker indices outrun anything the pass has
-// touched so far. This mirrors `texture_usage_scope_merge_single`.
-buffer_usage_scope_merge_bind_group :: proc(
-    s: ^Buffer_Usage_Scope,
-    bind_group: ^Buffer_Bind_Group_State,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    assert(s != nil, loc = loc)
-    assert(bind_group != nil, loc = loc)
-    for entry in bind_group.buffers {
-        err = buffer_usage_scope_merge_single(s, entry.index, entry.buffer, entry.state, loc)
-        if err != nil {
-            return
-        }
-    }
-    return
+// The trackers keep their state SOA-style, one flat array per kind of state, and
+// use this to answer "is index `i` a member" and to iterate the members without
+// touching the empty slots: `Metadata_Index_Iterator` skips whole zero words.
+//
+// The payload is the resource handle, so membership is plain data and the handle's
+// generation travels with it, which is what lets a tracker notice a recycled pool
+// slot.
+
+METADATA_WORD_BITS :: size_of(u64) * 8
+
+Resource_Metadata :: struct($T: typeid) {
+    // The resource at each index. Only a member's slot is meaningful.
+    resources:   [dynamic]T,
+    // One bit per index; a set bit means the index is a member.
+    owned:       [dynamic]u64,
+    // popcount of `owned`, maintained so `resource_metadata_count` is O(1).
+    owned_count: u32,
 }
 
-// Merges another usage scope's state into this one, growing this scope if
-// needed, no prior set_size call required.
-buffer_usage_scope_merge_usage_scope :: proc(
-    s: ^Buffer_Usage_Scope,
-    other: ^Buffer_Usage_Scope,
-) -> (
-    err: Usage_Error,
-) {
-    incoming_size := len(other.state)
-    if incoming_size > len(s.state) {
-        buffer_usage_scope_set_size(s, incoming_size)
-    }
-
-    it := resource_metadata_indices(&other.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        buffer_usage_scope_assert_in_bounds(s, index)
-        buffer_usage_scope_assert_in_bounds(other, index)
-
-        buffer_direct := buffer_state_provider_indirect(other.state[:])
-        metadata_indirect := resource_metadata_provider_indirect(&other.metadata)
-        buffer_usage_scope_insert_or_merge(s, index, &buffer_direct, &metadata_indirect) or_return
-    }
-    return
+resource_metadata_init :: proc(md: ^$R/Resource_Metadata($T), allocator: runtime.Allocator) {
+    md.owned = nil
+    md.resources = nil
+    md.owned.allocator = allocator
+    md.resources.allocator = allocator
+    md.owned_count = 0
 }
 
-// Merges a single buffer's state into this scope, growing the scope if
-// needed, no prior set_size call required.
-buffer_usage_scope_merge_single :: proc(
-    s: ^Buffer_Usage_Scope,
-    #any_int index: Tracker_Index,
-    buffer: Buffer,
-    new_state: Buffer_Uses,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    buffer_usage_scope_allow_index(s, index, loc)
-    buffer_usage_scope_assert_in_bounds(s, index, loc)
-
-    buffer_direct := buffer_state_provider_direct(new_state)
-    metadata_indirect := resource_metadata_provider_direct(buffer)
-
-    return buffer_usage_scope_insert_or_merge(s, index, &buffer_direct, &metadata_indirect)
+resource_metadata_free :: proc(md: ^$R/Resource_Metadata($T)) {
+    delete(md.owned)
+    delete(md.resources)
+    md.owned = nil
+    md.resources = nil
+    md.owned_count = 0
 }
 
-// Clears the given usage bits for a buffer already in this scope. Only safe to
-// call when you're certain you won't be erasing a usage you don't know about —
-// repeated uses of the same buffer get merged together, so this can't selectively
-// undo just "your" contribution.
-buffer_usage_scope_remove_usage :: proc(
-    s: ^Buffer_Usage_Scope,
-    #any_int index: Tracker_Index,
-    usage: Buffer_Uses,
-    loc := #caller_location,
-) {
-    if resource_metadata_contains(&s.metadata, index) {
-        s.state[index] &~= usage
-    }
+// Drop every member, keeping the backing storage for reuse.
+resource_metadata_clear :: proc(md: ^$R/Resource_Metadata($T)) {
+    clear(&md.owned)
+    clear(&md.resources)
+    md.owned_count = 0
 }
 
-// All buffer state touched within a single command buffer: a start state (what
-// the buffer needs to be in when this command buffer begins) and an end state
-// (what it's left in). Diffing start against the device's current state
-// produces the transitions needed before this command buffer's work can run.
-Buffer_Tracker :: struct {
-    start:             [dynamic]Buffer_Uses,
-    end:               [dynamic]Buffer_Uses,
-    metadata:          Resource_Metadata(Buffer),
-    temp:              [dynamic]Pending_Buffer_Transition,
-    ordered_uses_mask: Buffer_Uses,
+// How many indexes are members.
+resource_metadata_count :: #force_inline proc "contextless" (
+    md: ^$R/Resource_Metadata($T),
+) -> u32 {
+    return md.owned_count
 }
 
-buffer_tracker_init :: proc(
-    t: ^Buffer_Tracker,
-    ordered_uses_mask: Buffer_Uses,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    t.start.allocator = allocator
-    t.end.allocator = allocator
-    resource_metadata_init(&t.metadata, 0, allocator)
-    t.end.allocator = allocator
-    t.ordered_uses_mask = ordered_uses_mask
-}
-
-buffer_tracker_uninit :: proc(t: ^Buffer_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    delete(t.start)
-    delete(t.end)
-    buffer_metadata_release_all(&t.metadata, loc)
-    resource_metadata_uninit(&t.metadata)
-    delete(t.temp)
-    t^ = {}
-}
-
-buffer_tracker_clear :: proc(t: ^Buffer_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    clear(&t.start)
-    clear(&t.end)
-    buffer_metadata_release_all(&t.metadata, loc)
-    clear(&t.temp)
-}
-
-buffer_tracker_assert_in_bounds :: proc(
-    t: ^Buffer_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(index < len(t.start), loc = loc)
-    assert(index < len(t.end), loc = loc)
-    resource_metadata_assert_in_bounds(&t.metadata, index, loc)
-}
-
-buffer_tracker_set_size :: proc(t: ^Buffer_Tracker, size: int, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    resize(&t.start, size)
-    resize(&t.end, size)
-    resource_metadata_set_size(&t.metadata, size)
-}
-
-buffer_tracker_allow_index :: proc(t: ^Buffer_Tracker, #any_int index: int) {
-    if index >= len(t.start) {
-        buffer_tracker_set_size(t, index + 1)
-    }
-}
-
-buffer_tracker_contains :: proc(
-    t: ^Buffer_Tracker,
-    #any_int index: Tracker_Index,
-    loc := #caller_location,
+resource_metadata_is_empty :: #force_inline proc "contextless" (
+    md: ^$R/Resource_Metadata($T),
 ) -> bool {
-    assert(t != nil, loc = loc)
-    return resource_metadata_contains(&t.metadata, index)
+    return md.owned_count == 0
 }
 
-buffer_tracker_used_resources :: proc(t: ^Buffer_Tracker) -> Resource_Metadata_Iterator(Buffer) {
-    return resource_metadata_iterate(&t.metadata)
+// Grow so `index` can be a member, keeping the bit words and the payload slots in
+// step: `index / 64 + 1` words and `index + 1` slots.
+//
+// Every mutating entry point grows through here, so an index above the current
+// size is never out of bounds on first contact. Growth is amortized: reserve a
+// power-of-two overshoot beyond the requested size so a creation spike does not
+// cause repeated one-element reallocs (the previous implementation appended one
+// word / one slot at a time, which is O(n²) in the number of new indices).
+resource_metadata_grow_to :: proc(md: ^$R/Resource_Metadata($T), index: Tracker_Index) {
+    i := u32(index)
+    words := i / METADATA_WORD_BITS + 1
+    if u32(len(md.owned)) < words {
+        // Next power of two at or above `words`, at least doubling so we do not
+        // thrash on growth spikes.
+        new_size := words
+        if new_size < u32(len(md.owned)) * 2 {
+            new_size = u32(len(md.owned)) * 2
+        }
+        if new_size < 4 {
+            new_size = 4
+        }
+        // Grow in one allocation.
+        new_owned := make([dynamic]u64, new_size, md.owned.allocator)
+        copy(new_owned[:], md.owned[:])
+        delete(md.owned)
+        md.owned = new_owned
+    }
+    if u32(len(md.resources)) <= i {
+        new_size := i + 1
+        if new_size < u32(len(md.resources)) * 2 {
+            new_size = u32(len(md.resources)) * 2
+        }
+        if new_size < 8 {
+            new_size = 8
+        }
+        new_resources := make([dynamic]T, new_size, md.resources.allocator)
+        copy(new_resources[:], md.resources[:])
+        delete(md.resources)
+        md.resources = new_resources
+    }
 }
 
-// Returns every pending transition accumulated so far and empties the
-// internal buffer (capacity is kept for reuse). The caller owns the
-// returned slice and should `delete()` it once done.
-buffer_tracker_drain_transitions :: proc(
-    t: ^Buffer_Tracker,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) -> []Pending_Buffer_Transition {
-    assert(t != nil, loc = loc)
-    result := make([]Pending_Buffer_Transition, len(t.temp), allocator)
-    copy(result, t.temp[:])
-    clear(&t.temp)
-    return result
+// Single-probe membership + payload. Replaces the common pattern
+// `if contains(md, idx) { get(md, idx) }` which probes twice (and, in the
+// buffer tracker, sometimes probes a third time). Returns `(true, ^T)` for a
+// live member, `(false, nil)` otherwise. The returned pointer is into
+// `md.resources`; mutating through it is safe only while `md` is not being
+// grown concurrently (the usual single-threaded caller case).
+@(require_results)
+resource_metadata_lookup :: #force_inline proc "contextless" (
+    md: ^$R/Resource_Metadata($T),
+    index: Tracker_Index,
+) -> (bool, ^T) {
+    if u32(index) >= u32(len(md.resources)) {
+        return false, nil
+    }
+    word := u32(index) / METADATA_WORD_BITS
+    if (md.owned[word] & metadata_bit(index)) == 0 {
+        return false, nil
+    }
+    return true, &md.resources[u32(index)]
 }
 
-buffer_tracker_insert_or_barrier_update :: proc(
-    t: ^Buffer_Tracker,
-    #any_int index: int,
-    start_state_provider: ^Buffer_State_Provider,
-    end_state_provider: ^Buffer_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Buffer),
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-
-    if !resource_metadata_contains_unchecked(&t.metadata, index) {
-        buffer_state_insert(
-            t.start[:],
-            t.end[:],
-            &t.metadata,
-            index,
-            start_state_provider,
-            end_state_provider,
-            metadata_provider,
-            retain_resource = true,
-            loc = loc,
-        )
+// Presize for the highest possible index, `size - 1`. Only grows: the backing
+// storage is reused, and `clear` is what empties the set.
+resource_metadata_set_size :: proc(md: ^$R/Resource_Metadata($T), size: u32) {
+    if size == 0 {
         return
     }
-
-    update_state_provider := end_state_provider
-    if update_state_provider == nil {
-        update_state_provider = start_state_provider
-    }
-
-    buffer_state_barrier(t.end[:], index, start_state_provider, &t.temp, t.ordered_uses_mask)
-    buffer_state_update(t.end[:], index, update_state_provider)
+    resource_metadata_grow_to(md, Tracker_Index(size - 1))
 }
 
-// Sets a single buffer's state, growing the tracker if needed. Returns the
-// one transition needed (if any) to reach that state.
-buffer_tracker_set_single :: proc(
-    t: ^Buffer_Tracker,
-    #any_int index: Tracker_Index,
-    buffer: Buffer,
-    state: Buffer_Uses,
-    loc := #caller_location,
-) -> (
-    transition: Pending_Buffer_Transition,
-    ok: bool,
+// The bit that marks `index`: one bit of the word it falls in.
+metadata_bit :: #force_inline proc "contextless" (index: Tracker_Index) -> u64 {
+    return 1 << (u32(index) % METADATA_WORD_BITS)
+}
+
+resource_metadata_contains :: #force_inline proc "contextless" (
+    md: ^$R/Resource_Metadata($T),
+    index: Tracker_Index,
+) -> bool {
+    if u32(index) >= u32(len(md.resources)) {
+        return false
+    }
+    return (md.owned[u32(index) / METADATA_WORD_BITS] & metadata_bit(index)) != 0
+}
+
+// Insert `resource` at `index`, or overwrite the member already there. Growing is
+// implicit, so an index no `set_size` covered is still valid.
+resource_metadata_insert :: proc(
+    md: ^$R/Resource_Metadata($T),
+    index: Tracker_Index,
+    resource: T,
 ) {
-    assert(t != nil, loc = loc)
+    resource_metadata_grow_to(md, index)
+    word := u32(index) / METADATA_WORD_BITS
+    mask := metadata_bit(index)
+    if (md.owned[word] & mask) == 0 {
+        md.owned_count += 1
+    }
+    md.owned[word] |= mask
+    md.resources[u32(index)] = resource
+}
 
-    buffer_tracker_allow_index(t, index)
-    buffer_tracker_assert_in_bounds(t, index)
-
-    direct_buffer := buffer_state_provider_direct(state)
-    direct_provider := resource_metadata_provider_direct(buffer)
-
-    buffer_tracker_insert_or_barrier_update(t, index, &direct_buffer, {}, &direct_provider)
-
-    assert(len(t.temp) <= 1)
-    if len(t.temp) == 0 {
+// Remove `index` from the set; a no-op when it is not a member.
+resource_metadata_remove :: proc(md: ^$R/Resource_Metadata($T), index: Tracker_Index) {
+    if !resource_metadata_contains(md, index) {
         return
     }
-    transition = t.temp[0]
-    clear(&t.temp)
-    return transition, true
+    word := u32(index) / METADATA_WORD_BITS
+    mask := metadata_bit(index)
+    if (md.owned[word] & mask) != 0 {
+        md.owned_count -= 1
+    }
+    md.owned[word] &= ~mask
 }
 
-// Adopts every buffer's (start, end) state from `other`, growing this tracker if
-// needed. Transitions are accumulated in `t.temp`: call
-// `buffer_tracker_drain_transitions` afterward to collect them.
-buffer_tracker_set_from_tracker :: proc(
-    t: ^Buffer_Tracker,
-    other: ^Buffer_Tracker,
+// The resource at `index`; only meaningful for a member.
+resource_metadata_get :: proc(
+    md: ^$R/Resource_Metadata($T),
+    index: Tracker_Index,
     loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(other != nil, loc = loc)
-
-    incoming_size := len(other.start)
-    if incoming_size > len(t.start) {
-        buffer_tracker_set_size(t, incoming_size, loc)
-    }
-
-    it := resource_metadata_indices(&other.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        buffer_tracker_assert_in_bounds(t, index, loc)
-        buffer_tracker_assert_in_bounds(other, index, loc)
-
-        buffer_indirect := buffer_state_provider_indirect(other.start[:])
-        resource_indirect := resource_metadata_provider_indirect(&other.metadata)
-        end_provider := buffer_state_provider_indirect(other.end[:])
-
-        buffer_tracker_insert_or_barrier_update(
-            t,
-            index,
-            &buffer_indirect,
-            &end_provider,
-            &resource_indirect,
-            loc,
-        )
-    }
+) -> T {
+    assert(u32(index) < u32(len(md.resources)), "metadata index past its slots", loc = loc)
+    return md.resources[u32(index)]
 }
 
-// Adopts every buffer's state from a usage scope, growing this tracker if needed.
-// Transitions are accumulated in `t.temp`.
-buffer_tracker_set_from_usage_scope :: proc(
-    t: ^Buffer_Tracker,
-    scope: ^Buffer_Usage_Scope,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(scope != nil, loc = loc)
-
-    incoming_size := len(scope.state)
-    if incoming_size > len(t.start) {
-        buffer_tracker_set_size(t, incoming_size, loc)
-    }
-
-    it := resource_metadata_indices(&scope.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        buffer_tracker_assert_in_bounds(t, index, loc)
-        buffer_usage_scope_assert_in_bounds(scope, index, loc)
-
-        buffer_indirect := buffer_state_provider_indirect(scope.state[:])
-        resource_indirect := resource_metadata_provider_indirect(&scope.metadata)
-
-        buffer_tracker_insert_or_barrier_update(
-            t,
-            index,
-            &buffer_indirect,
-            {},
-            &resource_indirect,
-            loc,
-        )
-    }
+// Iterates a `Resource_Metadata`'s members in ascending index order, whole empty
+// words at a time.
+Metadata_Index_Iterator :: struct($T: typeid) {
+    metadata: ^Resource_Metadata(T),
+    // The next word to load; while `bits` is live, one past the word it came from.
+    word:     u32,
+    bits:     u64,
 }
 
-// Compute-pass barrier shortcut: for every buffer used by `bind_group`, adopts its
-// state from `scope` (which the bind group must already have been merged into) and
-// removes it from `scope`. Lets barriers be generated after a dispatch by walking
-// only the bind group's resources instead of the whole usage scope. Panics
-// (asserts, in debug builds) if a bind group resource isn't present in `scope`.
-buffer_tracker_set_and_remove_from_usage_scope_sparse :: proc(
-    t: ^Buffer_Tracker,
-    scope: ^Buffer_Usage_Scope,
-    indices: []Tracker_Index,
-    loc := #caller_location,
+metadata_index_iterator_init :: proc(
+    it: ^Metadata_Index_Iterator($T),
+    metadata: ^Resource_Metadata(T),
 ) {
-    assert(t != nil, loc = loc)
-    assert(scope != nil, loc = loc)
+    it.metadata = metadata
+    it.word = 0
+    it.bits = 0
+}
 
-    incoming_size := len(scope.state)
-    if incoming_size > len(t.start) {
-        buffer_tracker_set_size(t, incoming_size, loc)
-    }
-
-    for tracker_index in indices {
-        buffer_usage_scope_assert_in_bounds(scope, tracker_index)
-
-        if !resource_metadata_contains_unchecked(&scope.metadata, tracker_index) {
+// The next member's index, or false at the end of the set.
+metadata_index_iterator_next :: proc(
+    it: ^Metadata_Index_Iterator($T),
+    index: ^Tracker_Index,
+) -> bool {
+    for {
+        if it.bits == 0 {
+            if it.metadata == nil || it.word >= u32(len(it.metadata.owned)) {
+                return false
+            }
+            it.bits = it.metadata.owned[it.word]
+            it.word += 1
             continue
         }
-
-        buffer_indirect := buffer_state_provider_indirect(scope.state[:])
-        resource_indirect := resource_metadata_provider_indirect(&scope.metadata)
-
-        buffer_tracker_insert_or_barrier_update(
-            t,
-            tracker_index,
-            &buffer_indirect,
-            {},
-            &resource_indirect,
-            loc,
+        // `ctz` of a live word is the lowest member in it; clearing that bit steps
+        // to the next one.
+        index^ = Tracker_Index(
+            (it.word - 1) * u32(METADATA_WORD_BITS) + u32(intr.count_trailing_zeros(it.bits)),
         )
-
-        // Ownership moves to the command-buffer tracker, which retained it on
-        // insert, so the usage scope gives up its reference here.
-        resource_release_buffer(
-            resource_metadata_get_unchecked(&scope.metadata, tracker_index, loc),
-            loc,
-        )
-        resource_metadata_remove(&scope.metadata, tracker_index)
+        it.bits &= it.bits - 1
+        return true
     }
 }
 
-// Stores the current state of every buffer used by a device. Its metadata is
-// weak: the device tracker must not keep buffers alive, as their final release
-// schedules deferred destruction and removes the tracker entry.
+// -----------------------------------------------------------------------------
+// Range
+// -----------------------------------------------------------------------------
+
+// Ranged subresource states: an ordered, gap-free partition of a key range into
+// entries, each carrying one value.
 //
-// Unlike a command-buffer tracker, this one belongs to the device and is reached
-// from every thread that creates a buffer, records against it, writes to it, or
-// destroys it. `mtx` serializes all of that; see the locking notes on
-// `Device_Tracker` for the lock ordering rules.
-Device_Buffer_Tracker :: struct {
-    current_states:    [dynamic]Buffer_Uses,
-    metadata:          Resource_Metadata(Buffer),
-    temp:              [dynamic]Pending_Buffer_Transition,
-    ordered_uses_mask: Buffer_Uses,
-    mtx:               sync.RW_Mutex,
+// Texture state is built on this. A mip's array layers are one entry until a use
+// splits them, and only the entries a use actually touches are re-split, so the
+// sequence stays as short as the states allow.
+//
+// `ranged_states_isolate` is the only operation that splits;
+// `ranged_states_coalesce` is the only one that merges.
+
+// One half-open key range `[start, end)` and the value every key inside has.
+Ranged_Entry :: struct($T: typeid) {
+    start: u32,
+    end:   u32,
+    value: T,
 }
 
-device_buffer_tracker_init :: proc(
-    t: ^Device_Buffer_Tracker,
-    ordered_uses_mask: Buffer_Uses,
+// A partition of `[ranges[0].start, ranges[last].end)`. Entries never overlap and
+// never leave a gap, so an entry's `end` is the next entry's `start`.
+Ranged_States :: struct($T: typeid) {
     allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    t.current_states.allocator = allocator
-    t.temp.allocator = allocator
-    t.ordered_uses_mask = ordered_uses_mask
-    resource_metadata_init(&t.metadata, 0, allocator)
+    ranges:    [dynamic]Ranged_Entry(T),
 }
 
-device_buffer_tracker_uninit :: proc(t: ^Device_Buffer_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    delete(t.current_states)
-    resource_metadata_uninit(&t.metadata)
-    delete(t.temp)
-    t^ = {} // reset memory
+ranged_states_init :: proc(rs: ^Ranged_States($T), allocator: runtime.Allocator) {
+    rs.ranges = nil
+    rs.ranges.allocator = allocator
+    rs.allocator = allocator
 }
 
-// The buffer tracker is shared by every thread touching a device, so each of the
-// operations below takes `mtx` itself. Helpers whose name ends in `_locked` assume
-// the caller already holds the exclusive lock; they exist so composite operations
-// can hold the lock once across a read-modify-write instead of re-entering the
-// non-recursive `RW_Mutex`.
-device_buffer_tracker_assert_in_bounds :: proc(
-    t: ^Device_Buffer_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(index < len(t.current_states), loc = loc)
-    resource_metadata_assert_in_bounds(&t.metadata, index, loc)
+ranged_states_free :: proc(rs: ^Ranged_States($T)) {
+    delete(rs.ranges)
+    rs.ranges = nil
 }
 
-device_buffer_tracker_allow_index_locked :: proc(
-    t: ^Device_Buffer_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    if index >= len(t.current_states) {
-        resize(&t.current_states, index + 1)
-        resource_metadata_set_size(&t.metadata, index + 1, loc)
-    }
+ranged_states_clear :: proc(rs: ^Ranged_States($T)) {
+    clear(&rs.ranges)
 }
 
-device_buffer_tracker_allow_index :: proc(
-    t: ^Device_Buffer_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    sync.guard(&t.mtx)
-    device_buffer_tracker_allow_index_locked(t, index, loc)
+// Replace every entry with one covering `[start, end)`.
+ranged_states_set_single :: proc(rs: ^Ranged_States($T), start, end: u32, value: T) {
+    clear(&rs.ranges)
+    append(&rs.ranges, Ranged_Entry(T){start = start, end = end, value = value})
 }
 
-// Returns an iterator over every tracked buffer (weak).
+// The number of entries. Not the number of keys covered.
+ranged_states_len :: #force_inline proc "contextless" (rs: ^Ranged_States($T)) -> int {
+    return len(rs.ranges)
+}
+
+// True when the entries are ordered, non-empty and non-overlapping.
 //
-// The iterator borrows `t`'s tables rather than copying them, so it is only valid
-// while nothing else can mutate the tracker: either hold `mtx` exclusively for the
-// whole walk, or be the tracker's only user. There is deliberately no lock taken
-// here, because one would be released before the caller iterated, a lock that
-// guards nothing is worse than none. Nothing in the backend uses this; it exists for
-// introspection and tests.
-device_buffer_tracker_used_resources :: proc(
-    t: ^Device_Buffer_Tracker,
-    loc := #caller_location,
-) -> Resource_Metadata_Iterator(Buffer) {
-    assert(t != nil, loc = loc)
-    return resource_metadata_iterate(&t.metadata)
+// Split out from `ranged_states_check_sanity` so a test can assert that a
+// malformed sequence is detected instead of crashing the run.
+ranged_states_is_sane :: proc(rs: ^Ranged_States($T)) -> bool {
+    for entry, i in rs.ranges {
+        if entry.start >= entry.end {
+            return false
+        }
+        if i > 0 && rs.ranges[i - 1].end > entry.start {
+            return false
+        }
+    }
+    return true
 }
 
-// Inserts (or overwrites) a single buffer's current state.
-device_buffer_tracker_insert_single :: proc(
-    t: ^Device_Buffer_Tracker,
-    #any_int index: Tracker_Index,
-    buffer: Buffer,
-    state: Buffer_Uses,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-
-    sync.guard(&t.mtx)
-    device_buffer_tracker_insert_single_locked(t, index, buffer, state, loc)
+// Assert `ranged_states_is_sane`. Every mutation must leave the sequence sane.
+ranged_states_check_sanity :: proc(rs: ^Ranged_States($T), loc := #caller_location) {
+    valid := rs.ranges == nil || ranged_states_is_sane(rs)
+    assert(valid, "ranged states are empty, unordered or overlapping", loc = loc)
 }
 
-// Exclusive-lock body of `device_buffer_tracker_insert_single`.
-device_buffer_tracker_insert_single_locked :: proc(
-    t: ^Device_Buffer_Tracker,
-    #any_int index: Tracker_Index,
-    buffer: Buffer,
-    state: Buffer_Uses,
-    loc := #caller_location,
-) {
-    device_buffer_tracker_allow_index_locked(t, index, loc)
-    device_buffer_tracker_assert_in_bounds(t, index, loc)
-
-    direct_buffer := buffer_state_provider_direct(state)
-    direct_provider := resource_metadata_provider_direct(buffer)
-
-    buffer_state_insert(
-        start_states = nil,
-        current_states = t.current_states[:],
-        resource_metadata = &t.metadata,
-        index = index,
-        start_state_provider = &direct_buffer,
-        end_state_provider = {},
-        metadata_provider = &direct_provider,
-        retain_resource = false,
-        loc = loc,
-    )
-}
-
-// Sets a single buffer's state. Returns the one transition needed (if
-// any) to reach it.
-@(require_results)
-device_buffer_tracker_set_single :: proc(
-    t: ^Device_Buffer_Tracker,
-    #any_int index: Tracker_Index,
-    buffer: Buffer,
-    state: Buffer_Uses,
-    loc := #caller_location,
-) -> (
-    transition: Pending_Buffer_Transition,
-    ok: bool,
-) {
-    sync.guard(&t.mtx)
-    device_buffer_tracker_assert_in_bounds(t, index, loc)
-
-    start_state_provider := buffer_state_provider_direct(state)
-    buffer_state_barrier(
-        t.current_states[:],
-        index,
-        &start_state_provider,
-        &t.temp,
-        t.ordered_uses_mask,
-    )
-    buffer_state_update(t.current_states[:], index, &start_state_provider)
-
-    assert(len(t.temp) <= 1, loc = loc)
-    if len(t.temp) == 0 {
+// Merge neighbouring entries that agree, so the sequence stays as short as the
+// states allow.
+ranged_states_coalesce :: proc(rs: ^Ranged_States($T)) {
+    if len(rs.ranges) < 2 {
         return
     }
-    transition = t.temp[0]
-    clear(&t.temp)
-    return transition, true
+    write := 0
+    for i in 1 ..< len(rs.ranges) {
+        if rs.ranges[write].end == rs.ranges[i].start &&
+           rs.ranges[write].value == rs.ranges[i].value {
+            rs.ranges[write].end = rs.ranges[i].end
+            continue
+        }
+        write += 1
+        if write != i {
+            rs.ranges[write] = rs.ranges[i]
+        }
+    }
+    if len(rs.ranges) > write + 1 {
+        resize(&rs.ranges, write + 1)
+    }
 }
 
-// Diffs every buffer in `tracker`'s start state against this device's current
-// state, appends the needed transitions to `t.temp`, and adopts `tracker`'s end
-// state as the new current state. Returns the collected transitions (caller owns
-// the slice, `delete()` it when done).
+// Split entries so that `[lo, hi)` is covered by exactly the returned run of
+// entries, filling any gap inside the range with `default_value`. Entries outside
+// the range are untouched.
 //
-// The whole diff-and-commit runs under one exclusive acquisition: two threads
-// interleaving here would each diff against a current state the other had already
-// advanced, producing barriers that are missing or duplicated.
-device_buffer_tracker_set_from_tracker_and_drain_transitions :: proc(
-    t: ^Device_Buffer_Tracker,
-    tracker: ^Buffer_Tracker,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) -> []Pending_Buffer_Transition {
-    sync.guard(&t.mtx)
-
-    it := resource_metadata_indices(&tracker.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        device_buffer_tracker_assert_in_bounds(t, index, loc)
-
-        start_state_provider := buffer_state_provider_indirect(tracker.start[:])
-        end_state_provider := buffer_state_provider_indirect(tracker.end[:])
-
-        buffer_state_barrier(
-            current_states = t.current_states[:],
-            index = index,
-            state_provider = &start_state_provider,
-            barriers = &t.temp,
-            ordered_uses_mask = t.ordered_uses_mask,
-            loc = loc,
-        )
-        buffer_state_update(t.current_states[:], index, &end_state_provider)
+// Returns the index of the first covered entry. The run ends at the first entry
+// whose `start` is `hi`, or at the end of the list. A caller reads and writes the
+// covered values by index:
+//
+//  for i := first; i < len(rs.ranges) && rs.ranges[i].start < hi; i += 1 {
+//      rs.ranges[i].value = VALUE
+//  }
+//
+// A sequence with no entry at or after `lo` gets one covering `[lo, hi)`.
+ranged_states_isolate :: proc(rs: ^Ranged_States($T), lo, hi: u32, default_value: T) -> int {
+    start_pos := -1
+    for i in 0 ..< len(rs.ranges) {
+        if rs.ranges[i].end > lo {
+            start_pos = i
+            break
+        }
+    }
+    if start_pos < 0 {
+        pos := len(rs.ranges)
+        append(&rs.ranges, Ranged_Entry(T){start = lo, end = hi, value = default_value})
+        return pos
     }
 
-    // The result is copied out and the scratch buffer cleared before the lock is
-    // released, so the caller owns an independent slice and nothing aliases `t`.
-    result := make([]Pending_Buffer_Transition, len(t.temp), allocator)
-    copy(result, t.temp[:])
-    clear(&t.temp)
-    return result
-}
+    // Split the entry that straddles `lo`, so the covered run starts on a boundary
+    // and the part below `lo` keeps its value.
+    if rs.ranges[start_pos].start < lo {
+        old_start := rs.ranges[start_pos].start
+        value := rs.ranges[start_pos].value
+        rs.ranges[start_pos].start = lo
+        ok, _ := inject_at(
+            &rs.ranges,
+            start_pos,
+            Ranged_Entry(T){start = old_start, end = lo, value = value},
+        )
+        assert(ok, "ranged states out of memory")
+        start_pos += 1
+    }
 
-device_buffer_tracker_remove :: proc(t: ^Device_Buffer_Tracker, #any_int index: Tracker_Index) {
-    sync.guard(&t.mtx)
-    // Device tracker metadata is weak and does not own a reference.
-    resource_metadata_remove(&t.metadata, index)
-    // t.current_states[index] is left stale but unreachable, bit_vector_get
-    // will report "not contained" for this index until it's reused, at which
-    // point device_buffer_tracker_insert_single overwrites it fresh.
+    pos := start_pos
+    range_pos := lo
+    for {
+        cur_start := rs.ranges[pos].start
+        cur_end := rs.ranges[pos].end
+        if cur_start >= hi {
+            // The sequence ended before `hi`: fill the tail.
+            ok, _ := inject_at(
+                &rs.ranges,
+                pos,
+                Ranged_Entry(T){start = range_pos, end = hi, value = default_value},
+            )
+            assert(ok, "ranged states out of memory")
+            pos += 1
+            break
+        }
+        if cur_start > range_pos {
+            // A gap between entries: fill it with the default.
+            ok, _ := inject_at(
+                &rs.ranges,
+                pos,
+                Ranged_Entry(T){start = range_pos, end = cur_start, value = default_value},
+            )
+            assert(ok, "ranged states out of memory")
+            pos += 1
+            range_pos = cur_start
+        }
+        if cur_end >= hi {
+            if cur_end != hi {
+                // The entry straddles `hi`: keep the part above it.
+                value := rs.ranges[pos].value
+                rs.ranges[pos].start = hi
+                ok, _ := inject_at(
+                    &rs.ranges,
+                    pos,
+                    Ranged_Entry(T){start = range_pos, end = hi, value = value},
+                )
+                assert(ok, "ranged states out of memory")
+            }
+            pos += 1
+            break
+        }
+        pos += 1
+        range_pos = cur_end
+        if pos == len(rs.ranges) {
+            // The sequence ended before `hi` and on a boundary.
+            append(&rs.ranges, Ranged_Entry(T){start = range_pos, end = hi, value = default_value})
+            pos += 1
+            break
+        }
+    }
+    return start_pos
 }
 
 // -----------------------------------------------------------------------------
-// Texture
+// Uses
 // -----------------------------------------------------------------------------
 
-// Similar to `Texture_Usages`, but for internal use.
+// The semantic use sets the trackers reason about.
+//
+// A tracked state is the set of uses a subresource is currently valid for. Two
+// rules drive everything else:
+//
+// - *Exclusive* uses cannot coexist with any other use in one usage scope. A
+//   scope that merges an exclusive use onto a non-empty state is a conflict.
+// - *Inclusive* uses may coexist, and the hardware orders accesses within them,
+//   so a transition between two states drawn from that set needs no barrier.
+//
+// `Unknown` and `Uninitialized` are different facts. `Unknown` means the tracker
+// knows nothing about the subresource; it never reaches a barrier. `Uninitialized`
+// means the tracker knows the contents are undefined; transitioning away from it
+// discards them.
+
+// Semantic texture usages. Nineteen bits, so the whole set fits in one word.
 Texture_Uses :: bit_set[Texture_Use;u32]
-Texture_Use :: enum {
-    // The texture is in unknown state.
+Texture_Use  :: enum {
+    // Known to hold undefined contents. Transitions away from it discard.
     Uninitialized,
-    // Ready to present image to the surface.
+    // Handed to, or about to be handed to, the presentation engine.
     Present,
-    // The source of a hardware copy.
+    // Source of a copy.
     Copy_Src,
-    // The destination of a hardware copy.
+    // Destination of a copy, a clear or a queue write.
     Copy_Dst,
-    // Read-only sampled or fetched resource.
+    // Sampled or fetched by a shader.
     Resource,
-    // The color target of a renderpass.
+    // Color attachment of a render pass.
     Color_Target,
-    // Read-only depth usage.
+    // Read-only depth access.
     Depth_Read,
-    // Read-write depth usage.
+    // Read-write depth access.
     Depth_Write,
-    // Read-only stencil usage.
+    // Read-only stencil access.
     Stencil_Read,
-    // Read-write stencil usage.
+    // Read-write stencil access.
     Stencil_Write,
-    // Read-only storage texture usage. Corresponds to a UAV in d3d, so is
-    // exclusive, despite being read only.
+    // Read-only storage texture.
     Storage_Read_Only,
-    // Write-only storage texture usage.
+    // Write-only storage texture.
     Storage_Write_Only,
-    // Read-write storage texture usage.
+    // Read-write storage texture.
     Storage_Read_Write,
-    // Image atomic enabled storage.
+    // Storage texture whose accesses may be atomic.
     Storage_Atomic,
-    // Transient texture that may not have any backing memory. Not a resource
-    // state stored in the trackers, only used for passing down usages to
-    // `device_create_texture`.
+    // Requested as a transient attachment; never a tracked state.
     Transient,
-    // Flag used for texture tracker to say a texture is in different states for
-    // every sub-resource.
+    // Tracker bookkeeping: the subresources this texture is split across.
     Complex,
-    // Flag used for texture tracker to say that the tracker does not know the
-    // state of the sub-resource. This is different from `Uninitialized` as
-    // that says the tracker does know, but the texture has not been
-    // initialized.
+    // The tracker knows nothing about this subresource.
     Unknown,
-    // Flag used by texture tracker to say the read-only depth aspect of
-    // texture is sampled.
+    // The read-only depth aspect is sampled.
     Depth_Sampled,
-    // Flag used by texture tracker to say the read-only stencil aspect of
-    // texture is sampled.
+    // The read-only stencil aspect is sampled.
     Stencil_Sampled,
 }
 
-// The combination of states that a texture may be in _at the same time_.
-TEXTURE_USES_INCLUSIVE :: Texture_Uses {
-    .Copy_Src,
-    .Resource,
-    .Depth_Read,
-    .Stencil_Read,
-    .Storage_Read_Only,
-}
+TEXTURE_USES_EMPTY              :: Texture_Uses{}
+TEXTURE_USES_UNINITIALIZED      :: Texture_Uses{.Uninitialized}
+TEXTURE_USES_PRESENT            :: Texture_Uses{.Present}
+TEXTURE_USES_COPY_SRC           :: Texture_Uses{.Copy_Src}
+TEXTURE_USES_COPY_DST           :: Texture_Uses{.Copy_Dst}
+TEXTURE_USES_RESOURCE           :: Texture_Uses{.Resource}
+TEXTURE_USES_COLOR_TARGET       :: Texture_Uses{.Color_Target}
+TEXTURE_USES_DEPTH_READ         :: Texture_Uses{.Depth_Read}
+TEXTURE_USES_DEPTH_WRITE        :: Texture_Uses{.Depth_Write}
+TEXTURE_USES_STENCIL_READ       :: Texture_Uses{.Stencil_Read}
+TEXTURE_USES_STENCIL_WRITE      :: Texture_Uses{.Stencil_Write}
+TEXTURE_USES_STORAGE_READ_ONLY  :: Texture_Uses{.Storage_Read_Only}
+TEXTURE_USES_STORAGE_WRITE_ONLY :: Texture_Uses{.Storage_Write_Only}
+TEXTURE_USES_STORAGE_READ_WRITE :: Texture_Uses{.Storage_Read_Write}
+TEXTURE_USES_STORAGE_ATOMIC     :: Texture_Uses{.Storage_Atomic}
+TEXTURE_USES_TRANSIENT          :: Texture_Uses{.Transient}
+TEXTURE_USES_COMPLEX            :: Texture_Uses{.Complex}
+TEXTURE_USES_UNKNOWN            :: Texture_Uses{.Unknown}
+TEXTURE_USES_DEPTH_SAMPLED      :: Texture_Uses{.Depth_Sampled}
+TEXTURE_USES_STENCIL_SAMPLED    :: Texture_Uses{.Stencil_Sampled}
 
-// The combination of states that a texture must exclusively be in.
+// Uses that exclude every other use on the same subresource within a usage scope.
 TEXTURE_USES_EXCLUSIVE :: Texture_Uses {
     .Copy_Dst,
     .Color_Target,
@@ -2164,22 +666,30 @@ TEXTURE_USES_EXCLUSIVE :: Texture_Uses {
     .Present,
 }
 
-TEXTURE_USES_EMPTY :: Texture_Uses{}
-TEXTURE_USES_UNKNOWN :: Texture_Uses{.Unknown}
-TEXTURE_USES_UNINITIALIZED :: Texture_Uses{.Uninitialized}
-TEXTURE_USES_COMPLEX :: Texture_Uses{.Complex}
-
-// Turns the resource into a pile of bits.
-texture_uses_bits :: #force_inline proc "contextless" (u: Texture_Uses) -> u32 {
-    return transmute(u32)u
+// Uses that may coexist: accesses drawn only from this set are ordered by the
+// hardware, so a transition between two such states needs no barrier.
+TEXTURE_USES_INCLUSIVE :: Texture_Uses {
+    .Copy_Src,
+    .Resource,
+    .Depth_Read,
+    .Stencil_Read,
+    .Storage_Read_Only,
 }
 
-texture_uses_any_exclusive :: #force_inline proc "contextless" (u: Texture_Uses) -> bool {
-    return (u & TEXTURE_USES_EXCLUSIVE) != {}
+// The device's ordering policy for texture uses; Vulkan's is `INCLUSIVE`.
+TEXTURE_USES_ORDERED :: Texture_Uses {
+    .Copy_Src,
+    .Resource,
+    .Depth_Read,
+    .Stencil_Read,
+    .Storage_Read_Only,
 }
 
+// Depth/stencil states that combine a write with a read and are still legal: the
+// two aspects address different planes, so one may be written while the other is
+// read, and a read-only aspect may additionally be sampled.
 @(rodata)
-VALID_DS_COMBINATIONS := [7]Texture_Uses {
+TEXTURE_VALID_DEPTH_STENCIL := [7]Texture_Uses {
     {.Depth_Write, .Stencil_Write},
     {.Depth_Write, .Stencil_Read},
     {.Stencil_Write, .Depth_Read},
@@ -2189,492 +699,1598 @@ VALID_DS_COMBINATIONS := [7]Texture_Uses {
     {.Stencil_Write, .Resource, .Depth_Read, .Depth_Sampled},
 }
 
-texture_uses_in_valid_ds :: proc(u: Texture_Uses) -> bool {
-    for v in VALID_DS_COMBINATIONS {
-        if u == v {
+// Turns the set into a pile of bits.
+texture_uses_bits :: #force_inline proc "contextless" (u: Texture_Uses) -> u32 {
+    return transmute(u32)u
+}
+
+// True when any bit in `bits` is set.
+texture_uses_has :: #force_inline proc "contextless" (u, bits: Texture_Uses) -> bool {
+    return (u & bits) != {}
+}
+
+// True when the set contains an exclusive use.
+texture_uses_any_exclusive :: #force_inline proc "contextless" (u: Texture_Uses) -> bool {
+    return (u & TEXTURE_USES_EXCLUSIVE) != {}
+}
+
+// True when the contents are known to be undefined.
+texture_uses_is_uninitialized :: #force_inline proc "contextless" (u: Texture_Uses) -> bool {
+    return .Uninitialized in u
+}
+
+// True when moving from `u` to `to` needs no barrier: the state is unchanged and
+// consists only of ordered uses.
+texture_uses_skip_transition :: #force_inline proc "contextless" (u, to: Texture_Uses) -> bool {
+    return u == to && (texture_uses_bits(u) & ~texture_uses_bits(TEXTURE_USES_ORDERED)) == 0
+}
+
+// True when the set names a use a `VkImageView` may be created for: Vulkan
+// requires the image to carry at least one of them, while WebGPU lets an
+// application create a view of any texture.
+texture_uses_is_view_capable :: #force_inline proc "contextless" (u: Texture_Uses) -> bool {
+    return texture_uses_has(
+        u,
+        TEXTURE_USES_RESOURCE |
+        TEXTURE_USES_COLOR_TARGET |
+        TEXTURE_USES_DEPTH_READ |
+        TEXTURE_USES_DEPTH_WRITE |
+        TEXTURE_USES_STENCIL_READ |
+        TEXTURE_USES_STENCIL_WRITE |
+        TEXTURE_USES_STORAGE_READ_ONLY |
+        TEXTURE_USES_STORAGE_WRITE_ONLY |
+        TEXTURE_USES_STORAGE_READ_WRITE |
+        TEXTURE_USES_STORAGE_ATOMIC,
+    )
+}
+
+// True when the set violates the usage-scope rule: an exclusive use combined with
+// anything else, or a depth/stencil combination outside the legal table.
+texture_uses_is_invalid :: proc "contextless" (u: Texture_Uses) -> bool {
+    bits := texture_uses_bits(u)
+    if texture_uses_any_exclusive(u) && intr.count_ones(bits) != 1 {
+        return true
+    }
+    if (u & {.Depth_Write, .Stencil_Write}) == {} {
+        return false
+    }
+    if intr.count_ones(bits) == 1 {
+        return false
+    }
+    for valid in TEXTURE_VALID_DEPTH_STENCIL {
+        if valid == u {
+            return false
+        }
+    }
+    return true
+}
+
+// `texture_uses_skip_transition`, ignoring which read-only aspect is sampled:
+// sampling the depth aspect and sampling the stencil aspect are the same layout
+// and the same access, so the two flags alone must not force a barrier.
+texture_uses_skip_transition_ignoring_aspect :: #force_inline proc "contextless" (
+    u, ordered, to: Texture_Uses,
+) -> bool {
+    // Strip the aspect flags from both sides before comparing, so the ordered test
+    // sees only the real uses: two sampled reads that differ in which read-only
+    // aspect they name are the same access.
+    aspects := texture_uses_bits(TEXTURE_USES_DEPTH_SAMPLED | TEXTURE_USES_STENCIL_SAMPLED)
+    from_uses := texture_uses_bits(u) & ~aspects
+    to_uses := texture_uses_bits(to) & ~aspects
+    return from_uses == to_uses && (from_uses & ~texture_uses_bits(ordered)) == 0
+}
+
+// Compatibility name for the previous tracker's barrier-skip check.
+skip_barrier_ignore_texture_flags :: #force_inline proc "contextless" (
+    old_state, ordered_uses_mask, new_state: Texture_Uses,
+) -> bool {
+    return texture_uses_skip_transition_ignoring_aspect(old_state, ordered_uses_mask, new_state)
+}
+
+// Drop the `Unknown` marker from a merged set: it is bookkeeping, not a use.
+texture_uses_keep_known :: #force_inline proc "contextless" (u: Texture_Uses) -> Texture_Uses {
+    return transmute(Texture_Uses)(texture_uses_bits(u) & ~texture_uses_bits(TEXTURE_USES_UNKNOWN))
+}
+
+// True when the set is the zero set: nothing has been recorded yet.
+texture_uses_is_empty :: #force_inline proc "contextless" (u: Texture_Uses) -> bool {
+    return texture_uses_bits(u) == 0
+}
+
+// Semantic buffer usages. Sixteen bits: one state for the whole buffer, no
+// selector.
+Buffer_Uses :: bit_set[Buffer_Use;u16]
+Buffer_Use  :: enum u16 {
+    // The argument to a read-only mapping.
+    Map_Read,
+    // The argument to a write-only mapping.
+    Map_Write,
+    // The source of a hardware copy.
+    Copy_Src,
+    // The destination of a hardware copy.
+    Copy_Dst,
+    // Index buffer of a draw.
+    Index,
+    // Vertex buffer of a draw.
+    Vertex,
+    // Uniform buffer in a bind group.
+    Uniform,
+    // Read-only storage buffer in a bind group.
+    Storage_Read_Only,
+    // Read-write storage buffer in a bind group.
+    Storage_Read_Write,
+    // Indirect or count buffer of an indirect draw or dispatch.
+    Indirect,
+    // Destination of a query resolve.
+    Query_Resolve,
+    // Scratch storage of an acceleration-structure build.
+    Acceleration_Structure_Scratch,
+    // Input of a bottom-level acceleration-structure build.
+    Bottom_Level_Acceleration_Structure_Input,
+    // Input of a top-level acceleration-structure build.
+    Top_Level_Acceleration_Structure_Input,
+    // Holds a compacted acceleration-structure size.
+    Acceleration_Structure_Query,
+    // Opaque shader data for ray tracing.
+    Ray_Tracing_Pipeline_Shader_Data,
+}
+
+BUFFER_USES_UNINITIALIZED                             :: Buffer_Uses{}
+BUFFER_USES_MAP_READ                                  :: Buffer_Uses{.Map_Read}
+BUFFER_USES_MAP_WRITE                                 :: Buffer_Uses{.Map_Write}
+BUFFER_USES_COPY_SRC                                  :: Buffer_Uses{.Copy_Src}
+BUFFER_USES_COPY_DST                                  :: Buffer_Uses{.Copy_Dst}
+BUFFER_USES_INDEX                                     :: Buffer_Uses{.Index}
+BUFFER_USES_VERTEX                                    :: Buffer_Uses{.Vertex}
+BUFFER_USES_UNIFORM                                   :: Buffer_Uses{.Uniform}
+BUFFER_USES_STORAGE_READ_ONLY                         :: Buffer_Uses{.Storage_Read_Only}
+BUFFER_USES_STORAGE_READ_WRITE                        :: Buffer_Uses{.Storage_Read_Write}
+BUFFER_USES_INDIRECT                                  :: Buffer_Uses{.Indirect}
+BUFFER_USES_QUERY_RESOLVE                             :: Buffer_Uses{.Query_Resolve}
+BUFFER_USES_ACCELERATION_STRUCTURE_SCRATCH            :: Buffer_Uses {
+    .Acceleration_Structure_Scratch,
+}
+BUFFER_USES_BOTTOM_LEVEL_ACCELERATION_STRUCTURE_INPUT :: Buffer_Uses {
+    .Bottom_Level_Acceleration_Structure_Input,
+}
+BUFFER_USES_TOP_LEVEL_ACCELERATION_STRUCTURE_INPUT    :: Buffer_Uses {
+    .Top_Level_Acceleration_Structure_Input,
+}
+BUFFER_USES_ACCELERATION_STRUCTURE_QUERY              :: Buffer_Uses{.Acceleration_Structure_Query}
+BUFFER_USES_RAY_TRACING_PIPELINE_SHADER_DATA          :: Buffer_Uses {
+    .Ray_Tracing_Pipeline_Shader_Data,
+}
+
+// Uses that exclude every other use on the buffer within a usage scope.
+BUFFER_USES_EXCLUSIVE :: Buffer_Uses {
+    .Map_Write,
+    .Copy_Dst,
+    .Storage_Read_Write,
+    .Acceleration_Structure_Scratch,
+}
+
+// Uses that may coexist; accesses within this set are ordered.
+BUFFER_USES_INCLUSIVE :: Buffer_Uses {
+    .Map_Read,
+    .Copy_Src,
+    .Index,
+    .Vertex,
+    .Uniform,
+    .Storage_Read_Only,
+    .Indirect,
+    .Bottom_Level_Acceleration_Structure_Input,
+    .Top_Level_Acceleration_Structure_Input,
+    .Ray_Tracing_Pipeline_Shader_Data,
+}
+
+// The device's ordering policy for buffer uses. Mapping for write joins the
+// inclusive set: the host cannot order its own writes against later GPU reads
+// without a barrier.
+BUFFER_USES_ORDERED :: Buffer_Uses {
+    .Map_Read,
+    .Map_Write,
+    .Copy_Src,
+    .Index,
+    .Vertex,
+    .Uniform,
+    .Storage_Read_Only,
+    .Indirect,
+    .Bottom_Level_Acceleration_Structure_Input,
+    .Top_Level_Acceleration_Structure_Input,
+    .Ray_Tracing_Pipeline_Shader_Data,
+}
+
+BUFFER_USES_TIMESTAMP_NORMALIZATION :: Buffer_Uses{.Storage_Read_Write}
+BUFFER_USES_MAPPABLE                :: Buffer_Uses{.Map_Read, .Map_Write}
+BUFFER_USES_COPY                    :: Buffer_Uses{.Copy_Src, .Copy_Dst}
+BUFFER_USES_STAGING                 :: BUFFER_USES_MAPPABLE | BUFFER_USES_COPY
+
+// Turns the set into a pile of bits.
+buffer_uses_bits :: #force_inline proc "contextless" (u: Buffer_Uses) -> u16 {
+    return transmute(u16)u
+}
+
+// True when any bit in `bits` is set.
+buffer_uses_has :: #force_inline proc "contextless" (u, bits: Buffer_Uses) -> bool {
+    return (u & bits) != {}
+}
+
+// True when the set contains an exclusive use.
+buffer_uses_any_exclusive :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
+    return (u & BUFFER_USES_EXCLUSIVE) != {}
+}
+
+// The zero set: nothing has been recorded for the buffer yet.
+buffer_uses_is_empty :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
+    return u == {}
+}
+
+buffer_uses_intersects :: #force_inline proc "contextless" (u, mask: Buffer_Uses) -> bool {
+    return (u & mask) != {}
+}
+
+buffer_uses_contains :: #force_inline proc "contextless" (u, other: Buffer_Uses) -> bool {
+    return (u & other) == other
+}
+
+buffer_uses_remove :: #force_inline proc "contextless" (u, mask: Buffer_Uses) -> Buffer_Uses {
+    return u &~ mask
+}
+
+buffer_uses_is_mappable :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
+    return (u & BUFFER_USES_MAPPABLE) != {}
+}
+
+// True if `u` contains only bits that are also in `superset` (possibly empty).
+buffer_uses_is_subset :: #force_inline proc "contextless" (u, superset: Buffer_Uses) -> bool {
+    return u != {} && (u & superset) == u
+}
+
+// True when moving from `u` to `to` needs no barrier.
+buffer_uses_skip_transition :: #force_inline proc "contextless" (u, to: Buffer_Uses) -> bool {
+    return u == to && (buffer_uses_bits(u) & ~buffer_uses_bits(BUFFER_USES_ORDERED)) == 0
+}
+
+// True when the set violates the usage-scope rule: an exclusive use may not be
+// combined with any other.
+buffer_uses_is_invalid :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
+    return buffer_uses_any_exclusive(u) && intr.count_ones(buffer_uses_bits(u)) != 1
+}
+
+// True when a buffer in this state holds defined contents afterwards: something
+// wrote it. A read-only set does not.
+buffer_uses_writes_contents :: #force_inline proc "contextless" (u: Buffer_Uses) -> bool {
+    return buffer_uses_has(
+        u,
+        BUFFER_USES_COPY_DST |
+        BUFFER_USES_STORAGE_READ_WRITE |
+        BUFFER_USES_QUERY_RESOLVE |
+        BUFFER_USES_MAP_WRITE |
+        BUFFER_USES_ACCELERATION_STRUCTURE_SCRATCH,
+    )
+}
+
+// Which subresources (mip levels and array layers) a usage applies to.
+//
+// The public selector counts levels from a base, the WebGPU shape; the tracker
+// works in half-open ranges and converts at its boundary.
+Texture_Selector :: struct {
+    // First mip level.
+    mip_start:   u32,
+    // Number of mip levels.
+    mip_count:   u32,
+    // First array layer.
+    layer_start: u32,
+    // Number of array layers.
+    layer_count: u32,
+}
+
+// True when the two selectors share at least one (mip, layer) cell.
+texture_selector_overlaps :: #force_inline proc "contextless" (a, b: Texture_Selector) -> bool {
+    return(
+        a.mip_start < b.mip_start + b.mip_count &&
+        b.mip_start < a.mip_start + a.mip_count &&
+        a.layer_start < b.layer_start + b.layer_count &&
+        b.layer_start < a.layer_start + a.layer_count \
+    )
+}
+
+// True when both selectors name exactly the same subresources.
+texture_selector_equals :: #force_inline proc "contextless" (a, b: Texture_Selector) -> bool {
+    return(
+        a.mip_start == b.mip_start &&
+        a.mip_count == b.mip_count &&
+        a.layer_start == b.layer_start &&
+        a.layer_count == b.layer_count \
+    )
+}
+
+// True when the selector names one subresource.
+texture_selector_contains_subresource :: #force_inline proc "contextless" (
+    sel: Texture_Selector,
+    mip: u32,
+    layer: u32,
+) -> bool {
+    if mip < sel.mip_start || mip >= sel.mip_start + sel.mip_count {
+        return false
+    }
+    if layer < sel.layer_start || layer >= sel.layer_start + sel.layer_count {
+        return false
+    }
+    return true
+}
+
+// A texture and its full subresource range, keyed by the tracker index the caller
+// supplied. The index is the handle's identity for this package: handles do not
+// expose one, so it travels next to the handle.
+Tracked_Texture :: struct {
+    index:   Tracker_Index,
+    texture: Texture,
+    full:    Texture_Selector,
+}
+
+// Build a tracked texture whose full range covers `mip_count` x `layer_count`.
+tracked_texture :: proc(
+    index: Tracker_Index,
+    texture: Texture,
+    mip_count, layer_count: u32,
+) -> Tracked_Texture {
+    return {
+        index = index,
+        texture = texture,
+        full = {
+            mip_start   = 0,
+            mip_count   = mip_count,
+            layer_start = 0,
+            layer_count = layer_count,
+        },
+    }
+}
+
+// An abstract "move this texture subresource range from one use-set to another".
+// Carries the resource handle, not a backend object, so it stays backend-neutral.
+Texture_State_Transition :: struct {
+    texture:  Texture,
+    selector: Texture_Selector,
+    from:     Texture_Uses,
+    to:       Texture_Uses,
+}
+
+Buffer_State_Transition :: struct {
+    buffer: Buffer,
+    from:   Buffer_Uses,
+    to:     Buffer_Uses,
+}
+
+// The use-set a texture's image is created with, derived from its WebGPU usage and
+// the format's features: the storage bits follow the format's feature flags and a
+// render attachment becomes a color target or depth/stencil access depending on
+// the format.
+//
+// Two guarantees go beyond what the application asked for, and both are about the
+// *image*, not about tracking:
+//
+// - It must be definable. WebGPU's memory initialization defines a range nothing
+//   wrote with a zero clear, and both clear commands require the image to carry
+//   `TRANSFER_DST` usage. A texture is always initializable, so the bit is always
+//   here.
+// - It must be viewable. `createView` is legal on any WebGPU texture, while Vulkan
+//   requires the image to carry at least one view-capable usage; a colour texture
+//   whose uses are all transfer/storage ones gets `Resource`, which every format
+//   WebGPU can create supports.
+//
+// A transient attachment adds no Vulkan image usage beyond the attachment it
+// already is, so it contributes nothing here.
+texture_descriptor_image_uses :: proc(
+    desc: Texture_Descriptor,
+    format_features: Texture_Format_Features,
+) -> Texture_Uses {
+    uses: Texture_Uses
+    is_color := !texture_format_is_depth_stencil_format(desc.format)
+
+    if .Copy_Src in desc.usage {
+        uses += {.Copy_Src}
+    }
+    uses += {.Copy_Dst}
+    if .Texture_Binding in desc.usage {
+        uses += {.Resource}
+    }
+    if .Storage_Binding in desc.usage {
+        if .Storage_Read_Only in format_features.flags {
+            uses += {.Storage_Read_Only}
+        }
+        if .Storage_Write_Only in format_features.flags {
+            uses += {.Storage_Write_Only}
+        }
+        if .Storage_Read_Write in format_features.flags {
+            uses += {.Storage_Read_Write}
+        }
+        if .Storage_Atomic in desc.usage {
+            uses += {.Storage_Atomic}
+        }
+    }
+    if .Render_Attachment in desc.usage {
+        if is_color {
+            uses += {.Color_Target}
+        } else {
+            uses += {.Depth_Read, .Depth_Write, .Stencil_Read, .Stencil_Write}
+        }
+    }
+
+    if !is_color {
+        // A depth/stencil image is always writable — that is what makes it
+        // initializable — and those uses make it viewable too.
+        uses += {.Depth_Write, .Stencil_Write}
+    } else if !texture_uses_is_view_capable(uses) {
+        uses += {.Resource}
+    }
+    return uses
+}
+
+// -----------------------------------------------------------------------------
+// Stateless
+// -----------------------------------------------------------------------------
+
+// A tracker that only owns resources.
+//
+// It answers one question at submission time: did this command buffer reference
+// that resource? WebGPU requires a submission to fail if a resource in any bind
+// group or pipeline the encoder was given has been destroyed, whether or not the
+// pipeline actually uses it, so the encoder records the handles it was handed and
+// nothing else.
+
+Stateless_Tracker :: struct($T: typeid) {
+    resources: [dynamic]T,
+}
+
+stateless_tracker_init :: proc(t: ^$S/Stateless_Tracker($T), allocator: runtime.Allocator) {
+    t.resources = nil
+    t.resources.allocator = allocator
+}
+
+stateless_tracker_free :: proc(t: ^$S/Stateless_Tracker($T)) {
+    delete(t.resources)
+    t.resources = nil
+}
+
+stateless_tracker_clear :: proc(t: ^$S/Stateless_Tracker($T)) {
+    clear(&t.resources)
+}
+
+stateless_tracker_len :: #force_inline proc "contextless" (t: ^$S/Stateless_Tracker($T)) -> int {
+    return len(t.resources)
+}
+
+// Record `resource` and hand it back, so a caller can keep using one handle.
+stateless_tracker_insert_single :: proc(t: ^$S/Stateless_Tracker($T), resource: T) -> T {
+    append(&t.resources, resource)
+    return resource
+}
+
+// True when `resource` was recorded.
+stateless_tracker_contains :: proc(t: ^$S/Stateless_Tracker($T), resource: T) -> bool {
+    for entry in t.resources {
+        if entry == resource {
             return true
         }
     }
     return false
 }
 
-//  Check if this set mixes states in a way that the tracker cannot legally represent.
-texture_uses_is_invalid :: #force_inline proc(u: Texture_Uses) -> bool {
-    popcount := intr.count_ones(texture_uses_bits(u))
-    if texture_uses_any_exclusive(u) && popcount != 1 {
-        return true
-    }
-    ds := Texture_Uses{.Depth_Write, .Stencil_Write}
-    if (u & ds) != {} && popcount != 1 && !texture_uses_in_valid_ds(u) {
-        return true
-    }
-    return false
+// Transfers ownership of the reference list out, leaving an empty list with the
+// same allocator behind. The caller releases the returned references under
+// whatever lock discipline applies to its tracker.
+stateless_tracker_take :: proc(t: ^$S/Stateless_Tracker($T)) -> [dynamic]T {
+    refs := t.resources
+    t.resources = nil
+    t.resources.allocator = refs.allocator
+    return refs
 }
 
-// Returns true if the transition from `old` to `new` does not require a barrier,
-// ignoring which read-only aspect was sampled (`DEPTH_SAMPLED` /
-// `STENCIL_SAMPLED`).
-skip_barrier_ignore_texture_flags :: proc(
-    old_state, ordered_uses_mask, new_state: Texture_Uses,
+// -----------------------------------------------------------------------------
+// Blas
+// -----------------------------------------------------------------------------
+
+// A tracker for bottom-level acceleration structures.
+//
+// A build has no resource state to move, so the tracker only records which ones a
+// command buffer touched.
+
+Blas_Tracker :: struct {
+    metadata: Resource_Metadata(Blas),
+    size:     u32,
+}
+
+blas_tracker_init :: proc(t: ^Blas_Tracker, allocator: runtime.Allocator) {
+    t^ = {}
+    resource_metadata_init(&t.metadata, allocator)
+}
+
+blas_tracker_free :: proc(t: ^Blas_Tracker) {
+    resource_metadata_free(&t.metadata)
+    t^ = {}
+}
+
+blas_tracker_clear :: proc(t: ^Blas_Tracker) {
+    resource_metadata_clear(&t.metadata)
+    t.size = 0
+}
+
+// Record `blas` at `index` and hand it back.
+blas_tracker_insert_single :: proc(t: ^Blas_Tracker, index: Tracker_Index, blas: Blas) -> Blas {
+    resource_metadata_insert(&t.metadata, index, blas)
+    if u32(index) + 1 > t.size {
+        t.size = u32(index) + 1
+    }
+    return blas
+}
+
+blas_tracker_count :: #force_inline proc "contextless" (t: ^Blas_Tracker) -> u32 {
+    return resource_metadata_count(&t.metadata)
+}
+
+blas_tracker_contains :: #force_inline proc "contextless" (
+    t: ^Blas_Tracker,
+    index: Tracker_Index,
 ) -> bool {
-    aspect_sampled := Texture_Uses{.Depth_Sampled, .Stencil_Sampled}
-    return skip_barrier(
-        old_state & ~aspect_sampled,
-        ordered_uses_mask,
-        new_state & ~aspect_sampled,
+    return resource_metadata_contains(&t.metadata, index)
+}
+
+// -----------------------------------------------------------------------------
+// Query set
+// -----------------------------------------------------------------------------
+
+// A tracker for query sets.
+//
+// Queries have no state to transition, so the tracker is a set of the query sets a
+// command buffer touched: it keeps them alive and lets submission validation see
+// them.
+
+Query_Set_Tracker :: struct {
+    metadata: Resource_Metadata(Query_Set),
+    size:     u32,
+}
+
+query_set_tracker_init :: proc(t: ^Query_Set_Tracker, allocator: runtime.Allocator) {
+    t^ = {}
+    resource_metadata_init(&t.metadata, allocator)
+}
+
+query_set_tracker_free :: proc(t: ^Query_Set_Tracker) {
+    resource_metadata_free(&t.metadata)
+    t^ = {}
+}
+
+query_set_tracker_clear :: proc(t: ^Query_Set_Tracker) {
+    resource_metadata_clear(&t.metadata)
+    t.size = 0
+}
+
+// Record `query_set` at `index` and hand it back.
+query_set_tracker_insert_single :: proc(
+    t: ^Query_Set_Tracker,
+    index: Tracker_Index,
+    query_set: Query_Set,
+) -> Query_Set {
+    resource_metadata_insert(&t.metadata, index, query_set)
+    if u32(index) + 1 > t.size {
+        t.size = u32(index) + 1
+    }
+    return query_set
+}
+
+query_set_tracker_count :: #force_inline proc "contextless" (t: ^Query_Set_Tracker) -> u32 {
+    return resource_metadata_count(&t.metadata)
+}
+
+query_set_tracker_contains :: #force_inline proc "contextless" (
+    t: ^Query_Set_Tracker,
+    index: Tracker_Index,
+) -> bool {
+    return resource_metadata_contains(&t.metadata, index)
+}
+
+// -----------------------------------------------------------------------------
+// Buffer
+// -----------------------------------------------------------------------------
+
+// Buffer trackers.
+//
+// A buffer has one state for the whole resource: a 16-bit set of uses, no
+// subresource selector. Three trackers share that shape:
+//
+// - `Buffer_Usage_Scope` collects the uses of every buffer one render or compute
+//   pass touches, so a conflicting use is refused before any state moves.
+// - `Buffer_Tracker` is one command buffer's transcript. `start` is the state it
+//   assumes on entry, `end` the state it leaves behind, and `temp` the transitions
+//   it owes itself.
+// - `Device_Buffer_Tracker` is the authoritative state across submissions.
+//
+// The primitives at the bottom carry the logic: `buffer_insert` on first contact,
+// `buffer_barrier` to emit what a move needs, `buffer_update` to record it, and
+// the scopes' merge for combining uses inside one pass. Everything above is
+// bookkeeping.
+
+// One buffer, its tracker index and the use set a bind group references it with.
+Buffer_Bind_Group_Resource :: struct {
+    index:  Tracker_Index,
+    buffer: Buffer,
+    uses:   Buffer_Uses,
+}
+
+// The buffers of one bind group, sorted by tracker index so that merging them into
+// a tracker walks both arrays forward.
+Buffer_Bind_Group_State :: struct {
+    buffers: [dynamic]Buffer_Bind_Group_Resource,
+}
+
+buffer_bind_group_state_init :: proc(s: ^Buffer_Bind_Group_State, allocator: runtime.Allocator) {
+    s.buffers = nil
+    s.buffers.allocator = allocator
+}
+
+buffer_bind_group_state_free :: proc(s: ^Buffer_Bind_Group_State) {
+    delete(s.buffers)
+    s.buffers = nil
+}
+
+buffer_bind_group_state_clear :: proc(s: ^Buffer_Bind_Group_State) {
+    clear(&s.buffers)
+}
+
+buffer_bind_group_state_len :: #force_inline proc "contextless" (
+    s: ^Buffer_Bind_Group_State,
+) -> int {
+    return len(s.buffers)
+}
+
+// Record one buffer binding. Entries are *not* deduplicated: WebGPU allows a bind
+// group to hold conflicting uses for the same buffer, and the conflict has to
+// surface when the group is merged into a scope, not be hidden here.
+buffer_bind_group_state_insert_single :: proc(
+    s: ^Buffer_Bind_Group_State,
+    index: Tracker_Index,
+    buffer: Buffer,
+    uses: Buffer_Uses,
+) {
+    append(&s.buffers, Buffer_Bind_Group_Resource{index = index, buffer = buffer, uses = uses})
+}
+
+// Sort by tracker index. A bind group holds one entry per buffer binding, so the
+// insertion sort's constant factors win over a general sort here.
+buffer_bind_group_state_optimize :: proc(s: ^Buffer_Bind_Group_State) {
+    for i in 1 ..< len(s.buffers) {
+        entry := s.buffers[i]
+        j := i
+        for j > 0 && u32(s.buffers[j - 1].index) > u32(entry.index) {
+            s.buffers[j] = s.buffers[j - 1]
+            j -= 1
+        }
+        s.buffers[j] = entry
+    }
+}
+
+// The merged uses of every buffer one usage scope touches.
+Buffer_Usage_Scope :: struct {
+    // One state per tracker index; only a member's slot is meaningful.
+    state:    [dynamic]Buffer_Uses,
+    metadata: Resource_Metadata(Buffer),
+    // The device's ordering policy, so a scope and a tracker agree on skips.
+    ordered:  Buffer_Uses,
+}
+
+buffer_usage_scope_init :: proc(s: ^Buffer_Usage_Scope, allocator: runtime.Allocator) {
+    s.state = nil
+    s.state.allocator = allocator
+    resource_metadata_init(&s.metadata, allocator)
+    s.ordered = {}
+}
+
+buffer_usage_scope_free :: proc(s: ^Buffer_Usage_Scope) {
+    delete(s.state)
+    s.state = nil
+    resource_metadata_free(&s.metadata)
+}
+
+// Drop every member, keeping the backing storage for reuse.
+buffer_usage_scope_clear :: proc(s: ^Buffer_Usage_Scope) {
+    clear(&s.state)
+    resource_metadata_clear(&s.metadata)
+}
+
+// Presize for indices below `size`.
+buffer_usage_scope_set_size :: proc(s: ^Buffer_Usage_Scope, size: u32) {
+    for u32(len(s.state)) < size {
+        append(&s.state, Buffer_Uses{})
+    }
+    resource_metadata_set_size(&s.metadata, size)
+}
+
+buffer_usage_scope_set_ordered_uses_mask :: proc(s: ^Buffer_Usage_Scope, mask: Buffer_Uses) {
+    s.ordered = mask
+}
+
+// Grow so `index` has a state slot.
+buffer_usage_scope_allow_index :: proc(s: ^Buffer_Usage_Scope, index: Tracker_Index) {
+    if u32(index) >= u32(len(s.state)) {
+        buffer_usage_scope_set_size(s, u32(index) + 1)
+    }
+}
+
+// Merge one buffer's use into the scope. False is a usage conflict, reported
+// through the two out parameters as the state the scope had and the use it was
+// offered.
+buffer_usage_scope_merge_single :: proc(
+    s: ^Buffer_Usage_Scope,
+    index: Tracker_Index,
+    buffer: Buffer,
+    uses: Buffer_Uses,
+    out_current: ^Buffer_Uses = nil,
+    out_new: ^Buffer_Uses = nil,
+) -> bool {
+    buffer_usage_scope_allow_index(s, index)
+    start_provider := Buffer_State_Provider {
+        direct = uses,
+    }
+    resource_provider := Buffer_Metadata_Provider {
+        direct = buffer,
+    }
+    return buffer_usage_scope_insert_or_merge(
+        s,
+        index,
+        &start_provider,
+        &resource_provider,
+        out_current,
+        out_new,
     )
 }
 
-// Range of texture subresources a pending transition touches.
-//
-// Convention is exclusive `[start, end)` on both axes, matching
-// `Image_Subresource_Range`'s `base_*` + `*_count` pairs after they have been
-// added together. Producers construct selectors directly in this form; there
-// is deliberately no `{start, count}` -> `[start, end)` conversion step, since
-// applying one to an already-exclusive selector silently widens the tracked
-// range (a view of layers 2..3 would be tracked as 2..5).
-Texture_Selector :: struct {
-    mips:   Range(u32),
-    layers: Range(u32),
-}
-
-MAX_MIP_LEVELS :: 32
-
-// Represents the complex state of a texture where every subresource is
-// potentially in a different state
-Complex_Texture_State :: struct {
-    mips:              [dynamic; MAX_MIP_LEVELS]Ranged_States(u32, Texture_Uses),
-    mip_count:         int,
-    mip_level_count:   u32,
-    array_layer_count: u32,
-}
-
-// Creates complex texture state for the given sizes, initialized with the
-// `Unknown` state: a special state which means the tracker knows nothing about
-// those subresources.
-complex_texture_state_init :: proc(
-    c: ^Complex_Texture_State,
-    mip_level_count, array_layer_count: u32,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(c != nil, loc = loc)
-    assert(mip_level_count <= MAX_MIP_LEVELS, loc = loc)
-    c^ = {} // reset memory
-    c.mip_level_count = mip_level_count
-    c.array_layer_count = array_layer_count
-    resize(&c.mips, int(mip_level_count))
-    for i in 0 ..< int(mip_level_count) {
-        rs: Ranged_States(u32, Texture_Uses)
-        ranged_states_init_from_range(
-            &rs,
-            Range(u32){0, array_layer_count},
-            Texture_Uses{.Unknown},
-            allocator,
-        )
-        c.mips[i] = rs
-    }
-}
-
-complex_texture_state_uninit :: proc(c: ^Complex_Texture_State, loc := #caller_location) {
-    assert(c != nil, loc = loc)
-    for &m in c.mips {
-        ranged_states_uninit(&m)
-    }
-    clear(&c.mips)
-    c^ = {}
-}
-
-Selector_State_Iterator_Kind :: enum u8 {
-    Once,
-    Complex,
-}
-
-// An iterator over `(Texture_Selector, Texture_Uses)`.
-Selector_State_Iterator :: struct {
-    kind:          Selector_State_Iterator_Kind,
-    once_selector: Texture_Selector,
-    once_state:    Texture_Uses,
-    once_done:     bool,
-    complex:       ^Complex_Texture_State,
-    mip_index:     int,
-    entry_index:   int,
-}
-
-selector_state_iterator_once :: proc(
-    selector: Texture_Selector,
-    state: Texture_Uses,
-) -> Selector_State_Iterator {
-    return {kind = .Once, once_selector = selector, once_state = state}
-}
-
-selector_state_iterator_from_complex :: proc(
-    complex: ^Complex_Texture_State,
-) -> Selector_State_Iterator {
-    return {kind = .Complex, complex = complex}
-}
-
-Selector_State_Iterator_Result :: struct {
-    selector: Texture_Selector,
-    state:    Texture_Uses,
-}
-
-selector_state_iterator_next :: proc(
-    it: ^Selector_State_Iterator,
-    loc := #caller_location,
-) -> (
-    res: Selector_State_Iterator_Result,
-    cond: bool,
-) {
-    switch it.kind {
-    case .Once:
-        if it.once_done {
-            return
+// Merge every buffer of a bind group into the scope.
+buffer_usage_scope_merge_bind_group :: proc(
+    s: ^Buffer_Usage_Scope,
+    group: ^Buffer_Bind_Group_State,
+    out_current: ^Buffer_Uses = nil,
+    out_new: ^Buffer_Uses = nil,
+) -> bool {
+    for &entry in group.buffers {
+        if !buffer_usage_scope_merge_single(
+            s,
+            entry.index,
+            entry.buffer,
+            entry.uses,
+            out_current,
+            out_new,
+        ) {
+            return false
         }
-        it.once_done = true
-        return {it.once_selector, it.once_state}, true
-    case .Complex:
-        ct := it.complex
-        for it.mip_index < len(ct.mips) {
-            mip := &ct.mips[it.mip_index]
-            if it.entry_index < len(mip.ranges) {
-                e := &mip.ranges[it.entry_index]
-                it.entry_index += 1
-                mip_id := u32(it.mip_index)
-                res = {
-                    selector = {
-                        mips = Range(u32){mip_id, mip_id + 1},
-                        layers = Range(u32){e.start, e.end},
-                    },
-                    state = e.value,
-                }
-                return res, true
-            }
-            it.mip_index += 1
-            it.entry_index = 0
+    }
+    return true
+}
+
+// Merge all of another scope's members into this one.
+buffer_usage_scope_merge_usage_scope :: proc(
+    s: ^Buffer_Usage_Scope,
+    other: ^Buffer_Usage_Scope,
+    out_current: ^Buffer_Uses = nil,
+    out_new: ^Buffer_Uses = nil,
+) -> bool {
+    if u32(len(other.state)) > u32(len(s.state)) {
+        buffer_usage_scope_set_size(s, u32(len(other.state)))
+    }
+    it: Metadata_Index_Iterator(Buffer)
+    metadata_index_iterator_init(&it, &other.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        start_provider := Buffer_State_Provider {
+            state = other.state[:],
         }
+        resource_provider := Buffer_Metadata_Provider {
+            metadata = &other.metadata,
+        }
+        if !buffer_usage_scope_insert_or_merge(
+            s,
+            index,
+            &start_provider,
+            &resource_provider,
+            out_current,
+            out_new,
+        ) {
+            return false
+        }
+    }
+    return true
+}
+
+// Remove `uses` from a buffer's state, dropping the member when nothing is left.
+// Undoes a use that only one command in a pass needed.
+buffer_usage_scope_remove_usage :: proc(
+    s: ^Buffer_Usage_Scope,
+    index: Tracker_Index,
+    uses: Buffer_Uses,
+) {
+    if !resource_metadata_contains(&s.metadata, index) {
         return
     }
-    return
+    s.state[u32(index)] &~= uses
+    if s.state[u32(index)] == {} {
+        resource_metadata_remove(&s.metadata, index)
+    }
 }
 
-// Builds a complex state from a full-range selector and a stream of selectors that
-// must all lie inside it.
-complex_texture_state_from_selector_state_iterator :: proc(
-    full_range: Texture_Selector,
-    it: ^Selector_State_Iterator,
+// Insert the buffer on first contact, merge it otherwise.
+buffer_usage_scope_insert_or_merge :: proc(
+    s: ^Buffer_Usage_Scope,
+    index: Tracker_Index,
+    uses_provider: ^Buffer_State_Provider,
+    resource_provider: ^Buffer_Metadata_Provider,
+    out_current: ^Buffer_Uses,
+    out_new: ^Buffer_Uses,
+) -> bool {
+    if !resource_metadata_contains(&s.metadata, index) {
+        buffer_insert(nil, s.state[:], &s.metadata, index, uses_provider^, nil, resource_provider^)
+        return true
+    }
+
+    current := s.state[u32(index)]
+    added := buffer_state_provider_get(uses_provider^, index)
+    if buffer_uses_is_invalid(current | added) {
+        if out_current != nil {
+            out_current^ = current
+        }
+        if out_new != nil {
+            out_new^ = added
+        }
+        return false
+    }
+    s.state[u32(index)] = current | added
+    return true
+}
+
+// Where a merge reads a use set from: another array, or one value.
+Buffer_State_Provider :: struct {
+    // Non-nil: read `state[index]` instead of `direct`.
+    state:  []Buffer_Uses,
+    direct: Buffer_Uses,
+}
+
+buffer_state_provider_get :: #force_inline proc "contextless" (
+    p: Buffer_State_Provider,
+    index: Tracker_Index,
+) -> Buffer_Uses {
+    if p.state != nil {
+        return p.state[u32(index)]
+    }
+    return p.direct
+}
+
+// Where a merge reads the resource handle from: another metadata, or one value.
+Buffer_Metadata_Provider :: struct {
+    metadata: ^Resource_Metadata(Buffer),
+    direct:   Buffer,
+}
+
+buffer_metadata_provider_get :: #force_inline proc(
+    p: Buffer_Metadata_Provider,
+    index: Tracker_Index,
+) -> Buffer {
+    if p.metadata != nil {
+        return resource_metadata_get(p.metadata, index)
+    }
+    return p.direct
+}
+
+// One command buffer's buffer transcript.
+Buffer_Tracker :: struct {
+    // The state assumed on entry, per index.
+    start:    [dynamic]Buffer_Uses,
+    // The state left behind, per index.
+    end:      [dynamic]Buffer_Uses,
+    // Which indices are in the transcript, and which buffer each names.
+    metadata: Resource_Metadata(Buffer),
+    // Transitions this command buffer owes itself.
+    temp:     [dynamic]Buffer_State_Transition,
+    ordered:  Buffer_Uses,
+}
+
+buffer_tracker_init :: proc(
+    t: ^Buffer_Tracker,
     allocator: runtime.Allocator,
-    loc := #caller_location,
-) -> Complex_Texture_State {
-    assert(it != nil, loc = loc)
-    assert(full_range.layers.start == 0, loc = loc)
-    assert(full_range.mips.start == 0, loc = loc)
-    complex: Complex_Texture_State
-    complex_texture_state_init(
-        &complex,
-        full_range.mips.end - full_range.mips.start,
-        full_range.layers.end - full_range.layers.start,
-        allocator,
+    ordered: Buffer_Uses,
+) {
+    t^ = {}
+    t.start.allocator = allocator
+    t.end.allocator = allocator
+    t.temp.allocator = allocator
+    resource_metadata_init(&t.metadata, allocator)
+    t.ordered = ordered
+}
+
+buffer_tracker_free :: proc(t: ^Buffer_Tracker) {
+    delete(t.start)
+    delete(t.end)
+    delete(t.temp)
+    resource_metadata_free(&t.metadata)
+    t^ = {}
+}
+
+// Drop the transcript, keeping the storage; the ordering policy stays.
+buffer_tracker_clear :: proc(t: ^Buffer_Tracker) {
+    clear(&t.start)
+    clear(&t.end)
+    clear(&t.temp)
+    resource_metadata_clear(&t.metadata)
+}
+
+buffer_tracker_set_size :: proc(t: ^Buffer_Tracker, size: u32) {
+    for u32(len(t.start)) < size {
+        append(&t.start, Buffer_Uses{})
+        append(&t.end, Buffer_Uses{})
+    }
+    resource_metadata_set_size(&t.metadata, size)
+}
+
+buffer_tracker_allow_index :: proc(t: ^Buffer_Tracker, index: Tracker_Index) {
+    if u32(index) >= u32(len(t.start)) {
+        buffer_tracker_set_size(t, u32(index) + 1)
+    }
+}
+
+buffer_tracker_contains :: #force_inline proc "contextless" (
+    t: ^Buffer_Tracker,
+    index: Tracker_Index,
+) -> bool {
+    return resource_metadata_contains(&t.metadata, index)
+}
+
+// Move a single buffer to `uses`, recording the transition it needs.
+buffer_tracker_set_single :: proc(
+    t: ^Buffer_Tracker,
+    index: Tracker_Index,
+    buffer: Buffer,
+    uses: Buffer_Uses,
+) {
+    buffer_tracker_allow_index(t, index)
+    start_provider := Buffer_State_Provider {
+        direct = uses,
+    }
+    resource := Buffer_Metadata_Provider {
+        direct = buffer,
+    }
+    buffer_tracker_insert_or_barrier_update(t, index, start_provider, nil, resource)
+}
+
+// Adopt another tracker's `start` as this transcript's start and its `end` as its
+// end, recording the transitions in between.
+buffer_tracker_set_from_tracker :: proc(t: ^Buffer_Tracker, other: ^Buffer_Tracker) {
+    if u32(len(other.start)) > u32(len(t.start)) {
+        buffer_tracker_set_size(t, u32(len(other.start)))
+    }
+    it: Metadata_Index_Iterator(Buffer)
+    metadata_index_iterator_init(&it, &other.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        start_provider := Buffer_State_Provider {
+            state = other.start[:],
+        }
+        end_provider := Buffer_State_Provider {
+            state = other.end[:],
+        }
+        resource := Buffer_Metadata_Provider {
+            metadata = &other.metadata,
+        }
+        buffer_tracker_insert_or_barrier_update(t, index, start_provider, &end_provider, resource)
+    }
+}
+
+// Adopt every member of a usage scope, starting and ending at its state.
+buffer_tracker_set_from_usage_scope :: proc(t: ^Buffer_Tracker, scope: ^Buffer_Usage_Scope) {
+    if u32(len(scope.state)) > u32(len(t.start)) {
+        buffer_tracker_set_size(t, u32(len(scope.state)))
+    }
+    it: Metadata_Index_Iterator(Buffer)
+    metadata_index_iterator_init(&it, &scope.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        start_provider := Buffer_State_Provider {
+            state = scope.state[:],
+        }
+        resource := Buffer_Metadata_Provider {
+            metadata = &scope.metadata,
+        }
+        buffer_tracker_insert_or_barrier_update(t, index, start_provider, nil, resource)
+    }
+}
+
+// Adopt the members named by `indices` and remove them from the scope, so a later
+// merge in the same pass does not see them again. This is how a compute pass
+// moves one dispatch's bindings into its transcript.
+buffer_tracker_set_and_remove_from_usage_scope_sparse :: proc(
+    t: ^Buffer_Tracker,
+    scope: ^Buffer_Usage_Scope,
+    indices: []Tracker_Index,
+) {
+    if len(scope.state) > len(t.start) {
+        buffer_tracker_set_size(t, u32(len(scope.state)))
+    }
+    for index in indices {
+        // A scope member the caller did not add is a caller bug; skipping keeps it
+        // from turning into a state for a buffer that was never used.
+        if !resource_metadata_contains(&scope.metadata, index) {
+            continue
+        }
+        start_provider := Buffer_State_Provider {
+            state = scope.state[:],
+        }
+        resource := Buffer_Metadata_Provider {
+            metadata = &scope.metadata,
+        }
+        buffer_tracker_insert_or_barrier_update(t, index, start_provider, nil, resource)
+        resource_metadata_remove(&scope.metadata, index)
+    }
+}
+
+// Drop the transitions collected so far.
+buffer_tracker_clear_pending :: proc(t: ^Buffer_Tracker) {
+    clear(&t.temp)
+}
+
+// Insert on first contact, record a transition and advance otherwise.
+buffer_tracker_insert_or_barrier_update :: proc(
+    t: ^Buffer_Tracker,
+    index: Tracker_Index,
+    start_provider: Buffer_State_Provider,
+    end_provider: ^Buffer_State_Provider,
+    resource: Buffer_Metadata_Provider,
+) {
+    // A recycled pool slot whose previous entry is still here: the device tracker
+    // defers `forget` while a release is parked, so the state the old resource left
+    // must not be inherited by the new one. The generation in the handle tells them
+    // apart.
+    if resource_metadata_contains(&t.metadata, index) &&
+       resource_metadata_get(&t.metadata, index) != buffer_metadata_provider_get(resource, index) {
+        resource_metadata_remove(&t.metadata, index)
+    }
+    if !resource_metadata_contains(&t.metadata, index) {
+        buffer_insert(
+            t.start[:],
+            t.end[:],
+            &t.metadata,
+            index,
+            start_provider,
+            end_provider,
+            resource,
+        )
+        return
+    }
+
+    buffer_barrier(
+        t.end[:],
+        index,
+        buffer_metadata_provider_get(resource, index),
+        start_provider,
+        &t.temp,
+        t.ordered,
     )
-    for res in selector_state_iterator_next(it) {
-        assert(res.selector.layers.end <= full_range.layers.end)
-        assert(res.selector.mips.end <= full_range.mips.end)
-        // This should only ever happen with a bug; states cannot conflict here.
-        assert(!texture_uses_is_invalid(res.state), loc = loc)
-        for mip_id in res.selector.mips.start ..< res.selector.mips.end {
-            mip := &complex.mips[cast(int)mip_id]
-            isolated := ranged_states_isolate(
-                mip,
-                Range(u32){res.selector.layers.start, res.selector.layers.end},
-                TEXTURE_USES_UNKNOWN,
-            )
-            for &entry in isolated {
-                entry.value = res.state
-            }
+    update_provider := start_provider
+    if end_provider != nil {
+        update_provider = end_provider^
+    }
+    buffer_update(t.end[:], index, update_provider)
+}
+
+// The device's authoritative buffer state.
+Device_Buffer_Tracker :: struct {
+    current:  [dynamic]Buffer_Uses,
+    metadata: Resource_Metadata(Buffer),
+    ordered:  Buffer_Uses,
+}
+
+device_buffer_tracker_init :: proc(
+    t: ^Device_Buffer_Tracker,
+    allocator: runtime.Allocator,
+    ordered: Buffer_Uses,
+) {
+    t^ = {}
+    t.current.allocator = allocator
+    resource_metadata_init(&t.metadata, allocator)
+    t.ordered = ordered
+}
+
+device_buffer_tracker_free :: proc(t: ^Device_Buffer_Tracker) {
+    delete(t.current)
+    resource_metadata_free(&t.metadata)
+    t^ = {}
+}
+
+device_buffer_tracker_clear :: proc(t: ^Device_Buffer_Tracker) {
+    clear(&t.current)
+    resource_metadata_clear(&t.metadata)
+}
+
+device_buffer_tracker_allow_index :: proc(t: ^Device_Buffer_Tracker, index: Tracker_Index) {
+    for u32(len(t.current)) <= u32(index) {
+        append(&t.current, Buffer_Uses{})
+    }
+    resource_metadata_set_size(&t.metadata, u32(index) + 1)
+}
+
+// Make sure `index` holds *this* buffer's state and nothing else's: a pool slot is
+// not an identity, so a buffer created into a slot a released buffer used to occupy
+// must not inherit that buffer's use. The metadata stores the whole handle, the
+// generation included, which is what tells them apart.
+device_buffer_tracker_prepare :: proc(
+    t: ^Device_Buffer_Tracker,
+    index: Tracker_Index,
+    buffer: Buffer,
+) {
+    device_buffer_tracker_allow_index(t, index)
+    if resource_metadata_contains(&t.metadata, index) {
+        if resource_metadata_get(&t.metadata, index) == buffer {
+            return
+        }
+        resource_metadata_remove(&t.metadata, index)
+    }
+    t.current[u32(index)] = {}
+}
+
+// Overwrite a buffer's state without emitting a transition.
+device_buffer_tracker_insert_single :: proc(
+    t: ^Device_Buffer_Tracker,
+    index: Tracker_Index,
+    buffer: Buffer,
+    uses: Buffer_Uses,
+) {
+    device_buffer_tracker_allow_index(t, index)
+    t.current[u32(index)] = uses
+    resource_metadata_insert(&t.metadata, index, buffer)
+}
+
+// Move one buffer to `uses`, appending the transition the current state needs.
+// Grows on demand, so no presize call is a precondition.
+device_buffer_tracker_set_single :: proc(
+    t: ^Device_Buffer_Tracker,
+    index: Tracker_Index,
+    buffer: Buffer,
+    uses: Buffer_Uses,
+    out: ^[dynamic]Buffer_State_Transition,
+) {
+    device_buffer_tracker_prepare(t, index, buffer)
+    provider := Buffer_State_Provider {
+        direct = uses,
+    }
+    buffer_barrier(t.current[:], index, buffer, provider, out, t.ordered)
+    t.current[u32(index)] = uses
+    resource_metadata_insert(&t.metadata, index, buffer)
+}
+
+// Move the device state to a command buffer's `start`, then to its `end`, appending
+// both sets of transitions.
+device_buffer_tracker_set_from_tracker_and_drain_transitions :: proc(
+    t: ^Device_Buffer_Tracker,
+    tracker: ^Buffer_Tracker,
+    out: ^[dynamic]Buffer_State_Transition,
+) {
+    it: Metadata_Index_Iterator(Buffer)
+    metadata_index_iterator_init(&it, &tracker.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        buffer := resource_metadata_get(&tracker.metadata, index)
+        device_buffer_tracker_prepare(t, index, buffer)
+        start_provider := Buffer_State_Provider {
+            state = tracker.start[:],
+        }
+        buffer_barrier(t.current[:], index, buffer, start_provider, out, t.ordered)
+        t.current[u32(index)] = tracker.end[u32(index)]
+        resource_metadata_insert(&t.metadata, index, buffer)
+    }
+}
+
+// Move the device state to a usage scope's state, appending the transitions.
+device_buffer_tracker_set_from_usage_scope_and_drain_transitions :: proc(
+    t: ^Device_Buffer_Tracker,
+    scope: ^Buffer_Usage_Scope,
+    out: ^[dynamic]Buffer_State_Transition,
+) {
+    it: Metadata_Index_Iterator(Buffer)
+    metadata_index_iterator_init(&it, &scope.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        buffer := resource_metadata_get(&scope.metadata, index)
+        device_buffer_tracker_prepare(t, index, buffer)
+        start_provider := Buffer_State_Provider {
+            state = scope.state[:],
+        }
+        buffer_barrier(t.current[:], index, buffer, start_provider, out, t.ordered)
+        t.current[u32(index)] = scope.state[u32(index)]
+        resource_metadata_insert(&t.metadata, index, buffer)
+    }
+}
+
+// Forget a buffer's state, so a recycled index cannot inherit it.
+device_buffer_tracker_forget :: proc(t: ^Device_Buffer_Tracker, index: Tracker_Index) {
+    resource_metadata_remove(&t.metadata, index)
+}
+
+// The state a buffer is in, or `BUFFER_USES_UNINITIALIZED` when the tracker has not
+// seen it.
+device_buffer_tracker_state_at :: proc(
+    t: ^Device_Buffer_Tracker,
+    index: Tracker_Index,
+    buffer: Buffer,
+) -> Buffer_Uses {
+    // The slot may have been recycled: the metadata entry is what says which
+    // resource the state belongs to.
+    if !resource_metadata_contains(&t.metadata, index) ||
+       resource_metadata_get(&t.metadata, index) != buffer {
+        return BUFFER_USES_UNINITIALIZED
+    }
+    return t.current[u32(index)]
+}
+
+// First contact: write `start` and `end`, `end` defaulting to `start`.
+buffer_insert :: proc(
+    start: []Buffer_Uses,
+    current: []Buffer_Uses,
+    metadata: ^Resource_Metadata(Buffer),
+    index: Tracker_Index,
+    start_provider: Buffer_State_Provider,
+    end_provider: ^Buffer_State_Provider,
+    resource: Buffer_Metadata_Provider,
+) {
+    new_start := buffer_state_provider_get(start_provider, index)
+    new_end := new_start
+    if end_provider != nil {
+        new_end = buffer_state_provider_get(end_provider^, index)
+    }
+    if start != nil {
+        start[u32(index)] = new_start
+    }
+    current[u32(index)] = new_end
+    resource_metadata_insert(metadata, index, buffer_metadata_provider_get(resource, index))
+}
+
+// Append the transition that moves `states[index]` to `to`, unless the move needs
+// none: an unchanged state drawn only from the ordered set is already ordered by
+// the hardware.
+buffer_barrier :: proc(
+    states: []Buffer_Uses,
+    index: Tracker_Index,
+    buffer: Buffer,
+    to: Buffer_State_Provider,
+    out: ^[dynamic]Buffer_State_Transition,
+    ordered: Buffer_Uses,
+) {
+    current := states[u32(index)]
+    target := buffer_state_provider_get(to, index)
+    if current == target && (buffer_uses_bits(current) & ~buffer_uses_bits(ordered)) == 0 {
+        return
+    }
+    append(out, Buffer_State_Transition{buffer = buffer, from = current, to = target})
+}
+
+// Record a state without emitting anything.
+buffer_update :: proc(states: []Buffer_Uses, index: Tracker_Index, to: Buffer_State_Provider) {
+    states[u32(index)] = buffer_state_provider_get(to, index)
+}
+
+// -----------------------------------------------------------------------------
+// Texture
+// -----------------------------------------------------------------------------
+
+// Texture trackers.
+//
+// A texture's state is either *simple* (one use set valid for every subresource)
+// or *complex* (each mip's array layers split into ranges, each with its own set).
+// Complexity is rare and expensive, so the two live in separate tables: a flat
+// array of simple states plus a sparse array of complex states. Only a use that
+// actually differs across subresources promotes a texture, and demoting it back to
+// one state is just as explicit.
+//
+// Two special sets drive the rules:
+//
+// - `Unknown` means the tracker knows nothing about a subresource. It is never a
+//   barrier's source or target, and it is what a complex state starts as.
+// - `Uninitialized` means the tracker knows the contents are undefined, so a
+//   transition away from it discards them.
+//
+// The primitives at the bottom — insert, merge, barrier, update — each have four
+// arms, one per simple/complex combination on either side. Everything else is
+// bookkeeping.
+
+// The most mip levels a texture can have.
+MAX_MIP_LEVELS :: 16
+
+// The layer states of every mip of one texture, each mip's layers partitioned into
+// ranges that carry one use set.
+Complex_Texture_State :: struct {
+    allocator: runtime.Allocator,
+    mip_count: u32,
+    mips:      [MAX_MIP_LEVELS]Ranged_States(Texture_Uses),
+}
+
+// Start from `initial` over every subresource: each mip's whole layer range is one
+// entry. A complex state is born all-`Unknown` and gains detail as uses split it.
+complex_texture_state_init :: proc(
+    c: ^Complex_Texture_State,
+    allocator: runtime.Allocator,
+    mip_count, layer_count: u32,
+    initial: Texture_Uses,
+    loc := #caller_location,
+) {
+    assert(mip_count <= MAX_MIP_LEVELS, "mip count past the texture limit", loc = loc)
+    c.allocator = allocator
+    c.mip_count = mip_count
+    for m in 0 ..< mip_count {
+        ranged_states_init(&c.mips[m], allocator)
+        ranged_states_set_single(&c.mips[m], 0, layer_count, initial)
+    }
+}
+
+complex_texture_state_free :: proc(c: ^Complex_Texture_State) {
+    for m in 0 ..< c.mip_count {
+        ranged_states_free(&c.mips[m])
+    }
+    c.mip_count = 0
+}
+
+// Deep copy `source` into this state, which must be empty.
+complex_texture_state_copy_from :: proc(
+    c: ^Complex_Texture_State,
+    source: ^Complex_Texture_State,
+    loc := #caller_location,
+) {
+    assert(c.mip_count == 0, "copying into a complex state that has mips", loc = loc)
+    c.mip_count = source.mip_count
+    for m in 0 ..< source.mip_count {
+        ranged_states_init(&c.mips[m], c.allocator)
+        reserve(&c.mips[m].ranges, len(source.mips[m].ranges))
+        for entry in source.mips[m].ranges {
+            append(&c.mips[m].ranges, entry)
         }
     }
-    return complex
 }
 
-// Flattens a complex state back into a stream of `(selector, state)` pairs.
-complex_texture_state_to_selector_state_iterator :: proc(
-    complex: ^Complex_Texture_State,
-    loc := #caller_location,
-) -> Selector_State_Iterator {
-    assert(complex != nil, loc = loc)
-    return selector_state_iterator_from_complex(complex)
-}
-
-// Deep clone: the result owns its own backings and can be mutated and freed
-// independently from the source.
-complex_texture_state_clone :: proc(
-    complex: ^Complex_Texture_State,
-    complex_out: ^Complex_Texture_State,
-    allocator: runtime.Allocator,
+// Set every subresource of `selector` to `value`, splitting the ranges it crosses
+// and coalescing what it leaves equal. `Unknown` entries it covers are replaced,
+// which is how a state gains its first real knowledge of a subresource.
+complex_texture_state_assign :: proc(
+    c: ^Complex_Texture_State,
+    selector: Texture_Selector,
+    value: Texture_Uses,
     loc := #caller_location,
 ) {
-    assert(complex != nil, loc = loc)
-    assert(complex_out != nil, loc = loc)
-    assert(complex != complex_out, "clone source and destination must differ", loc = loc)
-
-    complex_out^ = {}
-    complex_out.mip_level_count = complex.mip_level_count
-    complex_out.array_layer_count = complex.array_layer_count
-
-    resize(&complex_out.mips, len(complex.mips))
-    for &mip, i in complex.mips {
-        ranged_states_clone(&mip, &complex_out.mips[i], allocator)
+    mip_end := selector.mip_start + selector.mip_count
+    layer_end := selector.layer_start + selector.layer_count
+    assert(mip_end <= c.mip_count, "selector past the tracked mips", loc = loc)
+    for m in selector.mip_start ..< mip_end {
+        mip := &c.mips[m]
+        i := ranged_states_isolate(mip, selector.layer_start, layer_end, TEXTURE_USES_UNKNOWN)
+        for ; i < len(mip.ranges) && mip.ranges[i].start < layer_end; i += 1 {
+            mip.ranges[i].value = value
+        }
+        ranged_states_coalesce(mip)
     }
 }
 
-// A single texture state or a reference to the complex state stored for that
-// subresource set. Used for reads.
-//
-// `complex` points into the owning `Texture_State_Set`, so this type is only valid
-// while that set is not being mutated. It is fine inside the tracker (barrier
-// computation runs under no lock but on a single-owner command-buffer tracker) and
-// wrong to return from a device tracker, which is shared: see
-// `Device_Texture_State` for the form that is safe to hand across a lock.
-Single_Or_Many :: struct {
-    is_single: bool,
-    state:     Texture_Uses,
-    complex:   ^Complex_Texture_State,
-    iter:      Selector_State_Iterator,
+// One texture view's use: which texture it reads, which subresources, and with
+// which use. The tracker is keyed by texture, so a bind group's views are resolved
+// to their parent's index and range when the bind group is created.
+Texture_View_Use :: struct {
+    view:     Texture_View,
+    texture:  Tracked_Texture,
+    selector: Texture_Selector,
+    uses:     Texture_Uses,
 }
 
-// A texture's tracked state as reported by a device tracker, resolved to a value
-// with no reference into the tracker's own storage.
-//
-// `Device_Texture_Tracker` is shared by every thread touching a texture, and a
-// `Texture_State_Set`'s complex states live in a map, so a pointer handed back to a
-// caller could be invalidated by another thread inserting a subresource state or
-// growing the set. The tracker keeps all of its complex logic; this type only
-// carries what is safe to leave the lock with.
-Device_Texture_State :: struct {
-    // False when the texture's subresources are in divergent states, in which case
-    // the caller must resolve per-subresource rather than assume one layout.
-    is_single: bool,
-    // Only meaningful when `is_single`.
-    state:     Texture_Uses,
+Texture_View_Bind_Group_State :: struct {
+    views: [dynamic]Texture_View_Use,
 }
 
-// A single texture state or a reference to the complex state stored for that
-// subresource set. Used for in-place mutation.
-Single_Or_Many_Ref :: struct {
-    is_single: bool,
-    single:    ^Texture_Uses,
-    complex:   ^Complex_Texture_State,
-}
-
-// Container for the corresponding simple and complex texture states.
-Texture_State_Set :: struct {
-    simple:    [dynamic]Texture_Uses,
-    complex:   map[int]Complex_Texture_State,
+texture_view_bind_group_state_init :: proc(
+    s: ^Texture_View_Bind_Group_State,
     allocator: runtime.Allocator,
-}
-
-texture_state_set_init :: proc(
-    set: ^Texture_State_Set,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
 ) {
-    assert(set != nil, loc = loc)
-    set^ = {} // reset memory
+    s.views = nil
+    s.views.allocator = allocator
+}
+
+texture_view_bind_group_state_free :: proc(s: ^Texture_View_Bind_Group_State) {
+    delete(s.views)
+    s.views = nil
+}
+
+texture_view_bind_group_state_clear :: proc(s: ^Texture_View_Bind_Group_State) {
+    clear(&s.views)
+}
+
+texture_view_bind_group_state_len :: #force_inline proc "contextless" (
+    s: ^Texture_View_Bind_Group_State,
+) -> int {
+    return len(s.views)
+}
+
+texture_view_bind_group_state_insert_single :: proc(
+    s: ^Texture_View_Bind_Group_State,
+    view: Texture_View,
+    texture: Tracked_Texture,
+    selector: Texture_Selector,
+    uses: Texture_Uses,
+) {
+    append(
+        &s.views,
+        Texture_View_Use{view = view, texture = texture, selector = selector, uses = uses},
+    )
+}
+
+// Sort by parent texture index, so a merge walks the tracker forward.
+texture_view_bind_group_state_optimize :: proc(s: ^Texture_View_Bind_Group_State) {
+    for i in 1 ..< len(s.views) {
+        entry := s.views[i]
+        j := i
+        for j > 0 && u32(s.views[j - 1].texture.index) > u32(entry.texture.index) {
+            s.views[j] = s.views[j - 1]
+            j -= 1
+        }
+        s.views[j] = entry
+    }
+}
+
+// Per-texture state: a flat array of simple states and a sparse array of complex
+// ones, indexed by tracker index. A non-nil complex entry is what makes a texture
+// complex; the simple slot then holds `Complex` as a marker.
+Texture_State_Set :: struct {
+    allocator: runtime.Allocator,
+    simple:    [dynamic]Texture_Uses,
+    complex:   [dynamic]^Complex_Texture_State,
+}
+
+texture_state_set_init :: proc(set: ^Texture_State_Set, allocator: runtime.Allocator) {
+    set^ = {}
+    set.allocator = allocator
     set.simple.allocator = allocator
     set.complex.allocator = allocator
-    set.allocator = allocator
 }
 
-// Releases every complex state plus the simple table.
-texture_state_set_uninit :: proc(set: ^Texture_State_Set, loc := #caller_location) {
-    assert(set != nil, loc = loc)
-    for _, &ct in set.complex {
-        complex_texture_state_uninit(&ct, loc)
+texture_state_set_free :: proc(set: ^Texture_State_Set) {
+    for state in set.complex {
+        if state == nil {
+            continue
+        }
+        complex_texture_state_free(state)
+        free(state, set.allocator)
     }
-    delete(set.complex)
     delete(set.simple)
-    set^ = {} // reset memory
+    delete(set.complex)
+    set^ = {}
 }
 
-texture_state_set_clear :: proc(set: ^Texture_State_Set, loc := #caller_location) {
-    assert(set != nil, loc = loc)
-
-    // Free the complex states' inner backings before dropping the map
-    // entries that reference them.
-    for _, &ct in set.complex {
-        complex_texture_state_uninit(&ct, loc)
+// Drop every state, keeping the tables for reuse.
+texture_state_set_clear :: proc(set: ^Texture_State_Set) {
+    for i in 0 ..< len(set.complex) {
+        state := set.complex[i]
+        if state == nil {
+            continue
+        }
+        complex_texture_state_free(state)
+        free(state, set.allocator)
+        set.complex[i] = nil
     }
-
     clear(&set.simple)
     clear(&set.complex)
 }
 
-// Grows the simple table padding the new slots with UNINITIALIZED.
-texture_state_set_resize :: proc(set: ^Texture_State_Set, size: int, loc := #caller_location) {
-    assert(set != nil, loc = loc)
-    old_len := len(set.simple)
-    resize(&set.simple, size)
-    for i in old_len ..< size {
-        set.simple[i] = TEXTURE_USES_UNINITIALIZED
+// Presize both tables for indices below `size`.
+texture_state_set_set_size :: proc(set: ^Texture_State_Set, size: u32) {
+    for u32(len(set.simple)) < size {
+        append(&set.simple, TEXTURE_USES_UNINITIALIZED)
+    }
+    for u32(len(set.complex)) < size {
+        append(&set.complex, nil)
     }
 }
 
-texture_state_set_len :: proc(set: ^Texture_State_Set, loc := #caller_location) -> int {
-    assert(set != nil, loc = loc)
-    return len(set.simple)
+texture_state_set_is_complex :: #force_inline proc "contextless" (
+    set: ^Texture_State_Set,
+    index: Tracker_Index,
+) -> bool {
+    return set.complex[u32(index)] != nil
 }
 
-texture_state_set_assert_in_bounds :: proc(
+texture_state_set_complex_at :: #force_inline proc "contextless" (
     set: ^Texture_State_Set,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(set != nil, loc = loc)
-    assert(index < len(set.simple), loc = loc)
+    index: Tracker_Index,
+) -> ^Complex_Texture_State {
+    return set.complex[u32(index)]
 }
 
-texture_state_set_get_unchecked :: proc(
+// Record one state for the whole texture, dropping any complex state.
+texture_state_set_insert_simple :: proc(
     set: ^Texture_State_Set,
-    #any_int index: int,
-    loc := #caller_location,
-) -> Single_Or_Many {
-    assert(set != nil, loc = loc)
-    assert(index >= 0 && index < len(set.simple), loc = loc)
-    simple := set.simple[index]
-    if simple == TEXTURE_USES_COMPLEX {
-        complex, ok := &set.complex[index]
-        assert(
-            ok,
-            "tracker invariant violated: " + "simple says complex but complex map has no entry",
-            loc = loc,
-        )
-        return {is_single = false, complex = complex}
-    }
-    return {is_single = true, state = simple}
-}
-
-texture_state_set_get_mut_unchecked :: proc(
-    set: ^Texture_State_Set,
-    #any_int index: int,
-    loc := #caller_location,
-) -> Single_Or_Many_Ref {
-    assert(set != nil, loc = loc)
-    assert(index >= 0 && index < len(set.simple), loc = loc)
-    simple := set.simple[index]
-    if simple == TEXTURE_USES_COMPLEX {
-        complex, ok := &set.complex[index]
-        assert(
-            ok,
-            "tracker invariant violated: " + "simple says complex but complex map has no entry",
-            loc = loc,
-        )
-        return {is_single = false, complex = complex}
-    }
-    return {is_single = true, single = &set.simple[index]}
-}
-
-texture_state_set_insert_simple_unchecked :: proc(
-    set: ^Texture_State_Set,
-    #any_int index: int,
+    index: Tracker_Index,
     state: Texture_Uses,
-    loc := #caller_location,
 ) {
-    assert(set != nil, loc = loc)
-    set.simple[index] = state
+    texture_state_set_release_complex(set, index)
+    set.simple[u32(index)] = state
 }
 
-texture_state_set_insert_complex_unchecked :: proc(
+// Record a copy of `source` as this index's complex state.
+texture_state_set_insert_complex :: proc(
     set: ^Texture_State_Set,
-    #any_int index: int,
-    complex: Complex_Texture_State,
-    loc := #caller_location,
+    index: Tracker_Index,
+    source: ^Complex_Texture_State,
 ) {
-    assert(set != nil, loc = loc)
-    set.simple[index] = TEXTURE_USES_COMPLEX
-    set.complex[index] = complex
+    slot := texture_state_set_take_complex(set, index)
+    complex_texture_state_copy_from(slot, source)
 }
 
-texture_state_set_make_simple_unchecked :: proc(
+// Collapse this index to one state, freeing its complex state.
+texture_state_set_make_simple :: proc(
     set: ^Texture_State_Set,
-    #any_int index: int,
+    index: Tracker_Index,
     state: Texture_Uses,
-    loc := #caller_location,
 ) {
-    assert(set != nil, loc = loc)
-    set.simple[index] = state
-    if ct, ok := set.complex[index]; ok {
-        complex_texture_state_uninit(&ct)
-    }
-    delete_key(&set.complex, index)
+    texture_state_set_insert_simple(set, index, state)
 }
 
-texture_state_set_make_complex_unchecked :: proc(
+// Promote this index to a complex state and return the empty slot to fill. The
+// slot starts with no mips: the caller builds it from `full`.
+texture_state_set_make_complex :: proc(
     set: ^Texture_State_Set,
-    #any_int index: int,
-    complex: Complex_Texture_State,
-    loc := #caller_location,
-) {
-    assert(set != nil, loc = loc)
-    set.simple[index] = TEXTURE_USES_COMPLEX
-    set.complex[index] = complex
+    index: Tracker_Index,
+) -> ^Complex_Texture_State {
+    return texture_state_set_take_complex(set, index)
 }
 
-Texture_State_Provider_Kind :: enum u8 {
+texture_state_set_release_complex :: proc(set: ^Texture_State_Set, index: Tracker_Index) {
+    state := set.complex[u32(index)]
+    if state == nil {
+        return
+    }
+    complex_texture_state_free(state)
+    free(state, set.allocator)
+    set.complex[u32(index)] = nil
+}
+
+// The slot for a complex state: the existing one with its mips freed, or a fresh
+// one. The simple slot becomes the `Complex` marker either way.
+texture_state_set_take_complex :: proc(
+    set: ^Texture_State_Set,
+    index: Tracker_Index,
+) -> ^Complex_Texture_State {
+    state := set.complex[u32(index)]
+    if state == nil {
+        state = new(Complex_Texture_State, set.allocator)
+        state.allocator = set.allocator
+        set.complex[u32(index)] = state
+    } else {
+        complex_texture_state_free(state)
+    }
+    set.simple[u32(index)] = TEXTURE_USES_COMPLEX
+    return state
+}
+
+// Where a set operation reads its states from: one state for the whole texture, a
+// state for one selector, or another state set.
+Texture_Provider_Kind :: enum {
     Known_Single,
     Selector,
     Texture_Set,
 }
 
-// A source of texture state.
 Texture_State_Provider :: struct {
-    kind:     Texture_State_Provider_Kind,
-    state:    Texture_Uses,
+    kind:     Texture_Provider_Kind,
+    // Selector: the subresources, in the texture's own coordinates.
     selector: Texture_Selector,
+    // Known_Single and Selector: the state to apply.
+    state:    Texture_Uses,
+    // Texture_Set: where the states come from.
     set:      ^Texture_State_Set,
 }
 
-usage_error_texture :: proc(
-    texture: Texture,
-    selector: Texture_Selector,
-    current_state, new_state: Texture_Uses,
-) -> Usage_Error {
-    return Usage_Error(
-        Texture_Usage_Error {
-            texture = texture,
-            mip_levels = selector.mips,
-            array_layers = selector.layers,
-            current_state = current_state,
-            new_state = new_state,
-        },
-    )
-}
-
-// Convenience constructor turning a `Texture_Selector` (zero means "whole
-// texture") into this enum.
-//
-// `selector` is already in the tracker's exclusive `[start, end)` convention.
-// Selectors reaching the tracker are built as such by every producer: view
-// creation (`vk_texture_create_view`), the queue-write path
-// (`vk_queue_write_texture`), and error reporting. It must be stored verbatim.
-texture_state_provider_from_option :: proc(
-    selector: Texture_Selector,
-    state: Texture_Uses,
-    loc := #caller_location,
-) -> Texture_State_Provider {
-    if selector != {} {
-        return {kind = .Selector, selector = selector, state = state}
-    }
+texture_state_provider_single :: proc(state: Texture_Uses) -> Texture_State_Provider {
     return {kind = .Known_Single, state = state}
 }
 
-texture_state_provider_known_single :: proc(state: Texture_Uses) -> Texture_State_Provider {
-    return {kind = .Known_Single, state = state}
-}
-
-// Wraps an explicit `Texture_Selector`.
-//
-// `selector` is already in the tracker's exclusive `[start, end)` convention
-// and must be stored verbatim. See `texture_state_provider_from_option`.
 texture_state_provider_selector :: proc(
     selector: Texture_Selector,
     state: Texture_Uses,
@@ -2682,1689 +2298,2204 @@ texture_state_provider_selector :: proc(
     return {kind = .Selector, selector = selector, state = state}
 }
 
-texture_state_provider_texture_set :: proc(set: ^Texture_State_Set) -> Texture_State_Provider {
+texture_state_provider_set :: proc(set: ^Texture_State_Set) -> Texture_State_Provider {
     return {kind = .Texture_Set, set = set}
 }
 
-// Gets the state provided for a resource id.
-//
-// A selector that exactly matches the texture's full range is promoted to a
-// simple state; any smaller selector is demoted to a selector iterator.
-texture_state_provider_get_state :: proc(
-    p: ^Texture_State_Provider,
-    texture_selector: Texture_Selector,
-    #any_int index: int,
-    loc := #caller_location,
-) -> Single_Or_Many {
-    assert(p != nil, loc = loc)
+// True when the provider has exactly one state for the whole texture, which is the
+// cheap arm of every primitive: the whole-range selector collapses to it.
+texture_state_provider_is_single :: #force_inline proc "contextless" (
+    p: Texture_State_Provider,
+    full: Texture_Selector,
+    index: Tracker_Index,
+) -> bool {
     switch p.kind {
     case .Known_Single:
-        return {is_single = true, state = p.state}
+        return true
     case .Selector:
-        assert(texture_selector != {}, loc = loc)
-        if texture_selector == p.selector {
-            return {is_single = true, state = p.state}
-        }
-        return {is_single = false, iter = selector_state_iterator_once(p.selector, p.state)}
+        return texture_selector_equals(p.selector, full)
     case .Texture_Set:
-        cur := texture_state_set_get_unchecked(p.set, index, loc)
-        if cur.is_single {
-            return {is_single = true, state = cur.state}
-        }
-        return {
-            is_single = false,
-            iter = complex_texture_state_to_selector_state_iterator(cur.complex, loc),
-        }
+        return !texture_state_set_is_complex(p.set, index)
     }
-    return {}
+    return false
 }
 
-// Records the start and end states for a single resource index into the
-// provided tracker sets.
-texture_state_insert :: proc(
-    texture_selector: Texture_Selector,
-    start_state_set: ^Texture_State_Set, // optional
-    end_state_set: ^Texture_State_Set, // required
-    resource_metadata: ^Resource_Metadata(Texture),
-    #any_int index: int,
-    start_state_provider: ^Texture_State_Provider,
-    end_state_provider: ^Texture_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Texture),
-    retain_resource := true,
-    loc := #caller_location,
-) {
-    assert(end_state_set != nil, loc = loc)
-    assert(resource_metadata != nil, loc = loc)
-    assert(start_state_provider != nil, loc = loc)
-    assert(metadata_provider != nil, loc = loc)
-
-    texture_state_set_assert_in_bounds(end_state_set, index, loc)
-    if start_state_set != nil {
-        texture_state_set_assert_in_bounds(start_state_set, index, loc)
-        // The complex state is built once and then cloned into the start set,
-        // so both sets must agree on the allocator.
-        assert(
-            start_state_set.allocator == end_state_set.allocator,
-            "start and end state sets must share an allocator",
-            loc = loc,
-        )
-    }
-
-    allocator := end_state_set.allocator
-
-    // Start state
-    start := texture_state_provider_get_state(start_state_provider, texture_selector, index, loc)
-
-    if start.is_single {
-        state := start.state
-        assert(!texture_uses_is_invalid(state), "resource state cannot be invalid", loc)
-
-        if start_state_set != nil {
-            texture_state_set_insert_simple_unchecked(start_state_set, index, state, loc)
-        }
-        if end_state_provider == nil {
-            texture_state_set_insert_simple_unchecked(end_state_set, index, state, loc)
-        }
-    } else {
-        assert(texture_selector != {}, "complex start requires a full-range selector", loc = loc)
-
-        ct := complex_texture_state_from_selector_state_iterator(
-            texture_selector,
-            &start.iter,
-            allocator,
-            loc,
-        )
-
-        if start_state_set != nil {
-            complex_out: Complex_Texture_State
-            complex_texture_state_clone(&ct, &complex_out, allocator, loc)
-            texture_state_set_insert_complex_unchecked(start_state_set, index, complex_out, loc)
-        }
-
-        // If there is no end state provider we move the freshly built state
-        // into the end set; otherwise the state is not consumed by anyone and
-        // must be released here.
-        if end_state_provider == nil {
-            texture_state_set_insert_complex_unchecked(end_state_set, index, ct, loc)
-        } else {
-            complex_texture_state_uninit(&ct, loc)
-        }
-    }
-
-    // End state (only when a provider is supplied)
-    if end_state_provider != nil {
-        end := texture_state_provider_get_state(end_state_provider, texture_selector, index, loc)
-
-        if end.is_single {
-            state := end.state
-            assert(!texture_uses_is_invalid(state), "resource state cannot be invalid", loc)
-
-            // A start state provider is guaranteed to exist, so the start
-            // set has already been handled above; the end set is the only
-            // destination we still need to write.
-            texture_state_set_insert_simple_unchecked(end_state_set, index, state, loc)
-        } else {
-            assert(texture_selector != {}, "complex end requires a full-range selector", loc = loc)
-
-            ct := complex_texture_state_from_selector_state_iterator(
-                texture_selector,
-                &end.iter,
-                allocator,
-                loc,
-            )
-            texture_state_set_insert_complex_unchecked(end_state_set, index, ct, loc)
-        }
-    }
-
-    // Metadata
-    resource := resource_metadata_provider_get(metadata_provider, index)
-    // Strong command/usage trackers retain on first insertion. The device
-    // tracker passes `retain_resource = false` and stores weak metadata.
-    if retain_resource && !resource_metadata_contains(resource_metadata, index) {
-        resource_retain_texture(resource, loc)
-    }
-    resource_metadata_insert(resource_metadata, index, resource)
-}
-
-texture_state_merge :: proc(
-    texture_selector: Texture_Selector,
-    current_state_set: ^Texture_State_Set,
-    #any_int index: int,
-    state_provider: ^Texture_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Texture),
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    assert(current_state_set != nil, loc = loc)
-    assert(state_provider != nil, loc = loc)
-    assert(metadata_provider != nil, loc = loc)
-
-    allocator := current_state_set.allocator
-
-    current := texture_state_set_get_mut_unchecked(current_state_set, index, loc)
-    new_state := texture_state_provider_get_state(state_provider, texture_selector, index, loc)
-
-    if current.is_single && new_state.is_single {
-        merged := current.single^ | new_state.state
-        if texture_uses_is_invalid(merged) {
-            resource := resource_metadata_provider_get(metadata_provider, index)
-            return usage_error_texture(
-                resource,
-                texture_selector,
-                current.single^,
-                new_state.state,
-            )
-        }
-        current.single^ = merged
-        return nil
-    }
-
-    if current.is_single && !new_state.is_single {
-        cur_state := current.single^
-        // We are now demoting this simple state to a complex state, so we need
-        // a whole new complex state as there wasn't one before.
-        once := selector_state_iterator_once(texture_selector, cur_state)
-        new_complex := complex_texture_state_from_selector_state_iterator(
-            texture_selector,
-            &once,
-            allocator,
-            loc,
-        )
-
-        for sel in selector_state_iterator_next(&new_state.iter) {
-            merged := cur_state | sel.state
-            if texture_uses_is_invalid(merged) {
-                complex_texture_state_uninit(&new_complex, loc)
-                resource := resource_metadata_provider_get(metadata_provider, index)
-                return usage_error_texture(resource, sel.selector, cur_state, sel.state)
-            }
-            for mip_id in sel.selector.mips.start ..< sel.selector.mips.end {
-                mip := &new_complex.mips[cast(int)mip_id]
-                isolated := ranged_states_isolate(
-                    mip,
-                    Range(u32){sel.selector.layers.start, sel.selector.layers.end},
-                    TEXTURE_USES_UNKNOWN,
-                )
-                for &entry in isolated {
-                    entry.value = merged
-                }
-                ranged_states_coalesce(mip)
-            }
-        }
-        texture_state_set_make_complex_unchecked(current_state_set, index, new_complex)
-        return
-    }
-
-    if !current.is_single && new_state.is_single {
-        for mip_id in 0 ..< len(current.complex.mips) {
-            mip := &current.complex.mips[mip_id]
-            for &entry in mip.ranges[:] {
-                merged := entry.value | new_state.state
-                // Once we remove unknown this will never be empty, as simple
-                // states are never unknown.
-                merged = merged & ~TEXTURE_USES_UNKNOWN
-                if texture_uses_is_invalid(merged) {
-                    resource := resource_metadata_provider_get(metadata_provider, index)
-                    mip_id_32 := u32(mip_id)
-                    return usage_error_texture(
-                        resource,
-                        Texture_Selector {
-                            mips = Range(u32){mip_id_32, mip_id_32 + 1},
-                            layers = Range(u32){entry.start, entry.end},
-                        },
-                        entry.value,
-                        new_state.state,
-                    )
-                }
-                entry.value = merged
-            }
-            ranged_states_coalesce(mip)
-        }
-        return
-    }
-
-    // many x many
-    for sel in selector_state_iterator_next(&new_state.iter) {
-        for mip_id in sel.selector.mips.start ..< sel.selector.mips.end {
-            assert(cast(int)mip_id < len(current.complex.mips))
-            mip := &current.complex.mips[cast(int)mip_id]
-            isolated := ranged_states_isolate(
-                mip,
-                Range(u32){sel.selector.layers.start, sel.selector.layers.end},
-                TEXTURE_USES_UNKNOWN,
-            )
-            for &entry in isolated {
-                merged := entry.value | sel.state
-                merged = merged & ~TEXTURE_USES_UNKNOWN
-                if merged == TEXTURE_USES_EMPTY {
-                    // We know nothing about this state; just move on.
-                    continue
-                }
-                if texture_uses_is_invalid(merged) {
-                    resource := resource_metadata_provider_get(metadata_provider, index)
-                    return usage_error_texture(
-                        resource,
-                        Texture_Selector {
-                            mips = Range(u32){mip_id, mip_id + 1},
-                            layers = Range(u32){entry.start, entry.end},
-                        },
-                        entry.value,
-                        sel.state,
-                    )
-                }
-                entry.value = merged
-            }
-            ranged_states_coalesce(mip)
-        }
-    }
-
-    return
-}
-
-texture_state_barrier :: proc(
-    texture_selector: Texture_Selector,
-    current_state_set: ^Texture_State_Set,
-    #any_int index: int,
-    state_provider: ^Texture_State_Provider,
-    barriers: ^[dynamic]Pending_Texture_Transition,
-    ordered_uses_mask: Texture_Uses,
-    loc := #caller_location,
-) {
-    assert(current_state_set != nil, loc = loc)
-    assert(state_provider != nil, loc = loc)
-    assert(barriers != nil, loc = loc)
-
-    current := texture_state_set_get_unchecked(current_state_set, index)
-    new_state := texture_state_provider_get_state(state_provider, texture_selector, index)
-
-    if current.is_single && new_state.is_single {
-        if skip_barrier_ignore_texture_flags(current.state, ordered_uses_mask, new_state.state) {
-            return
-        }
-        append(
-            barriers,
-            Pending_Texture_Transition {
-                id = u32(index),
-                selector = texture_selector,
-                usage = {from = current.state, to = new_state.state},
-            },
-        )
-        return
-    }
-
-    if current.is_single && !new_state.is_single {
-        for sel in selector_state_iterator_next(&new_state.iter) {
-            if sel.state == TEXTURE_USES_UNKNOWN {
-                continue
-            }
-            if skip_barrier_ignore_texture_flags(current.state, ordered_uses_mask, sel.state) {
-                continue
-            }
-            append(
-                barriers,
-                Pending_Texture_Transition {
-                    id = u32(index),
-                    selector = sel.selector,
-                    usage = {from = current.state, to = sel.state},
-                },
-            )
-        }
-        return
-    }
-
-    if !current.is_single && new_state.is_single {
-        for mip_id in 0 ..< len(current.complex.mips) {
-            mip := &current.complex.mips[mip_id]
-            for &entry in mip.ranges[:] {
-                if entry.value == TEXTURE_USES_UNKNOWN {
-                    continue
-                }
-                if skip_barrier_ignore_texture_flags(
-                    entry.value,
-                    ordered_uses_mask,
-                    new_state.state,
-                ) {
-                    continue
-                }
-                mip_id_32 := u32(mip_id)
-                append(
-                    barriers,
-                    Pending_Texture_Transition {
-                        id = u32(index),
-                        selector = {
-                            mips = Range(u32){mip_id_32, mip_id_32 + 1},
-                            layers = Range(u32){entry.start, entry.end},
-                        },
-                        usage = {from = entry.value, to = new_state.state},
-                    },
-                )
-            }
-        }
-        return
-    }
-
-    // many x many
-    for sel in selector_state_iterator_next(&new_state.iter) {
-        for mip_id in sel.selector.mips.start ..< sel.selector.mips.end {
-            assert(cast(int)mip_id < len(current.complex.mips))
-            mip := &current.complex.mips[cast(int)mip_id]
-            fit := ranged_filter_iterator(mip, sel.selector.layers.start, sel.selector.layers.end)
-            for res in ranged_filter_iterator_next(&fit) {
-                if res.value^ == TEXTURE_USES_UNKNOWN || sel.state == TEXTURE_USES_UNKNOWN {
-                    continue
-                }
-                if skip_barrier_ignore_texture_flags(res.value^, ordered_uses_mask, sel.state) {
-                    continue
-                }
-                append(
-                    barriers,
-                    Pending_Texture_Transition {
-                        id = u32(index),
-                        selector = {
-                            mips = Range(u32){mip_id, mip_id + 1},
-                            layers = Range(u32){res.start, res.end},
-                        },
-                        usage = State_Transition(Texture_Uses){from = res.value^, to = sel.state},
-                    },
-                )
-            }
-        }
-    }
-}
-
-texture_state_update :: proc(
-    texture_selector: Texture_Selector,
-    start_state_set: ^Texture_State_Set,
-    current_state_set: ^Texture_State_Set,
-    #any_int index: int,
-    state_provider: ^Texture_State_Provider,
-    loc := #caller_location,
-) {
-    // assert(start_state_set != nil, loc = loc)
-    assert(current_state_set != nil, loc = loc)
-    assert(state_provider != nil, loc = loc)
-
-    // We only ever need to update the start state here if the state is complex.
-    // If the state is simple, the first insert to the tracker covers it.
-    start_complex: ^Complex_Texture_State
-    if start_state_set != nil {
-        start_ref := texture_state_set_get_mut_unchecked(start_state_set, index)
-        if !start_ref.is_single {
-            start_complex = start_ref.complex
-        }
-    }
-
-    current := texture_state_set_get_mut_unchecked(current_state_set, index)
-    new_state := texture_state_provider_get_state(state_provider, texture_selector, index)
-
-    if current.is_single && new_state.is_single {
-        current.single^ = new_state.state
-        return
-    }
-
-    if current.is_single && !new_state.is_single {
-        current_simple := current.single^
-        // We are now demoting this simple state to a complex state, so we need
-        // a whole new complex state as there wasn't one before.
-        once := selector_state_iterator_once(texture_selector, current_simple)
-        new_complex := complex_texture_state_from_selector_state_iterator(
-            texture_selector,
-            &once,
-            current_state_set.allocator,
-        )
-        for sel in selector_state_iterator_next(&new_state.iter) {
-            ns := sel.state
-            if sel.state == TEXTURE_USES_UNKNOWN {
-                ns = current_simple
-            }
-            for mip_id in sel.selector.mips.start ..< sel.selector.mips.end {
-                mip := &new_complex.mips[cast(int)mip_id]
-                isolated := ranged_states_isolate(
-                    mip,
-                    Range(u32){sel.selector.layers.start, sel.selector.layers.end},
-                    TEXTURE_USES_UNKNOWN,
-                )
-                for &entry in isolated {
-                    entry.value = ns
-                }
-                ranged_states_coalesce(mip)
-            }
-        }
-        texture_state_set_make_complex_unchecked(current_state_set, index, new_complex)
-        return
-    }
-
-    if !current.is_single && new_state.is_single {
-        for mip_id in 0 ..< len(current.complex.mips) {
-            mip := &current.complex.mips[mip_id]
-            for &entry in mip.ranges[:] {
-                // If this state is unknown, the start is _also_ unknown.
-                if entry.value == TEXTURE_USES_UNKNOWN {
-                    if start_complex != nil {
-                        assert(mip_id < len(start_complex.mips))
-                        start_mip := &start_complex.mips[mip_id]
-                        iso := ranged_states_isolate(
-                            start_mip,
-                            Range(u32){entry.start, entry.end},
-                            TEXTURE_USES_UNKNOWN,
-                        )
-                        for &se in iso {
-                            assert(se.value == TEXTURE_USES_UNKNOWN)
-                            se.value = new_state.state
-                        }
-                        ranged_states_coalesce(start_mip)
-                    }
-                }
-            }
-        }
-        texture_state_set_make_simple_unchecked(current_state_set, index, new_state.state)
-        return
-    }
-
-    // many x many
-    for sel in selector_state_iterator_next(&new_state.iter) {
-        if sel.state == TEXTURE_USES_UNKNOWN {
-            // We know nothing new.
-            continue
-        }
-        for mip_id in sel.selector.mips.start ..< sel.selector.mips.end {
-            mip_id_int := cast(int)mip_id
-            assert(mip_id_int < len(current.complex.mips))
-            mip := &current.complex.mips[mip_id_int]
-            isolated := ranged_states_isolate(
-                mip,
-                Range(u32){sel.selector.layers.start, sel.selector.layers.end},
-                TEXTURE_USES_UNKNOWN,
-            )
-            for &entry in isolated {
-                if entry.value == TEXTURE_USES_UNKNOWN && sel.state != TEXTURE_USES_UNKNOWN {
-                    // We now know something about this subresource that we
-                    // didn't before, so we go back and update the start state.
-                    assert(start_complex != nil)
-                    assert(mip_id_int < len(start_complex.mips))
-                    start_mip := &start_complex.mips[mip_id_int]
-                    iso_start := ranged_states_isolate(
-                        start_mip,
-                        Range(u32){entry.start, entry.end},
-                        TEXTURE_USES_UNKNOWN,
-                    )
-                    for &se in iso_start {
-                        assert(se.value == TEXTURE_USES_UNKNOWN)
-                        se.value = sel.state
-                    }
-                    ranged_states_coalesce(start_mip)
-                }
-                entry.value = sel.state
-            }
-            ranged_states_coalesce(mip)
-        }
-    }
-}
-
-// Does an insertion operation if the index isn't tracked in the given
-// metadata, otherwise merges the given state with the current state. If the
-// merging would cause a conflict, returns that usage conflict.
-texture_insert_or_merge :: proc(
-    texture_selector: Texture_Selector,
-    current_state_set: ^Texture_State_Set,
-    resource_metadata: ^Resource_Metadata(Texture),
-    #any_int index: int,
-    state_provider: ^Texture_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Texture),
-) -> (
-    err: Usage_Error,
-) {
-    currently_owned := resource_metadata_contains_unchecked(resource_metadata, index)
-    if !currently_owned {
-        texture_state_insert(
-            texture_selector,
-            nil,
-            current_state_set,
-            resource_metadata,
-            index,
-            state_provider,
-            nil,
-            metadata_provider,
-        )
-        return
-    }
-    return texture_state_merge(
-        texture_selector,
-        current_state_set,
-        index,
-        state_provider,
-        metadata_provider,
-    )
-}
-
-// If the resource isn't tracked:
-//
-//   - inserts it;
-//   - uses `start_state_provider` to populate `start_states`;
-//   - uses either `end_state_provider` or `start_state_provider` for
-//     `current_states`.
-//
-// If the resource is tracked:
-//
-//   - inserts barriers from the state in `current_states` to the state provided by
-//     `start_state_provider`;
-//   - updates `current_states` with either the state from `end_state_provider` or
-//     `start_state_provider`.
-//
-// Any barriers are added to the barrier vector.
-texture_insert_or_barrier_update :: proc(
-    texture_selector: Texture_Selector,
-    start_state: ^Texture_State_Set,
-    current_state_set: ^Texture_State_Set,
-    resource_metadata: ^Resource_Metadata(Texture),
-    #any_int index: int,
-    start_state_provider: ^Texture_State_Provider,
-    end_state_provider: ^Texture_State_Provider,
-    metadata_provider: ^Resource_Metadata_Provider(Texture),
-    barriers: ^[dynamic]Pending_Texture_Transition,
-    ordered_uses_mask: Texture_Uses,
-    loc := #caller_location,
-) {
-    assert(start_state != nil, loc = loc)
-    assert(current_state_set != nil, loc = loc)
-    assert(start_state_provider != nil, loc = loc)
-    assert(metadata_provider != nil, loc = loc)
-    assert(barriers != nil, loc = loc)
-
-    currently_owned := resource_metadata_contains_unchecked(resource_metadata, index)
-    if !currently_owned {
-        texture_state_insert(
-            texture_selector,
-            start_state,
-            current_state_set,
-            resource_metadata,
-            index,
-            start_state_provider,
-            end_state_provider,
-            metadata_provider,
-        )
-        return
-    }
-
-    update_state_provider := end_state_provider
-    if update_state_provider == nil {
-        update_state_provider = start_state_provider
-    }
-    texture_state_barrier(
-        texture_selector,
-        current_state_set,
-        index,
-        start_state_provider,
-        barriers,
-        ordered_uses_mask,
-    )
-    texture_state_update(
-        texture_selector,
-        start_state,
-        current_state_set,
-        index,
-        update_state_provider,
-    )
-}
-
-Texture_View_Bind_Group_Entry :: struct {
-    // `Tracker_Index` of the view's *parent* texture, captured at insert time.
-    // This is the key merges address state by, so it is also the key the bind
-    // group has to be sorted by; see `texture_view_bind_group_state_optimize`.
+// The single state this provider yields; only for `texture_state_provider_is_single`.
+texture_state_provider_single_state :: #force_inline proc "contextless" (
+    p: Texture_State_Provider,
     index: Tracker_Index,
-    view:  Texture_View,
-    usage: Texture_Uses,
-}
-
-// Stores a bind group's texture views and their usages within the bind group.
-Texture_View_Bind_Group_State :: struct {
-    views: [dynamic]Texture_View_Bind_Group_Entry,
-}
-
-texture_view_bind_group_state_init :: proc(
-    t: ^Texture_View_Bind_Group_State,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    t.views.allocator = allocator
-}
-
-texture_view_bind_group_state_clear :: proc(
-    t: ^Texture_View_Bind_Group_State,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    for entry in t.views {
-        bind_group_release_texture_view(entry.view, loc)
+) -> Texture_Uses {
+    if p.kind == .Texture_Set {
+        return p.set.simple[u32(index)]
     }
-    clear(&t.views)
+    return p.state
 }
 
-texture_view_bind_group_state_uninit :: proc(
-    t: ^Texture_View_Bind_Group_State,
-    loc := #caller_location,
+// Fill a complex state (already sized from `full`) with this provider's states.
+// Only for the non-single case: a single state is written directly.
+texture_state_provider_fill_complex :: proc(
+    p: Texture_State_Provider,
+    out: ^Complex_Texture_State,
+    index: Tracker_Index,
 ) {
-    assert(t != nil, loc = loc)
-    texture_view_bind_group_state_clear(t, loc)
-    delete(t.views)
-    t^ = {} // reset memory
-}
-
-texture_view_bind_group_state_insert_single :: proc(
-    s: ^Texture_View_Bind_Group_State,
-    #any_int index: Tracker_Index,
-    view: Texture_View,
-    state: Texture_Uses,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    bind_group_retain_texture_view(view, loc)
-    append(&s.views, Texture_View_Bind_Group_Entry{index, view, state})
-}
-
-// Sorts by parent-texture tracker index, so merging this bind group into a
-// tracker later walks memory in ascending order.
-texture_view_bind_group_state_optimize :: proc(
-    t: ^Texture_View_Bind_Group_State,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    slice.sort_by(t.views[:], proc(a, b: Texture_View_Bind_Group_Entry) -> bool {
-        return a.index < b.index
-    })
-}
-
-// Iterator over the parent textures of the tracked views. May yield duplicates.
-Texture_Viewed_Textures_Iterator :: struct {
-    state: ^Texture_View_Bind_Group_State,
-    pos:   int,
-}
-
-texture_view_bind_group_state_used_textures :: proc(
-    s: ^Texture_View_Bind_Group_State,
-    loc := #caller_location,
-) -> Texture_Viewed_Textures_Iterator {
-    assert(s != nil, loc = loc)
-    return Texture_Viewed_Textures_Iterator{state = s}
-}
-
-texture_viewed_textures_next :: proc(
-    it: ^Texture_Viewed_Textures_Iterator,
-    loc := #caller_location,
-) -> (
-    res: Texture,
-    cond: bool,
-) {
-    assert(it != nil, loc = loc)
-    if it.pos >= len(it.state.views) {
-        return {}, false
+    switch p.kind {
+    case .Selector:
+        complex_texture_state_assign(out, p.selector, p.state)
+    case .Texture_Set:
+        source := texture_state_set_complex_at(p.set, index)
+        for m in 0 ..< source.mip_count {
+            for &range in source.mips[m].ranges {
+                complex_texture_state_assign(out, {
+                        mip_start   = m,
+                        mip_count   = 1,
+                        layer_start = range.start,
+                        layer_count = range.end - range.start,
+                    }, range.value)
+            }
+        }
+    case .Known_Single:
+        // `texture_state_provider_is_single` would have been true.
+        panic_contextless("a single state is not complex")
     }
-    entry := &it.state.views[it.pos]
-    it.pos += 1
-    view_impl := texture_view_get_public_impl(entry.view, loc)
-    return view_impl.texture, true
 }
 
-// Stores all texture state within a single usage scope.
+// One pass's or one bind group's merged texture uses.
 Texture_Usage_Scope :: struct {
-    set:               Texture_State_Set,
-    metadata:          Resource_Metadata(Texture),
-    ordered_uses_mask: Texture_Uses,
+    set:      Texture_State_Set,
+    metadata: Resource_Metadata(Tracked_Texture),
+    ordered:  Texture_Uses,
 }
 
-texture_usage_scope_init :: proc(
-    s: ^Texture_Usage_Scope,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    s^ = {} // reset memory
+texture_usage_scope_init :: proc(s: ^Texture_Usage_Scope, allocator: runtime.Allocator) {
     texture_state_set_init(&s.set, allocator)
-    resource_metadata_init(&s.metadata, 0, allocator)
+    resource_metadata_init(&s.metadata, allocator)
+    s.ordered = {}
 }
 
-texture_usage_scope_uninit :: proc(s: ^Texture_Usage_Scope, loc := #caller_location) {
-    assert(s != nil, loc = loc)
-    texture_state_set_uninit(&s.set)
-    texture_metadata_release_all(&s.metadata, loc)
-    resource_metadata_uninit(&s.metadata)
+texture_usage_scope_free :: proc(s: ^Texture_Usage_Scope) {
+    texture_state_set_free(&s.set)
+    resource_metadata_free(&s.metadata)
     s^ = {}
 }
 
-texture_usage_scope_assert_in_bounds :: proc(
-    scope: ^Texture_Usage_Scope,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(scope != nil, loc = loc)
-    resource_metadata_assert_in_bounds(&scope.metadata, index, loc)
-    texture_state_set_assert_in_bounds(&scope.set, index, loc)
+texture_usage_scope_clear :: proc(s: ^Texture_Usage_Scope) {
+    texture_state_set_clear(&s.set)
+    resource_metadata_clear(&s.metadata)
 }
 
-texture_usage_scope_clear :: proc(scope: ^Texture_Usage_Scope, loc := #caller_location) {
-    assert(scope != nil, loc = loc)
-    texture_state_set_clear(&scope.set, loc)
-    texture_metadata_release_all(&scope.metadata, loc)
+texture_usage_scope_set_size :: proc(s: ^Texture_Usage_Scope, size: u32) {
+    texture_state_set_set_size(&s.set, size)
+    resource_metadata_set_size(&s.metadata, size)
 }
 
-// Sets the size of all the vectors inside the tracker.
-texture_usage_scope_set_size :: proc(s: ^Texture_Usage_Scope, size: int, loc := #caller_location) {
-    assert(s != nil, loc = loc)
-    texture_state_set_resize(&s.set, size)
-    resource_metadata_set_size(&s.metadata, size, loc)
+texture_usage_scope_set_ordered_uses_mask :: proc(s: ^Texture_Usage_Scope, mask: Texture_Uses) {
+    s.ordered = mask
 }
 
-texture_usage_scope_set_ordered_uses_mask :: proc(
-    s: ^Texture_Usage_Scope,
-    mask: Texture_Uses,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    s.ordered_uses_mask = mask
-}
-
-texture_usage_scope_allow_index :: proc(
-    s: ^Texture_Usage_Scope,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(s != nil, loc = loc)
-    if index >= len(s.set.simple) {
-        texture_usage_scope_set_size(s, index + 1, loc)
+texture_usage_scope_allow_index :: proc(s: ^Texture_Usage_Scope, index: Tracker_Index) {
+    if u32(index) >= u32(len(s.set.simple)) {
+        texture_usage_scope_set_size(s, u32(index) + 1)
     }
 }
 
-// Returns true if the tracker owns no resources. O(n) operation.
-texture_usage_scope_is_empty :: proc(s: ^Texture_Usage_Scope, loc := #caller_location) -> bool {
-    assert(s != nil, loc = loc)
-    return resource_metadata_is_empty(&s.metadata)
-}
-
-// Merges the texture states in the given usage scope into this one. If any of
-// the resulting states is invalid, stops and returns a usage conflict.
-texture_usage_scope_merge_usage_scope :: proc(
-    s: ^Texture_Usage_Scope,
-    other: ^Texture_Usage_Scope,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    assert(s != nil, loc = loc)
-    assert(other != nil, loc = loc)
-
-    incoming_size := texture_state_set_len(&other.set)
-    if incoming_size > texture_state_set_len(&s.set) {
-        texture_usage_scope_set_size(s, incoming_size, loc)
-    }
-
-    state_provider := texture_state_provider_texture_set(&other.set)
-    metadata_provider := resource_metadata_provider_indirect(&other.metadata)
-
-    it := resource_metadata_indices(&other.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        texture_usage_scope_assert_in_bounds(s, index, loc)
-        texture_usage_scope_assert_in_bounds(other, index, loc)
-
-        tex := resource_metadata_get_unchecked(&other.metadata, index)
-        texture_impl := texture_get_public_impl(tex, loc)
-        e := texture_insert_or_merge(
-            texture_impl.full_range,
-            &s.set,
-            &s.metadata,
-            index,
-            &state_provider,
-            &metadata_provider,
-        )
-        if e != nil {
-            return e
-        }
-    }
-    return nil
-}
-
-// Merges a single state into the usage scope. If the resulting state is
-// invalid, returns a usage conflict.
+// Merge one texture range's use into the scope. False is a usage conflict,
+// reported as the state the scope had and the use it was offered, for the
+// subresources that could not coexist.
 texture_usage_scope_merge_single :: proc(
     s: ^Texture_Usage_Scope,
-    texture: Texture,
+    texture: Tracked_Texture,
+    has_selector: bool,
     selector: Texture_Selector,
-    new_state: Texture_Uses,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    texture_impl := texture_get_public_impl(texture, loc)
-    index := texture_impl.tracker_index
-    texture_usage_scope_allow_index(s, index, loc)
-    texture_usage_scope_assert_in_bounds(s, index, loc)
-    state_provider := texture_state_provider_from_option(selector, new_state)
-    metadata_provider := resource_metadata_provider_direct(texture)
-    return texture_insert_or_merge(
-        texture_impl.full_range,
-        &s.set,
-        &s.metadata,
+    uses: Texture_Uses,
+    out_selector: ^Texture_Selector,
+    out_current: ^Texture_Uses,
+    out_new: ^Texture_Uses,
+) -> bool {
+    index := texture.index
+    texture_usage_scope_allow_index(s, index)
+    provider :=
+        has_selector ? texture_state_provider_selector(selector, uses) : texture_state_provider_single(uses)
+    return texture_usage_scope_insert_or_merge(
+        s,
         index,
-        &state_provider,
-        &metadata_provider,
+        texture,
+        provider,
+        out_selector,
+        out_current,
+        out_new,
     )
 }
 
-// Merges the texture states in the given bind group into this usage scope.
-// Bind groups are not checked for conflicts between their own entries, so
-// this may return an error on the first bind group bound.
+// Merge every view of a bind group into the scope.
 texture_usage_scope_merge_bind_group :: proc(
     s: ^Texture_Usage_Scope,
-    bind_group: ^Texture_View_Bind_Group_State,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    assert(s != nil, loc = loc)
-    for i in 0 ..< len(bind_group.views) {
-        entry := &bind_group.views[i]
-        view_impl := texture_view_get_public_impl(entry.view, loc)
-        e := texture_usage_scope_merge_single(
+    group: ^Texture_View_Bind_Group_State,
+    out_selector: ^Texture_Selector,
+    out_current: ^Texture_Uses,
+    out_new: ^Texture_Uses,
+) -> bool {
+    for &view in group.views {
+        if !texture_usage_scope_merge_single(
             s,
-            view_impl.texture,
-            view_impl.selector,
-            entry.usage,
-            loc,
-        )
-        if e != nil {
-            return e
+            view.texture,
+            true,
+            view.selector,
+            view.uses,
+            out_selector,
+            out_current,
+            out_new,
+        ) {
+            return false
         }
     }
-    return nil
+    return true
 }
 
-// Encodes a single texture transition once `pending_transition_texture` has
-// turned it into a backend barrier.
-Texture_Barrier :: struct {
-    texture:  Texture,
-    selector: Texture_Selector,
-    usage:    State_Transition(Texture_Uses),
+// Merge all of another scope's members into this one.
+texture_usage_scope_merge_usage_scope :: proc(
+    s: ^Texture_Usage_Scope,
+    other: ^Texture_Usage_Scope,
+    out_selector: ^Texture_Selector,
+    out_current: ^Texture_Uses,
+    out_new: ^Texture_Uses,
+) -> bool {
+    if u32(len(other.set.simple)) > u32(len(s.set.simple)) {
+        texture_usage_scope_set_size(s, u32(len(other.set.simple)))
+    }
+    it: Metadata_Index_Iterator(Tracked_Texture)
+    metadata_index_iterator_init(&it, &other.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        provider := texture_state_provider_set(&other.set)
+        if !texture_usage_scope_insert_or_merge(
+            s,
+            index,
+            resource_metadata_get(&other.metadata, index),
+            provider,
+            out_selector,
+            out_current,
+            out_new,
+        ) {
+            return false
+        }
+    }
+    return true
 }
 
-// A pending texture state transition.
-Pending_Texture_Transition :: Pending_Transition(Texture_Uses, Texture_Selector)
-
-// Produce the backend barrier corresponding to the transition.
-pending_transition_texture :: proc(
-    pending: Pending_Texture_Transition,
-    texture: Texture,
-    loc := #caller_location,
-) -> Texture_Barrier {
-    // These showing up in a barrier is always a bug.
-    assert(pending.usage.from != TEXTURE_USES_UNKNOWN, loc = loc)
-    assert(pending.usage.to != TEXTURE_USES_UNKNOWN, loc = loc)
-    assert(pending.selector.mips.end - pending.selector.mips.start != 0, loc = loc)
-    assert(pending.selector.layers.end - pending.selector.layers.start != 0, loc = loc)
-    return Texture_Barrier{texture = texture, selector = pending.selector, usage = pending.usage}
+texture_usage_scope_insert_or_merge :: proc(
+    s: ^Texture_Usage_Scope,
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+    provider: Texture_State_Provider,
+    out_selector: ^Texture_Selector,
+    out_current: ^Texture_Uses,
+    out_new: ^Texture_Uses,
+) -> bool {
+    if !resource_metadata_contains(&s.metadata, index) {
+        texture_insert(nil, &s.set, &s.metadata, index, texture, provider, nil)
+        return true
+    }
+    return texture_merge(&s.set, index, texture, provider, out_selector, out_current, out_new)
 }
 
-// Stores all texture state within a command buffer.
+// One command buffer's texture transcript.
 Texture_Tracker :: struct {
-    start_set:         Texture_State_Set,
-    end_set:           Texture_State_Set,
-    metadata:          Resource_Metadata(Texture),
-    temp:              [dynamic]Pending_Texture_Transition,
-    ordered_uses_mask: Texture_Uses,
+    start:    Texture_State_Set,
+    end:      Texture_State_Set,
+    metadata: Resource_Metadata(Tracked_Texture),
+    temp:     [dynamic]Texture_State_Transition,
+    ordered:  Texture_Uses,
 }
 
 texture_tracker_init :: proc(
     t: ^Texture_Tracker,
-    ordered_uses_mask: Texture_Uses,
     allocator: runtime.Allocator,
-    loc := #caller_location,
+    ordered: Texture_Uses,
 ) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    texture_state_set_init(&t.start_set, allocator)
-    texture_state_set_init(&t.end_set, allocator)
-    resource_metadata_init(&t.metadata, 0, allocator)
+    t^ = {}
+    texture_state_set_init(&t.start, allocator)
+    texture_state_set_init(&t.end, allocator)
+    resource_metadata_init(&t.metadata, allocator)
     t.temp.allocator = allocator
-    t.ordered_uses_mask = ordered_uses_mask
+    t.ordered = ordered
 }
 
-texture_tracker_uninit :: proc(t: ^Texture_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    texture_state_set_uninit(&t.start_set)
-    texture_state_set_uninit(&t.end_set)
-    texture_metadata_release_all(&t.metadata, loc)
-    resource_metadata_uninit(&t.metadata)
+texture_tracker_free :: proc(t: ^Texture_Tracker) {
+    texture_state_set_free(&t.start)
+    texture_state_set_free(&t.end)
+    resource_metadata_free(&t.metadata)
     delete(t.temp)
-    t^ = {} // reset memory
+    t^ = {}
 }
 
-texture_tracker_clear :: proc(t: ^Texture_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    texture_state_set_clear(&t.start_set)
-    texture_state_set_clear(&t.end_set)
-    texture_metadata_release_all(&t.metadata, loc)
+texture_tracker_clear :: proc(t: ^Texture_Tracker) {
+    texture_state_set_clear(&t.start)
+    texture_state_set_clear(&t.end)
+    resource_metadata_clear(&t.metadata)
     clear(&t.temp)
 }
 
-texture_tracker_assert_in_bounds :: proc(
-    t: ^Texture_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(index < len(t.start_set.simple), loc = loc)
-    assert(index < len(t.end_set.simple), loc = loc)
-    resource_metadata_assert_in_bounds(&t.metadata, index, loc)
+texture_tracker_set_size :: proc(t: ^Texture_Tracker, size: u32) {
+    texture_state_set_set_size(&t.start, size)
+    texture_state_set_set_size(&t.end, size)
+    resource_metadata_set_size(&t.metadata, size)
 }
 
-// Sets the size of all the vectors inside the tracker.
-texture_tracker_set_size :: proc(t: ^Texture_Tracker, size: int, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    texture_state_set_resize(&t.start_set, size, loc)
-    texture_state_set_resize(&t.end_set, size, loc)
-    resource_metadata_set_size(&t.metadata, size, loc)
-}
-
-// Extends the vectors so the given index is valid.
-texture_tracker_allow_index :: proc(
-    t: ^Texture_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    if index >= texture_state_set_len(&t.start_set) {
-        texture_tracker_set_size(t, index + 1, loc)
+texture_tracker_allow_index :: proc(t: ^Texture_Tracker, index: Tracker_Index) {
+    if u32(index) >= u32(len(t.start.simple)) {
+        texture_tracker_set_size(t, u32(index) + 1)
     }
 }
 
-// Returns true if the tracker owns the given texture.
-texture_tracker_contains :: proc(
+texture_tracker_contains :: #force_inline proc "contextless" (
     t: ^Texture_Tracker,
-    texture: Texture,
-    loc := #caller_location,
+    index: Tracker_Index,
 ) -> bool {
-    assert(t != nil, loc = loc)
-    return resource_metadata_contains(&t.metadata, texture_tracker_index(texture, loc))
+    return resource_metadata_contains(&t.metadata, index)
 }
 
-// Returns an iterator over references to all tracked textures.
-texture_tracker_used_resources :: proc(
-    t: ^Texture_Tracker,
-    loc := #caller_location,
-) -> Resource_Metadata_Iterator(Texture) {
-    assert(t != nil, loc = loc)
-    return resource_metadata_iterate(&t.metadata)
-}
-
-// Returns every pending transition accumulated so far and empties the
-// internal buffer (capacity is kept for reuse). The caller owns the returned
-// slice and should `delete()` it once done.
-texture_tracker_drain_transitions :: proc(
-    t: ^Texture_Tracker,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) -> []Pending_Texture_Transition {
-    assert(t != nil, loc = loc)
-    result := make([]Pending_Texture_Transition, len(t.temp), allocator)
-    copy(result, t.temp[:])
-    clear(&t.temp)
-    return result
-}
-
-// Sets the state of a single texture, returning the transitions needed to get
-// the texture into that state. The vectors are extended as needed.
+// Move one texture range to `uses`, recording the transitions it needs.
 texture_tracker_set_single :: proc(
     t: ^Texture_Tracker,
-    texture: Texture,
+    texture: Tracked_Texture,
     selector: Texture_Selector,
-    new_state: Texture_Uses,
-    loc := #caller_location,
+    uses: Texture_Uses,
 ) {
-    assert(t != nil, loc = loc)
-    texture_impl := texture_get_public_impl(texture, loc)
-    index := texture_impl.tracker_index
-    texture_tracker_allow_index(t, index, loc)
-    texture_tracker_assert_in_bounds(t, index, loc)
-
-    state_provider := texture_state_provider_selector(selector, new_state)
-    metadata_provider := resource_metadata_provider_direct(texture)
-
-    texture_insert_or_barrier_update(
-        texture_impl.full_range,
-        &t.start_set,
-        &t.end_set,
-        &t.metadata,
-        index,
-        &state_provider,
-        nil,
-        &metadata_provider,
-        &t.temp,
-        t.ordered_uses_mask,
-    )
+    index := texture.index
+    texture_tracker_allow_index(t, index)
+    provider := texture_state_provider_selector(selector, uses)
+    texture_tracker_insert_or_barrier_update(t, index, texture, provider, nil)
 }
 
-// Sets the given state for all textures in the given tracker.
-texture_tracker_set_from_tracker :: proc(
-    t: ^Texture_Tracker,
-    other: ^Texture_Tracker,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(other != nil, loc = loc)
-
-    incoming_size := texture_state_set_len(&other.start_set)
-    if incoming_size > texture_state_set_len(&t.start_set) {
-        texture_tracker_set_size(t, incoming_size, loc)
+// Adopt another tracker: its start becomes this transcript's start, its end
+// becomes the end.
+texture_tracker_set_from_tracker :: proc(t: ^Texture_Tracker, other: ^Texture_Tracker) {
+    if u32(len(other.start.simple)) > u32(len(t.start.simple)) {
+        texture_tracker_set_size(t, u32(len(other.start.simple)))
     }
-
-    it := resource_metadata_indices(&other.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        texture_tracker_assert_in_bounds(t, index, loc)
-        texture_tracker_assert_in_bounds(other, index, loc)
-
-        tex := resource_metadata_get_unchecked(&other.metadata, index)
-        texture_impl := texture_get_public_impl(tex, loc)
-
-        start_provider := texture_state_provider_texture_set(&other.start_set)
-        end_provider := texture_state_provider_texture_set(&other.end_set)
-        metadata_privder := resource_metadata_provider_indirect(&other.metadata)
-
-        texture_insert_or_barrier_update(
-            texture_impl.full_range,
-            &t.start_set,
-            &t.end_set,
-            &t.metadata,
+    it: Metadata_Index_Iterator(Tracked_Texture)
+    metadata_index_iterator_init(&it, &other.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        texture := resource_metadata_get(&other.metadata, index)
+        end_provider := texture_state_provider_set(&other.end)
+        texture_tracker_insert_or_barrier_update(
+            t,
             index,
-            &start_provider,
+            texture,
+            texture_state_provider_set(&other.start),
             &end_provider,
-            &metadata_privder,
-            &t.temp,
-            t.ordered_uses_mask,
         )
     }
 }
 
-// Sets the given state for all textures in the given usage scope.
-texture_tracker_set_from_usage_scope :: proc(
-    t: ^Texture_Tracker,
-    scope: ^Texture_Usage_Scope,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(scope != nil, loc = loc)
-
-    incoming_size := texture_state_set_len(&scope.set)
-    if incoming_size > texture_state_set_len(&t.start_set) {
-        texture_tracker_set_size(t, incoming_size, loc)
+// Adopt every member of a usage scope, starting and ending at its state.
+texture_tracker_set_from_usage_scope :: proc(t: ^Texture_Tracker, scope: ^Texture_Usage_Scope) {
+    if u32(len(scope.set.simple)) > u32(len(t.start.simple)) {
+        texture_tracker_set_size(t, u32(len(scope.set.simple)))
     }
-
-    it := resource_metadata_indices(&scope.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        texture_tracker_assert_in_bounds(t, index, loc)
-        texture_usage_scope_assert_in_bounds(scope, index, loc)
-
-        tex := resource_metadata_get_unchecked(&scope.metadata, index)
-        texture_impl := texture_get_public_impl(tex, loc)
-
-        state_provider := texture_state_provider_texture_set(&scope.set)
-        metadata_provider := resource_metadata_provider_indirect(&scope.metadata)
-
-        texture_insert_or_barrier_update(
-            texture_impl.full_range,
-            &t.start_set,
-            &t.end_set,
-            &t.metadata,
+    it: Metadata_Index_Iterator(Tracked_Texture)
+    metadata_index_iterator_init(&it, &scope.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        texture_tracker_insert_or_barrier_update(
+            t,
             index,
-            &state_provider,
+            resource_metadata_get(&scope.metadata, index),
+            texture_state_provider_set(&scope.set),
             nil,
-            &metadata_provider,
-            &t.temp,
-            t.ordered_uses_mask,
         )
     }
 }
 
-// Iterates through all textures in the given bind group and adopts their
-// state from the usage scope, removing the touched textures from the scope.
-//
-// Used by compute passes to generate barriers after a dispatch without
-// iterating the whole usage scope. Every texture of the bind group must have
-// been added to the scope first.
+// Adopt the textures a bind group's views name and remove them from the scope, so
+// a later merge in the same pass does not see them again. The scope's state is
+// adopted over the texture's full range, since the scope already merged every view
+// of it.
 texture_tracker_set_and_remove_from_usage_scope_sparse :: proc(
     t: ^Texture_Tracker,
     scope: ^Texture_Usage_Scope,
-    bind_group: ^Texture_View_Bind_Group_State,
-    loc := #caller_location,
+    views: ^Texture_View_Bind_Group_State,
 ) {
-    assert(t != nil, loc = loc)
-
-    incoming_size := texture_state_set_len(&scope.set)
-    if incoming_size > texture_state_set_len(&t.start_set) {
-        texture_tracker_set_size(t, incoming_size, loc)
+    if u32(len(scope.set.simple)) > u32(len(t.start.simple)) {
+        texture_tracker_set_size(t, u32(len(scope.set.simple)))
     }
-
-    for i in 0 ..< len(bind_group.views) {
-        entry := &bind_group.views[i]
-        view_impl := texture_view_get_public_impl(entry.view, loc)
-        parent := view_impl.texture
-        texture_impl := texture_get_public_impl(parent, loc)
-        index := texture_impl.tracker_index
-        texture_usage_scope_assert_in_bounds(scope, index, loc)
-
-        if !resource_metadata_contains_unchecked(&scope.metadata, index) {
+    for &view in views.views {
+        index := view.texture.index
+        if !resource_metadata_contains(&scope.metadata, index) {
             continue
         }
-
-        state_provider := texture_state_provider_texture_set(&scope.set)
-        metadata_provider := resource_metadata_provider_indirect(&scope.metadata)
-
-        // The index is valid for the scope and `set_size` was called to make
-        // it valid for `self`.
-        texture_insert_or_barrier_update(
-            texture_impl.full_range,
-            &t.start_set,
-            &t.end_set,
-            &t.metadata,
+        texture_tracker_insert_or_barrier_update(
+            t,
             index,
-            &state_provider,
+            resource_metadata_get(&scope.metadata, index),
+            texture_state_provider_set(&scope.set),
             nil,
-            &metadata_provider,
-            &t.temp,
-            t.ordered_uses_mask,
         )
-        // Ownership moves to the bind group's state, which retained it on
-        // insert, so the scope gives up its reference here.
-        resource_release_texture(resource_metadata_get_unchecked(&scope.metadata, index))
         resource_metadata_remove(&scope.metadata, index)
     }
 }
 
-// Stores the current state of every texture used by a device. Its metadata is
-// weak: the device tracker must not keep textures alive, as their final release
-// schedules deferred destruction and removes the tracker entry.
+texture_tracker_clear_pending :: proc(t: ^Texture_Tracker) {
+    clear(&t.temp)
+}
+
+// Insert on first contact, record transitions and advance otherwise.
+texture_tracker_insert_or_barrier_update :: proc(
+    t: ^Texture_Tracker,
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+    start_provider: Texture_State_Provider,
+    end_provider: ^Texture_State_Provider,
+) {
+    // A recycled pool slot whose previous entry is still here: the device tracker
+    // defers `forget` while a release is parked, so the state (and the subresource
+    // table it may own) must not be inherited by the new resource. The generation in
+    // the handle tells them apart.
+    if resource_metadata_contains(&t.metadata, index) &&
+       resource_metadata_get(&t.metadata, index).texture != texture.texture {
+        texture_state_set_release_complex(&t.start, index)
+        texture_state_set_release_complex(&t.end, index)
+        resource_metadata_remove(&t.metadata, index)
+    }
+    if !resource_metadata_contains(&t.metadata, index) {
+        texture_insert(&t.start, &t.end, &t.metadata, index, texture, start_provider, end_provider)
+        return
+    }
+
+    texture_barrier(&t.end, index, texture, start_provider, &t.temp, t.ordered, false)
+    update_provider := start_provider
+    if end_provider != nil {
+        update_provider = end_provider^
+    }
+    texture_update(&t.start, &t.end, index, texture, update_provider)
+}
+
+// The device's authoritative texture state.
 Device_Texture_Tracker :: struct {
-    current_state_set: Texture_State_Set,
-    metadata:          Resource_Metadata(Texture),
-    temp:              [dynamic]Pending_Texture_Transition,
-    ordered_uses_mask: Texture_Uses,
-    mtx:               sync.RW_Mutex,
+    current:  Texture_State_Set,
+    metadata: Resource_Metadata(Tracked_Texture),
+    ordered:  Texture_Uses,
 }
 
 device_texture_tracker_init :: proc(
     t: ^Device_Texture_Tracker,
-    ordered_uses_mask: Texture_Uses,
     allocator: runtime.Allocator,
-    loc := #caller_location,
+    ordered: Texture_Uses,
 ) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    texture_state_set_init(&t.current_state_set, allocator)
-    resource_metadata_init(&t.metadata, 0, allocator)
-    t.temp.allocator = allocator
-    t.ordered_uses_mask = ordered_uses_mask
+    t^ = {}
+    texture_state_set_init(&t.current, allocator)
+    resource_metadata_init(&t.metadata, allocator)
+    t.ordered = ordered
 }
 
-device_texture_tracker_uninit :: proc(t: ^Device_Texture_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    texture_state_set_uninit(&t.current_state_set)
-    resource_metadata_uninit(&t.metadata)
-    delete(t.temp)
-    t^ = {} // reset memory
+device_texture_tracker_free :: proc(t: ^Device_Texture_Tracker) {
+    texture_state_set_free(&t.current)
+    resource_metadata_free(&t.metadata)
+    t^ = {}
 }
 
-device_texture_tracker_assert_in_bounds :: proc(
-    t: ^Device_Texture_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    assert(index < len(t.current_state_set.simple), loc = loc)
-    texture_state_set_assert_in_bounds(&t.current_state_set, index, loc)
-    resource_metadata_assert_in_bounds(&t.metadata, index, loc)
+device_texture_tracker_clear :: proc(t: ^Device_Texture_Tracker) {
+    texture_state_set_clear(&t.current)
+    resource_metadata_clear(&t.metadata)
 }
 
-// Extends the vectors so the given index is valid. Exclusive-lock body; the
-// public wrapper acquires `mtx`.
-device_texture_tracker_allow_index_locked :: proc(
-    t: ^Device_Texture_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    if index >= texture_state_set_len(&t.current_state_set) {
-        texture_state_set_resize(&t.current_state_set, index + 1)
-        resource_metadata_set_size(&t.metadata, index + 1, loc)
-    }
+device_texture_tracker_set_size :: proc(t: ^Device_Texture_Tracker, size: u32) {
+    texture_state_set_set_size(&t.current, size)
+    resource_metadata_set_size(&t.metadata, size)
 }
 
-// Extends the vectors so the given index is valid.
-device_texture_tracker_allow_index :: proc(
-    t: ^Device_Texture_Tracker,
-    #any_int index: int,
-    loc := #caller_location,
-) {
-    sync.guard(&t.mtx)
-    device_texture_tracker_allow_index_locked(t, index, loc)
-}
-
-// Returns an iterator over every tracked texture (weak).
-//
-// As with `device_buffer_tracker_used_resources`, the iterator borrows `t`'s tables,
-// so it is only valid while the caller holds `mtx` exclusively or is the tracker's
-// only user. No lock is taken here; see that function for why.
-device_texture_tracker_used_resources :: proc(
-    t: ^Device_Texture_Tracker,
-    loc := #caller_location,
-) -> Resource_Metadata_Iterator(Texture) {
-    assert(t != nil, loc = loc)
-    return resource_metadata_iterate(&t.metadata)
-}
-
-// Inserts a single texture and its state into the resource tracker. If the
-// resource already exists it is overwritten.
+// Overwrite a texture's state without emitting a transition.
 device_texture_tracker_insert_single :: proc(
     t: ^Device_Texture_Tracker,
-    #any_int index: Tracker_Index,
-    texture: Texture,
-    state: Texture_Uses,
-    loc := #caller_location,
+    texture: Tracked_Texture,
+    uses: Texture_Uses,
 ) {
-    assert(t != nil, loc = loc)
-
-    sync.guard(&t.mtx)
-    device_texture_tracker_insert_single_locked(t, index, texture, state, loc)
-}
-
-// Exclusive-lock body of `device_texture_tracker_insert_single`.
-device_texture_tracker_insert_single_locked :: proc(
-    t: ^Device_Texture_Tracker,
-    #any_int index: Tracker_Index,
-    texture: Texture,
-    state: Texture_Uses,
-    loc := #caller_location,
-) {
-    device_texture_tracker_allow_index_locked(t, index, loc)
-    device_texture_tracker_assert_in_bounds(t, index, loc)
-
-    state_provider := texture_state_provider_known_single(state)
-    metadata_provider := resource_metadata_provider_direct(texture)
-
-    texture_state_insert(
-        {},
-        nil,
-        &t.current_state_set,
-        &t.metadata,
-        index,
-        &state_provider,
-        nil,
-        &metadata_provider,
-        retain_resource = false,
-    )
-}
-
-// Returns the state a texture is currently in. `is_single` is false when the
-// texture's subresources are in divergent states, in which case the caller must
-// resolve per-subresource rather than assume one layout.
-device_texture_tracker_get_state :: proc(
-    t: ^Device_Texture_Tracker,
-    texture: Texture,
-    loc := #caller_location,
-) -> Device_Texture_State {
-    assert(t != nil, loc = loc)
-    texture_impl := texture_get_public_impl(texture, loc)
-    return device_texture_tracker_get_state_at(t, texture_impl.tracker_index, loc)
-}
-
-// Index-based body of `device_texture_tracker_get_state`, so a caller that already
-// holds a tracker index does not have to resolve the handle again.
-//
-// Resolved under the shared lock and returned by value: the divergent case is
-// reduced to a flag, so no reference into `current_state_set.complex`, a map
-// another thread can rehash, outlives this call. The tracker's complex machinery
-// is untouched; only what crosses the lock boundary is simplified.
-device_texture_tracker_get_state_at :: proc(
-    t: ^Device_Texture_Tracker,
-    #any_int index: Tracker_Index,
-    loc := #caller_location,
-) -> Device_Texture_State {
-    assert(t != nil, loc = loc)
-
-    sync.shared_guard(&t.mtx)
-    device_texture_tracker_assert_in_bounds(t, index, loc)
-
-    cur := texture_state_set_get_unchecked(&t.current_state_set, index, loc)
-    if cur.is_single {
-        return {is_single = true, state = cur.state}
+    index := texture.index
+    if u32(index) >= u32(len(t.current.simple)) {
+        device_texture_tracker_set_size(t, u32(index) + 1)
     }
-    return {}
+    texture_state_set_insert_simple(&t.current, index, uses)
+    resource_metadata_insert(&t.metadata, index, texture)
 }
 
-// Sets the state of a single texture without producing a transition, for the
-// cases where the caller records the transition itself.
-device_texture_tracker_set_state :: proc(
-    t: ^Device_Texture_Tracker,
-    texture: Texture,
-    new_state: Texture_Uses,
-    loc := #caller_location,
-) {
-    assert(t != nil, loc = loc)
-    texture_impl := texture_get_public_impl(texture, loc)
-    index := texture_impl.tracker_index
-
-    sync.guard(&t.mtx)
-    device_texture_tracker_assert_in_bounds(t, index, loc)
-
-    state_provider := texture_state_provider_known_single(new_state)
-
-    texture_state_update(
-        texture_impl.full_range,
-        nil,
-        &t.current_state_set,
-        index,
-        &state_provider,
-    )
-}
-
-// Sets the state of a single texture within a given selector, returning the
-// transitions needed.
+// Move one texture range to `uses`, appending the transitions the current state
+// needs. Grows on demand, so no presize call is a precondition.
 device_texture_tracker_set_single :: proc(
     t: ^Device_Texture_Tracker,
-    texture: Texture,
+    texture: Tracked_Texture,
     selector: Texture_Selector,
-    new_state: Texture_Uses,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) -> []Pending_Texture_Transition {
-    assert(t != nil, loc = loc)
-    texture_impl := texture_get_public_impl(texture, loc)
-    index := texture_impl.tracker_index
-
-    sync.guard(&t.mtx)
-    device_texture_tracker_allow_index_locked(t, index, loc)
-    device_texture_tracker_assert_in_bounds(t, index, loc)
-
-    state_provider := texture_state_provider_selector(selector, new_state)
-
-    texture_state_barrier(
-        texture_impl.full_range,
-        &t.current_state_set,
+    uses: Texture_Uses,
+    out: ^[dynamic]Texture_State_Transition,
+) {
+    index := texture.index
+    device_texture_tracker_prepare(t, index, texture)
+    texture_barrier(
+        &t.current,
         index,
-        &state_provider,
-        &t.temp,
-        t.ordered_uses_mask,
+        texture,
+        texture_state_provider_selector(selector, uses),
+        out,
+        t.ordered,
+        true,
     )
-    texture_state_update(
-        texture_impl.full_range,
+    texture_update(
         nil,
-        &t.current_state_set,
+        &t.current,
         index,
-        &state_provider,
+        texture,
+        texture_state_provider_selector(selector, uses),
     )
-
-    result := make([]Pending_Texture_Transition, len(t.temp), allocator)
-    copy(result, t.temp[:])
-    clear(&t.temp)
-    return result
+    resource_metadata_insert(&t.metadata, index, texture)
 }
 
-// Removes the texture from the device tracker.
-device_texture_tracker_remove :: proc(t: ^Device_Texture_Tracker, #any_int index: Tracker_Index) {
-    sync.guard(&t.mtx)
-    // Device tracker metadata is weak and does not own a reference.
-    resource_metadata_remove(&t.metadata, index)
-    // t.current_state_set.simple[index] is left stale but unreachable, the
-    // bit vector will report "not contained" for this index until it's
-    // reused, at which point device_texture_tracker_insert_single overwrites
-    // it fresh.
+// Make sure `index` holds *this* texture's state and nothing else's.
+//
+// A pool slot is not an identity: the state array is indexed by slot, so a texture
+// created into a slot a released texture used to occupy finds that texture's
+// layout there. The metadata — which stores the whole handle, generation included —
+// is what tells them apart, and a texture the device has never seen starts
+// `Uninitialized`, exactly like a fresh slot does.
+device_texture_tracker_prepare :: proc(
+    t: ^Device_Texture_Tracker,
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+) {
+    if u32(index) >= u32(len(t.current.simple)) {
+        device_texture_tracker_set_size(t, u32(index) + 1)
+    }
+    if resource_metadata_contains(&t.metadata, index) {
+        if resource_metadata_get(&t.metadata, index).texture == texture.texture {
+            return
+        }
+        texture_state_set_release_complex(&t.current, index)
+        resource_metadata_remove(&t.metadata, index)
+    }
+    texture_state_set_insert_simple(&t.current, index, TEXTURE_USES_UNINITIALIZED)
 }
 
-// Sets the given state for all textures in the given tracker, returning the
-// needed transitions.
+// Move the device state to a command buffer's start, then to its end, appending
+// both sets of transitions.
 device_texture_tracker_set_from_tracker_and_drain_transitions :: proc(
     t: ^Device_Texture_Tracker,
     tracker: ^Texture_Tracker,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) -> []Pending_Texture_Transition {
-    assert(t != nil, loc = loc)
-    assert(tracker != nil, loc = loc)
-
-    // One exclusive acquisition covers the whole diff-and-commit: two threads
-    // interleaving here would each diff against a current state the other had
-    // already advanced, producing barriers that are missing or duplicated.
-    sync.guard(&t.mtx)
-
-    it := resource_metadata_indices(&tracker.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        device_texture_tracker_assert_in_bounds(t, index, loc)
-        tex := resource_metadata_get_unchecked(&tracker.metadata, index)
-        texture_impl := texture_get_public_impl(tex, loc)
-        start_provider := texture_state_provider_texture_set(&tracker.start_set)
-        end_provider := texture_state_provider_texture_set(&tracker.end_set)
-        texture_state_barrier(
-            texture_impl.full_range,
-            &t.current_state_set,
+    out: ^[dynamic]Texture_State_Transition,
+) {
+    it: Metadata_Index_Iterator(Tracked_Texture)
+    metadata_index_iterator_init(&it, &tracker.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        texture := resource_metadata_get(&tracker.metadata, index)
+        device_texture_tracker_prepare(t, index, texture)
+        texture_barrier(
+            &t.current,
             index,
-            &start_provider,
-            &t.temp,
-            t.ordered_uses_mask,
+            texture,
+            texture_state_provider_set(&tracker.start),
+            out,
+            t.ordered,
+            // A subresource the device has never recorded is `Uninitialized`, so its
+            // first use still gets the entry transition even though the state array
+            // marks it `Unknown`.
+            true,
         )
-        texture_state_update(
-            texture_impl.full_range,
-            nil,
-            &t.current_state_set,
-            index,
-            &end_provider,
-        )
+        texture_advance(&t.current, index, texture, &tracker.end)
+        resource_metadata_insert(&t.metadata, index, texture)
     }
-
-    result := make([]Pending_Texture_Transition, len(t.temp), allocator)
-    copy(result, t.temp[:])
-    clear(&t.temp)
-    return result
 }
 
-// Sets the given state for all textures in the given usage scope, returning
-// the needed transitions.
+// Move the device state to a usage scope's state, appending the transitions.
 device_texture_tracker_set_from_usage_scope_and_drain_transitions :: proc(
     t: ^Device_Texture_Tracker,
     scope: ^Texture_Usage_Scope,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) -> []Pending_Texture_Transition {
-    assert(t != nil, loc = loc)
-    assert(scope != nil, loc = loc)
-
-    sync.guard(&t.mtx)
-
-    it := resource_metadata_indices(&scope.metadata)
-    for index in bit_vector_iterator_next(&it) {
-        device_texture_tracker_assert_in_bounds(t, index, loc)
-
-        tex := resource_metadata_get_unchecked(&scope.metadata, index)
-        texture_impl := texture_get_public_impl(tex, loc)
-        scope_provider := texture_state_provider_texture_set(&scope.set)
-        texture_state_barrier(
-            texture_impl.full_range,
-            &t.current_state_set,
+    out: ^[dynamic]Texture_State_Transition,
+) {
+    it: Metadata_Index_Iterator(Tracked_Texture)
+    metadata_index_iterator_init(&it, &scope.metadata)
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        texture := resource_metadata_get(&scope.metadata, index)
+        device_texture_tracker_prepare(t, index, texture)
+        texture_barrier(
+            &t.current,
             index,
-            &scope_provider,
-            &t.temp,
-            t.ordered_uses_mask,
+            texture,
+            texture_state_provider_set(&scope.set),
+            out,
+            t.ordered,
+            true,
         )
-        texture_state_update(
-            texture_impl.full_range,
-            nil,
-            &t.current_state_set,
-            index,
-            &scope_provider,
+        texture_advance(&t.current, index, texture, &scope.set)
+        resource_metadata_insert(&t.metadata, index, texture)
+    }
+}
+
+// Forget a texture's state, freeing the subresource table it owns.
+device_texture_tracker_forget :: proc(t: ^Device_Texture_Tracker, index: Tracker_Index) {
+    if u32(index) >= u32(len(t.current.simple)) {
+        return
+    }
+    texture_state_set_release_complex(&t.current, index)
+    resource_metadata_remove(&t.metadata, index)
+}
+
+// The state a texture is in: its single state, `Complex` when its subresources
+// disagree, or `Unknown` when the tracker has never seen it.
+//
+// Diagnostic only — it reads the *use* state a submission left behind, never the
+// initialisation state (`Texture_Init_Tracker`), which lives on the texture.
+device_texture_tracker_state_at :: proc(
+    t: ^Device_Texture_Tracker,
+    index: Tracker_Index,
+    texture: Texture,
+) -> Texture_Uses {
+    // The slot may have been recycled: the metadata entry is what says which
+    // resource the state belongs to.
+    if !resource_metadata_contains(&t.metadata, index) ||
+       resource_metadata_get(&t.metadata, index).texture != texture {
+        return TEXTURE_USES_UNKNOWN
+    }
+    if texture_state_set_is_complex(&t.current, index) {
+        return TEXTURE_USES_COMPLEX
+    }
+    return t.current.simple[u32(index)]
+}
+
+// The state of one subresource. A subresource the tracker knows nothing about
+// answers `Unknown`, which is what a per-mip diagnostic has to report.
+//
+// Diagnostic only, like `device_texture_tracker_state_at`: the use state, not the
+// initialisation state.
+device_texture_tracker_subresource_state :: proc(
+    t: ^Device_Texture_Tracker,
+    index: Tracker_Index,
+    texture: Texture,
+    mip: u32,
+    layer: u32,
+) -> Texture_Uses {
+    if !resource_metadata_contains(&t.metadata, index) ||
+       resource_metadata_get(&t.metadata, index).texture != texture {
+        return TEXTURE_USES_UNKNOWN
+    }
+    if !texture_state_set_is_complex(&t.current, index) {
+        return t.current.simple[u32(index)]
+    }
+    complex := texture_state_set_complex_at(&t.current, index)
+    if mip >= complex.mip_count {
+        return TEXTURE_USES_UNKNOWN
+    }
+    for &range in complex.mips[mip].ranges {
+        if layer >= range.start && layer < range.end {
+            return range.value
+        }
+    }
+    return TEXTURE_USES_UNKNOWN
+}
+
+// First contact: write start and end, `end` defaulting to `start`.
+texture_insert :: proc(
+    start: ^Texture_State_Set,
+    end: ^Texture_State_Set,
+    metadata: ^Resource_Metadata(Tracked_Texture),
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+    start_provider: Texture_State_Provider,
+    end_provider: ^Texture_State_Provider,
+) {
+    full := texture.full
+
+    if texture_state_provider_is_single(start_provider, full, index) {
+        state := texture_state_provider_single_state(start_provider, index)
+        if start != nil {
+            texture_state_set_insert_simple(start, index, state)
+        }
+        if end_provider == nil {
+            texture_state_set_insert_simple(end, index, state)
+        }
+    } else {
+        built: Complex_Texture_State
+        complex_texture_state_init(
+            &built,
+            end.allocator,
+            full.mip_count,
+            full.layer_count,
+            TEXTURE_USES_UNKNOWN,
         )
+        texture_state_provider_fill_complex(start_provider, &built, index)
+        if start != nil {
+            texture_state_set_insert_complex(start, index, &built)
+        }
+        if end_provider == nil {
+            texture_state_set_insert_complex(end, index, &built)
+        }
+        complex_texture_state_free(&built)
     }
 
-    result := make([]Pending_Texture_Transition, len(t.temp), allocator)
-    copy(result, t.temp[:])
-    clear(&t.temp)
-    return result
+    if end_provider != nil {
+        provider := end_provider^
+        if texture_state_provider_is_single(provider, full, index) {
+            texture_state_set_insert_simple(
+                end,
+                index,
+                texture_state_provider_single_state(provider, index),
+            )
+        } else {
+            built: Complex_Texture_State
+            complex_texture_state_init(
+                &built,
+                end.allocator,
+                full.mip_count,
+                full.layer_count,
+                TEXTURE_USES_UNKNOWN,
+            )
+            texture_state_provider_fill_complex(provider, &built, index)
+            texture_state_set_insert_complex(end, index, &built)
+            complex_texture_state_free(&built)
+        }
+    }
+
+    resource_metadata_insert(metadata, index, texture)
 }
 
-// A tracker used by Device.
-//
-// Unlike a command-buffer `Tracker`, which is single-owner (one encoder records
-// into one buffer), these belong to the device and are reached from every thread
-// that creates, records against, writes to, or destroys a resource. Each carries
-// its own `sync.RW_Mutex`; they are separate locks, not one device-wide lock, so
-// buffer work and texture work do not block each other.
-//
-// Lock ordering: a device tracker lock is a leaf. It is never held while
-// acquiring the submit-context lock or the deferred-deletion lock, and device
-// tracker metadata is weak so `resource_metadata_insert`/`remove` never fire the
-// retain/release hooks. `vk_deferred_destroy_*` takes the tracker lock, releases
-// it, and only then takes the shared tracker-index allocator's lock.
-Device_Tracker :: struct {
-    buffers:  Device_Buffer_Tracker,
-    textures: Device_Texture_Tracker,
+// Merge a state into the set, refusing what the usage rules forbid. All four arms
+// arrive from different directions: simple over simple is one OR, complex over
+// simple applies to every entry, and either side being complex walks ranges.
+texture_merge :: proc(
+    set: ^Texture_State_Set,
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+    provider: Texture_State_Provider,
+    out_selector: ^Texture_Selector,
+    out_current: ^Texture_Uses,
+    out_new: ^Texture_Uses,
+) -> bool {
+    full := texture.full
+    new_single := texture_state_provider_is_single(provider, full, index)
+    current_complex := texture_state_set_is_complex(set, index)
+
+    if !current_complex && new_single {
+        current := set.simple[u32(index)]
+        added := texture_state_provider_single_state(provider, index)
+        merged := current | added
+        if texture_uses_is_invalid(merged) {
+            out_selector^ = full
+            out_current^ = current
+            out_new^ = added
+            return false
+        }
+        set.simple[u32(index)] = merged
+        return true
+    }
+
+    if !current_complex {
+        // Promoting: the whole texture starts at the current simple state, and only
+        // the ranges the provider names change.
+        current := set.simple[u32(index)]
+        built: Complex_Texture_State
+        complex_texture_state_init(
+            &built,
+            set.allocator,
+            full.mip_count,
+            full.layer_count,
+            current,
+        )
+        ok := texture_merge_into_complex(
+            &built,
+            provider,
+            index,
+            out_selector,
+            out_current,
+            out_new,
+        )
+        if ok {
+            texture_state_set_insert_complex(set, index, &built)
+        }
+        complex_texture_state_free(&built)
+        return ok
+    }
+
+    complex := texture_state_set_complex_at(set, index)
+    if new_single {
+        // Every known entry gains the state; Unknown entries stay unknown.
+        added := texture_state_provider_single_state(provider, index)
+        for m in 0 ..< complex.mip_count {
+            mip := &complex.mips[m]
+            for &range in mip.ranges {
+                merged := texture_uses_keep_known(range.value | added)
+                if texture_uses_is_invalid(merged) {
+                    out_selector^ = {
+                        mip_start   = m,
+                        mip_count   = 1,
+                        layer_start = range.start,
+                        layer_count = range.end - range.start,
+                    }
+                    out_current^ = range.value
+                    out_new^ = added
+                    return false
+                }
+                range.value = merged
+            }
+            ranged_states_coalesce(mip)
+        }
+        return true
+    }
+
+    return texture_merge_into_complex(complex, provider, index, out_selector, out_current, out_new)
 }
 
-device_tracker_init :: proc(
-    t: ^Device_Tracker,
-    ordered_buffer_usages: Buffer_Uses,
-    ordered_texture_usages: Texture_Uses,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
+// Apply every pair of a complex provider to an existing complex state.
+texture_merge_into_complex :: proc(
+    complex: ^Complex_Texture_State,
+    provider: Texture_State_Provider,
+    index: Tracker_Index,
+    out_selector: ^Texture_Selector,
+    out_current: ^Texture_Uses,
+    out_new: ^Texture_Uses,
+) -> bool {
+    switch provider.kind {
+    case .Selector:
+        return texture_merge_range(
+            complex,
+            provider.selector,
+            provider.state,
+            out_selector,
+            out_current,
+            out_new,
+        )
+    case .Texture_Set:
+        source := texture_state_set_complex_at(provider.set, index)
+        for m in 0 ..< source.mip_count {
+            for &range in source.mips[m].ranges {
+                if !texture_merge_range(complex, {
+                        mip_start   = m,
+                        mip_count   = 1,
+                        layer_start = range.start,
+                        layer_count = range.end - range.start,
+                    }, range.value, out_selector, out_current, out_new) {
+                    return false
+                }
+            }
+        }
+        return true
+    case .Known_Single:
+        // `texture_state_provider_is_single` would have been true.
+        panic_contextless("a single state is not complex")
+    }
+    return false
+}
+
+// Merge one range into a complex state, entry by entry.
+texture_merge_range :: proc(
+    complex: ^Complex_Texture_State,
+    selector: Texture_Selector,
+    added: Texture_Uses,
+    out_selector: ^Texture_Selector,
+    out_current: ^Texture_Uses,
+    out_new: ^Texture_Uses,
+) -> bool {
+    mip_end := selector.mip_start + selector.mip_count
+    layer_end := selector.layer_start + selector.layer_count
+    for m in selector.mip_start ..< mip_end {
+        mip := &complex.mips[m]
+        i := ranged_states_isolate(mip, selector.layer_start, layer_end, TEXTURE_USES_UNKNOWN)
+        for ; i < len(mip.ranges) && mip.ranges[i].start < layer_end; i += 1 {
+            merged := texture_uses_keep_known(mip.ranges[i].value | added)
+            // Nothing was known about this subresource: it stays unknown.
+            if texture_uses_is_empty(merged) {
+                continue
+            }
+            if texture_uses_is_invalid(merged) {
+                out_selector^ = {
+                    mip_start   = m,
+                    mip_count   = 1,
+                    layer_start = mip.ranges[i].start,
+                    layer_count = mip.ranges[i].end - mip.ranges[i].start,
+                }
+                out_current^ = mip.ranges[i].value
+                out_new^ = added
+                return false
+            }
+            mip.ranges[i].value = merged
+        }
+        ranged_states_coalesce(mip)
+    }
+    return true
+}
+
+// Derive the transitions that move `set`'s state at `index` to `provider`,
+// appending them to `out`.
+//
+// `unknown_is_uninitialized` is the device tracker's reading of the `Unknown`
+// marker: in a *transcript*, `Unknown` means "this recording never touched the
+// subresource", so it has nothing to transition; in the *device* tracker the same
+// marker is the filler for a subresource no submission ever recorded, which means
+// the image is still in `UNDEFINED` — the next use does need that entry
+// transition. Reading it as `Uninitialized` is what makes a multiplexed attachment
+// leave `UNDEFINED` for every subresource, not only the first one a submission
+// happened to touch.
+texture_barrier :: proc(
+    set: ^Texture_State_Set,
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+    provider: Texture_State_Provider,
+    out: ^[dynamic]Texture_State_Transition,
+    ordered: Texture_Uses,
+    unknown_is_uninitialized := false,
 ) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    device_buffer_tracker_init(&t.buffers, ordered_buffer_usages, allocator)
-    device_texture_tracker_init(&t.textures, ordered_texture_usages, allocator)
+    full := texture.full
+    new_single := texture_state_provider_is_single(provider, full, index)
+    current_complex := texture_state_set_is_complex(set, index)
+
+    if !current_complex && new_single {
+        current := set.simple[u32(index)]
+        if unknown_is_uninitialized && current == TEXTURE_USES_UNKNOWN {
+            current = TEXTURE_USES_UNINITIALIZED
+        }
+        target := texture_state_provider_single_state(provider, index)
+        if texture_uses_skip_transition_ignoring_aspect(current, ordered, target) {
+            return
+        }
+        append(out, Texture_State_Transition {
+            texture  = texture.texture,
+            selector = full,
+            from     = current,
+            to       = target,
+        })
+        return
+    }
+
+    if !current_complex {
+        current := set.simple[u32(index)]
+        if unknown_is_uninitialized && current == TEXTURE_USES_UNKNOWN {
+            current = TEXTURE_USES_UNINITIALIZED
+        }
+        texture_barrier_from_simple(out, texture, current, provider, index, ordered)
+        return
+    }
+
+    complex := texture_state_set_complex_at(set, index)
+    if new_single {
+        target := texture_state_provider_single_state(provider, index)
+        for m in 0 ..< complex.mip_count {
+            for &range in complex.mips[m].ranges {
+                from := range.value
+                if from == TEXTURE_USES_UNKNOWN {
+                    if !unknown_is_uninitialized {
+                        continue
+                    }
+                    from = TEXTURE_USES_UNINITIALIZED
+                }
+                if texture_uses_skip_transition_ignoring_aspect(from, ordered, target) {
+                    continue
+                }
+                append(out, Texture_State_Transition {
+                    texture = texture.texture,
+                    selector = {
+                        mip_start   = m,
+                        mip_count   = 1,
+                        layer_start = range.start,
+                        layer_count = range.end - range.start,
+                    },
+                    from = from,
+                    to = target,
+                })
+            }
+        }
+        return
+    }
+
+    texture_barrier_complex(
+        out,
+        texture,
+        complex,
+        provider,
+        index,
+        ordered,
+        unknown_is_uninitialized,
+    )
 }
 
-device_tracker_uninit :: proc(t: ^Device_Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    device_buffer_tracker_uninit(&t.buffers)
-    device_texture_tracker_uninit(&t.textures)
-    t^ = {} // reset memory
-}
-
-// The full double-sided tracker used by command buffers: it knows the state a
-// resource first enters the command buffer with (`start_set`) and the state it
-// is left in (`end_set`), so transitions between command buffers can be
-// generated by comparing the previous end against this start.
-Tracker :: struct {
-    buffers:           Buffer_Tracker,
-    textures:          Texture_Tracker,
-    blas_s:            Blas_Tracker,
-    tlas_s:            Stateless_Tracker(Tlas),
-    views:             Stateless_Tracker(Texture_View),
-    bind_groups:       Stateless_Tracker(Bind_Group),
-    compute_pipelines: Stateless_Tracker(Compute_Pipeline),
-    render_pipelines:  Stateless_Tracker(Render_Pipeline),
-    bundles:           Stateless_Tracker(Render_Bundle),
-    query_sets:        Query_Set_Tracker,
-}
-
-tracker_init :: proc(
-    t: ^Tracker,
-    ordered_buffer_usages: Buffer_Uses,
-    ordered_texture_usages: Texture_Uses,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
+// A simple current state against a possibly complex target.
+texture_barrier_from_simple :: proc(
+    out: ^[dynamic]Texture_State_Transition,
+    texture: Tracked_Texture,
+    current: Texture_Uses,
+    provider: Texture_State_Provider,
+    index: Tracker_Index,
+    ordered: Texture_Uses,
 ) {
-    assert(t != nil, loc = loc)
-    t^ = {} // reset memory
-    buffer_tracker_init(&t.buffers, ordered_buffer_usages, allocator)
-    texture_tracker_init(&t.textures, ordered_texture_usages, allocator)
-    blas_tracker_init(&t.blas_s, allocator)
-    stateless_tracker_init(&t.tlas_s, allocator)
-    stateless_tracker_init(&t.views, allocator)
-    stateless_tracker_init(&t.bind_groups, allocator)
-    stateless_tracker_init(&t.compute_pipelines, allocator)
-    stateless_tracker_init(&t.render_pipelines, allocator)
-    stateless_tracker_init(&t.bundles, allocator)
-    query_set_tracker_init(&t.query_sets, allocator)
+    switch provider.kind {
+    case .Selector:
+        if provider.state == TEXTURE_USES_UNKNOWN {
+            return
+        }
+        if texture_uses_skip_transition_ignoring_aspect(current, ordered, provider.state) {
+            return
+        }
+        append(out, Texture_State_Transition {
+            texture  = texture.texture,
+            selector = provider.selector,
+            from     = current,
+            to       = provider.state,
+        })
+    case .Texture_Set:
+        source := texture_state_set_complex_at(provider.set, index)
+        for m in 0 ..< source.mip_count {
+            for &range in source.mips[m].ranges {
+                if range.value == TEXTURE_USES_UNKNOWN {
+                    continue
+                }
+                if texture_uses_skip_transition_ignoring_aspect(current, ordered, range.value) {
+                    continue
+                }
+                append(out, Texture_State_Transition {
+                    texture = texture.texture,
+                    selector = {
+                        mip_start   = m,
+                        mip_count   = 1,
+                        layer_start = range.start,
+                        layer_count = range.end - range.start,
+                    },
+                    from = current,
+                    to = range.value,
+                })
+            }
+        }
+    case .Known_Single:
+        // `texture_state_provider_is_single` would have been true.
+        panic_contextless("a single target is not complex")
+    }
 }
 
-tracker_uninit :: proc(t: ^Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    buffer_tracker_uninit(&t.buffers)
-    texture_tracker_uninit(&t.textures)
-    blas_tracker_uninit(&t.blas_s)
-    stateless_tracker_uninit(&t.tlas_s)
-    stateless_tracker_uninit(&t.views)
-    stateless_tracker_uninit(&t.bind_groups)
-    stateless_tracker_uninit(&t.compute_pipelines)
-    stateless_tracker_uninit(&t.render_pipelines)
-    stateless_tracker_uninit(&t.bundles)
-    query_set_tracker_uninit(&t.query_sets)
-    t^ = {} // reset memory
+// A complex current state against a possibly complex target.
+texture_barrier_complex :: proc(
+    out: ^[dynamic]Texture_State_Transition,
+    texture: Tracked_Texture,
+    complex: ^Complex_Texture_State,
+    provider: Texture_State_Provider,
+    index: Tracker_Index,
+    ordered: Texture_Uses,
+    unknown_is_uninitialized: bool,
+) {
+    switch provider.kind {
+    case .Selector:
+        texture_barrier_complex_range(
+            out,
+            texture,
+            complex,
+            provider.selector,
+            provider.state,
+            ordered,
+            unknown_is_uninitialized,
+        )
+    case .Texture_Set:
+        source := texture_state_set_complex_at(provider.set, index)
+        for m in 0 ..< source.mip_count {
+            for &range in source.mips[m].ranges {
+                texture_barrier_complex_range(out, texture, complex, {
+                        mip_start   = m,
+                        mip_count   = 1,
+                        layer_start = range.start,
+                        layer_count = range.end - range.start,
+                    }, range.value, ordered, unknown_is_uninitialized)
+            }
+        }
+    case .Known_Single:
+        // `texture_state_provider_is_single` would have been true.
+        panic_contextless("a single target is not complex")
+    }
 }
 
-tracker_clear :: proc(t: ^Tracker, loc := #caller_location) {
-    assert(t != nil, loc = loc)
-    buffer_tracker_clear(&t.buffers)
-    texture_tracker_clear(&t.textures)
-    stateless_tracker_clear(&t.tlas_s)
-    stateless_tracker_clear(&t.views)
-    stateless_tracker_clear(&t.bind_groups)
-    stateless_tracker_clear(&t.compute_pipelines)
-    stateless_tracker_clear(&t.render_pipelines)
-    stateless_tracker_clear(&t.bundles)
-    blas_tracker_clear(&t.blas_s)
-    query_set_tracker_clear(&t.query_sets)
+// Emit one transition per differing intersection of `selector` with the state.
+texture_barrier_complex_range :: proc(
+    out: ^[dynamic]Texture_State_Transition,
+    texture: Tracked_Texture,
+    complex: ^Complex_Texture_State,
+    selector: Texture_Selector,
+    target: Texture_Uses,
+    ordered: Texture_Uses,
+    unknown_is_uninitialized: bool,
+) {
+    if target == TEXTURE_USES_UNKNOWN {
+        return
+    }
+    mip_end := selector.mip_start + selector.mip_count
+    layer_end := selector.layer_start + selector.layer_count
+    for m in selector.mip_start ..< mip_end {
+        for &range in complex.mips[m].ranges {
+            start := range.start > selector.layer_start ? range.start : selector.layer_start
+            end := range.end < layer_end ? range.end : layer_end
+            if start >= end {
+                continue
+            }
+            from := range.value
+            if from == TEXTURE_USES_UNKNOWN {
+                if !unknown_is_uninitialized {
+                    continue
+                }
+                from = TEXTURE_USES_UNINITIALIZED
+            }
+            if texture_uses_skip_transition_ignoring_aspect(from, ordered, target) {
+                continue
+            }
+            append(out, Texture_State_Transition {
+                texture = texture.texture,
+                selector = {
+                    mip_start   = m,
+                    mip_count   = 1,
+                    layer_start = start,
+                    layer_count = end - start,
+                },
+                from = from,
+                to = target,
+            })
+        }
+    }
 }
 
-// All the usages a bind group contains. The uses are not deduplicated in any
-// way and may include conflicting uses; this is compliant with the WebGPU
-// spec.
+// Advance the current state to `provider`, and — only while the start state is
+// complex — back-fill the start state for subresources the transcript had never
+// seen, so the pre-barrier at submit knows where they really began.
+texture_update :: proc(
+    start: ^Texture_State_Set,
+    current: ^Texture_State_Set,
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+    provider: Texture_State_Provider,
+) {
+    full := texture.full
+    new_single := texture_state_provider_is_single(provider, full, index)
+    current_complex := texture_state_set_is_complex(current, index)
+
+    // A simple start state was written correctly when the texture was inserted;
+    // only a complex one can still be missing subresources.
+    start_complex: ^Complex_Texture_State = nil
+    if start != nil && texture_state_set_is_complex(start, index) {
+        start_complex = texture_state_set_complex_at(start, index)
+    }
+
+    if !current_complex && new_single {
+        current.simple[u32(index)] = texture_state_provider_single_state(provider, index)
+        return
+    }
+
+    if !current_complex {
+        // Promote: the whole texture at the current simple state, then the
+        // provider's ranges overwrite it.
+        existing := current.simple[u32(index)]
+        complex := texture_state_set_make_complex(current, index)
+        complex_texture_state_init(
+            complex,
+            current.allocator,
+            full.mip_count,
+            full.layer_count,
+            existing,
+        )
+        texture_overwrite_complex(complex, provider, index)
+        return
+    }
+
+    complex := texture_state_set_complex_at(current, index)
+    if new_single {
+        target := texture_state_provider_single_state(provider, index)
+        for m in 0 ..< complex.mip_count {
+            for &range in complex.mips[m].ranges {
+                if range.value != TEXTURE_USES_UNKNOWN {
+                    continue
+                }
+                if start_complex != nil {
+                    complex_texture_state_assign(start_complex, {
+                            mip_start   = m,
+                            mip_count   = 1,
+                            layer_start = range.start,
+                            layer_count = range.end - range.start,
+                        }, target)
+                }
+            }
+        }
+        texture_state_set_make_simple(current, index, target)
+        return
+    }
+
+    texture_overwrite_complex(complex, provider, index)
+    if start_complex != nil {
+        texture_fix_start(start_complex, complex)
+    }
+}
+
+// Overwrite a complex state with a complex provider's ranges. `Unknown` values in
+// the provider mean "nothing new", so those entries keep what they had.
+texture_overwrite_complex :: proc(
+    complex: ^Complex_Texture_State,
+    provider: Texture_State_Provider,
+    index: Tracker_Index,
+) {
+    switch provider.kind {
+    case .Selector:
+        if provider.state == TEXTURE_USES_UNKNOWN {
+            return
+        }
+        complex_texture_state_assign(complex, provider.selector, provider.state)
+    case .Texture_Set:
+        source := texture_state_set_complex_at(provider.set, index)
+        for m in 0 ..< source.mip_count {
+            for &range in source.mips[m].ranges {
+                if range.value == TEXTURE_USES_UNKNOWN {
+                    continue
+                }
+                complex_texture_state_assign(complex, {
+                        mip_start   = m,
+                        mip_count   = 1,
+                        layer_start = range.start,
+                        layer_count = range.end - range.start,
+                    }, range.value)
+            }
+        }
+    case .Known_Single:
+        // `texture_state_provider_is_single` would have been true.
+        panic_contextless("a single target is not complex")
+    }
+}
+
+// Back-fill a start state's `Unknown` subresources from the current state, which
+// is where a late first use shows up. Called with both states after an overwrite.
+texture_fix_start :: proc(start: ^Complex_Texture_State, current: ^Complex_Texture_State) {
+    for m in 0 ..< current.mip_count {
+        for &range in current.mips[m].ranges {
+            if range.value == TEXTURE_USES_UNKNOWN {
+                continue
+            }
+            start_mip := &start.mips[m]
+            i := ranged_states_isolate(start_mip, range.start, range.end, TEXTURE_USES_UNKNOWN)
+            for ; i < len(start_mip.ranges) && start_mip.ranges[i].start < range.end; i += 1 {
+                // Only a subresource the start did not know about is filled in.
+                if start_mip.ranges[i].value != TEXTURE_USES_UNKNOWN {
+                    continue
+                }
+                start_mip.ranges[i].value = range.value
+            }
+            ranged_states_coalesce(start_mip)
+        }
+    }
+}
+
+// Advance a device state to another set's states, subresource by subresource: a
+// simple target replaces the whole texture, a complex one replaces each range.
+texture_advance :: proc(
+    current: ^Texture_State_Set,
+    index: Tracker_Index,
+    texture: Tracked_Texture,
+    source: ^Texture_State_Set,
+) {
+    _ = texture
+    if !texture_state_set_is_complex(source, index) {
+        texture_state_set_insert_simple(current, index, source.simple[u32(index)])
+        return
+    }
+    source_complex := texture_state_set_complex_at(source, index)
+    complex := texture_state_set_make_complex(current, index)
+    complex_texture_state_copy_from(complex, source_complex)
+}
+
+// -----------------------------------------------------------------------------
+// Memory initialisation
+// -----------------------------------------------------------------------------
+
+// Memory initialisation state: which subresources are known to hold defined bytes.
 //
-// All bind group states are sorted by their tracker index so that when adding
-// them to a tracker, they are added in the most efficient order possible
-// (ascending order).
+// A texture's contents are undefined when it is created, and undefined again when
+// a render pass discards what it wrote. Anything that reads them before a write —
+// a `LOAD` attachment, the presentation engine — needs them defined first. That is
+// a property of the image, not of its use: a use set says what the image may be
+// used for next, while this says whether those bytes exist at all. So the state
+// lives on the resource and the use tracker never sees it.
+//
+// Recording does not touch it. A command buffer records *actions* ("this range is
+// implicitly initialized" / "this range needs initialized memory") and submit
+// applies them, so an encoder that is discarded never leaves a mark.
+
+// Why a range is being initialized.
+Memory_Init_Kind :: enum {
+    // The operation writes the range, so its contents are defined afterwards.
+    Implicitly_Initialized,
+    // The operation reads the range, so its contents must be defined before it
+    // runs: a submission that finds the range undefined clears it first, then
+    // counts it as defined.
+    Needs_Initialized_Memory,
+    // The operation *discards* the range: whatever it wrote need not survive, so
+    // the contents are undefined afterwards. Distinct from a read that needs
+    // contents — nothing is cleared, the range simply becomes undefined again.
+    Discarded,
+}
+
+// A subresource range in the tracker's own half-open form: mip levels and array
+// layers as `[start, end)`, which is what the range tables work in. The public
+// selector is count-based and converts at this boundary.
+Texture_Init_Range :: struct {
+    mip_start:   u32,
+    mip_end:     u32,
+    layer_start: u32,
+    layer_end:   u32,
+}
+
+texture_init_range_from_selector :: proc(selector: Texture_Selector) -> Texture_Init_Range {
+    return {
+        mip_start   = selector.mip_start,
+        mip_end     = selector.mip_start + selector.mip_count,
+        layer_start = selector.layer_start,
+        layer_end   = selector.layer_start + selector.layer_count,
+    }
+}
+
+// The public selector naming the same subresources as this range.
+texture_init_range_to_selector :: #force_inline proc "contextless" (
+    r: Texture_Init_Range,
+) -> Texture_Selector {
+    return {
+        mip_start   = r.mip_start,
+        mip_count   = r.mip_end - r.mip_start,
+        layer_start = r.layer_start,
+        layer_count = r.layer_end - r.layer_start,
+    }
+}
+
+// The extent at a given mip level of a texture descriptor.
+texture_descriptor_mip_level_size :: proc(
+    desc: Texture_Descriptor,
+    level: u32,
+) -> (
+    size: Extent_3D,
+    ok: bool,
+) {
+    if level >= desc.mip_level_count {
+        return {}, false
+    }
+    width := level < 31 ? desc.size.width >> level : 0
+    if width == 0 {
+        width = 1
+    }
+    height: u32 = 1
+    if desc.dimension != .D1 {
+        height = level < 31 ? desc.size.height >> level : 0
+        if height == 0 {
+            height = 1
+        }
+    }
+    layers := desc.size.depth_or_array_layers
+    if desc.dimension == .D1 {
+        layers = 1
+    }
+    if desc.dimension == .D3 {
+        layers = level < 31 ? desc.size.depth_or_array_layers >> level : 0
+        if layers == 0 {
+            layers = 1
+        }
+    }
+    return Extent_3D{width = width, height = height, depth_or_array_layers = layers}, true
+}
+
+// The extent one *plane* of a multi-planar texture occupies at `level`: the mip's
+// size divided by the plane's subsampling factor, so plane 1 of a 4:2:0 format is
+// half width and half height. Fails like `texture_descriptor_mip_level_size` and
+// when `aspect` names no plane of this format; a copy of a plane is expressed in
+// these texels.
+texture_descriptor_plane_mip_level_size :: proc(
+    desc: Texture_Descriptor,
+    level: u32,
+    aspect: Texture_Aspect,
+) -> (
+    size: Extent_3D,
+    ok: bool,
+) {
+    size, ok = texture_descriptor_mip_level_size(desc, level)
+    if !ok {
+        return {}, false
+    }
+    plane: u32
+    switch aspect {
+    case .Plane0:
+        plane = 0
+    case .Plane1:
+        plane = 1
+    case .Plane2:
+        plane = 2
+    case .All, .Depth_Only, .Stencil_Only:
+        return {}, false
+    }
+    if plane >= texture_format_planes(desc.format) {
+        return {}, false
+    }
+    subsample_x, subsample_y := texture_format_subsampling_factors(desc.format, plane)
+    size.width /= subsample_x
+    size.height /= subsample_y
+    return size, true
+}
+
+// Whether a copy's footprint covers whole texture subresources.
+//
+// Initialization is tracked per mip x array layer x aspect, not per texel, so a
+// copy that writes only part of a subresource cannot say the rest of it holds
+// defined bytes: it has to clear the range first and let the copy fill what it
+// covers. The three ways a copy can be partial are an extent smaller than the mip,
+// a narrower layer range of a 3D image (whose selector is always the whole layer)
+// and a copy that names only one aspect of a combined depth-stencil image.
+copy_covers_whole_subresource :: proc(
+    desc: ^Texture_Descriptor,
+    copy: ^Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
+) -> bool {
+    mip_size, ok := texture_descriptor_mip_level_size(desc^, copy.mip_level)
+    if !ok {
+        return false
+    }
+    // A plane of a multi-planar texture is its own subresource: the copy covers it
+    // when it spans the plane's extent (half width and height for plane 1 of a
+    // 4:2:0 format), not the luma one.
+    if plane_size, plane_ok := texture_descriptor_plane_mip_level_size(
+        desc^,
+        copy.mip_level,
+        copy.aspect,
+    ); plane_ok {
+        mip_size = plane_size
+    }
+    if copy_size.width != mip_size.width {
+        return false
+    }
+    if copy_size.height != mip_size.height {
+        return false
+    }
+    if desc.dimension == .D3 && copy_size.depth_or_array_layers != mip_size.depth_or_array_layers {
+        return false
+    }
+    // `All` covers a single-aspect format's whole subresource, and a plane covers
+    // the whole of its own.
+    return copy.aspect == .All || texture_format_is_multi_planar(desc.format)
+}
+
+// The initialization action a copy's destination records: it defines the range
+// when the copy covers it whole, and asks for it to be cleared when it does not.
+copy_destination_init_kind :: proc(
+    desc: ^Texture_Descriptor,
+    copy: ^Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
+) -> Memory_Init_Kind {
+    return(
+        copy_covers_whole_subresource(desc, copy, copy_size) ? .Implicitly_Initialized : .Needs_Initialized_Memory \
+    )
+}
+
+// One action a command buffer recorded, applied when it is submitted.
+Texture_Init_Action :: struct {
+    texture: Texture,
+    range:   Texture_Init_Range,
+    kind:    Memory_Init_Kind,
+    // The subresource aspect the action covers, as the caller named it. A combined
+    // depth-stencil format tracks its two aspects separately, so the action is
+    // split per aspect when it is applied.
+    aspect:  Texture_Aspect,
+}
+
+// The tracker's aspect slots: slot 0 is the primary aspect (a colour image's
+// colour, a depth-only image's depth, a multi-planar image's plane 0), slot 1 the
+// second one (a combined depth-stencil format's stencil, a multi-planar image's
+// plane 1).
+INIT_ASPECT_PRIMARY :: u32(0)
+INIT_ASPECT_STENCIL :: u32(1)
+INIT_ASPECT_PLANE1  :: u32(1)
+
+// The tracker slots a selector names: `slots[0..count)`.
+Init_Aspects :: struct {
+    slots: [2]u32,
+    count: u32,
+}
+
+// The tracker slots `aspect` names for `format`. A format with one aspect has one
+// slot, whatever the selector says: a depth-only format's depth aspect is slot 0,
+// and `All` still means just it.
+//
+// The two multi-aspect families split differently: a combined depth-stencil format
+// tracks its depth and stencil aspects apart, and a multi-planar format tracks its
+// planes apart, so a write to plane 0 leaves plane 1 undefined.
+init_tracked_aspects :: proc(format: Texture_Format, aspect: Texture_Aspect) -> Init_Aspects {
+    out := Init_Aspects {
+        slots = {INIT_ASPECT_PRIMARY, INIT_ASPECT_PRIMARY},
+        count = 1,
+    }
+    plane_count := texture_format_planes(format)
+    if plane_count > 0 {
+        assert(plane_count <= 2, "the tracker holds two aspect slots")
+        if aspect == .All {
+            out.slots[1] = INIT_ASPECT_PLANE1
+            out.count = plane_count
+            return out
+        }
+        out.slots[0] = aspect == .Plane1 ? INIT_ASPECT_PLANE1 : INIT_ASPECT_PRIMARY
+        return out
+    }
+    if !(texture_format_has_depth_aspect(format) && texture_format_has_stencil_aspect(format)) {
+        return out
+    }
+    if aspect == .All {
+        out.slots[1] = INIT_ASPECT_STENCIL
+        out.count = 2
+        return out
+    }
+    out.slots[0] = aspect == .Stencil_Only ? INIT_ASPECT_STENCIL : INIT_ASPECT_PRIMARY
+    return out
+}
+
+// The public selector naming tracker slot `aspect` of `format`.
+init_aspect_for_slot :: proc(format: Texture_Format, aspect: u32) -> Texture_Aspect {
+    if texture_format_is_multi_planar(format) {
+        return aspect == INIT_ASPECT_PLANE1 ? .Plane1 : .Plane0
+    }
+    if !(texture_format_has_depth_aspect(format) && texture_format_has_stencil_aspect(format)) {
+        return .All
+    }
+    return aspect == INIT_ASPECT_STENCIL ? .Stencil_Only : .Depth_Only
+}
+
+// One bit per tracked chunk. The chunk a caller names is its own concern: the
+// texture wrapper lays mip levels, array layers and aspects out over this space.
+//
+// A texture — and a swapchain image once per frame — is the common case, and it
+// fits in one word: its whole state lives in `inline_word`, and `more` is never
+// initialized. Only a resource with more than 64 chunks spills into a list.
+Memory_Init_Tracker :: struct {
+    // The whole state while `chunk_count <= 64`.
+    inline_word: u64,
+    // The state when it needs more than one word; untouched otherwise.
+    more:        [dynamic]u64,
+    chunk_count: u32,
+}
+
+memory_init_tracker_init :: proc(
+    t: ^Memory_Init_Tracker,
+    allocator: runtime.Allocator,
+    chunk_count: u32,
+) {
+    t.chunk_count = chunk_count
+    t.inline_word = 0
+    t.more = nil
+    words := (chunk_count + METADATA_WORD_BITS - 1) / METADATA_WORD_BITS
+    if words > 1 {
+        t.more.allocator = allocator
+        for _ in 0 ..< words {
+            append(&t.more, 0)
+        }
+    }
+}
+
+memory_init_tracker_free :: proc(t: ^Memory_Init_Tracker) {
+    // A tracker that never spilled has nothing to return; `delete` is a no-op for
+    // a list that was never initialized.
+    delete(t.more)
+    t.more = nil
+}
+
+// The words holding the state: the inline word, or the list once it spilled.
+memory_init_tracker_state_words :: #force_inline proc "contextless" (
+    t: ^Memory_Init_Tracker,
+) -> [^]u64 {
+    if len(t.more) > 0 {
+        return raw_data(t.more)
+    }
+    return ([^]u64)(&t.inline_word)
+}
+
+// True when every chunk in `[start, end)` is initialized.
+memory_init_tracker_is_initialized :: proc(t: ^Memory_Init_Tracker, start, end: u32) -> bool {
+    if start >= end {
+        return true
+    }
+    words := memory_init_tracker_state_words(t)
+    first := start / METADATA_WORD_BITS
+    last := (end - 1) / METADATA_WORD_BITS
+    for w in first ..= last {
+        lo := w == first ? start % METADATA_WORD_BITS : 0
+        hi := w == last ? (end - 1) % METADATA_WORD_BITS + 1 : METADATA_WORD_BITS
+        mask := init_word_mask(lo, hi)
+        if (words[w] & mask) != mask {
+            return false
+        }
+    }
+    return true
+}
+
+// Mark every chunk in `[start, end)` initialized or not.
+memory_init_tracker_mark :: proc(t: ^Memory_Init_Tracker, start, end: u32, initialized: bool) {
+    if start >= end {
+        return
+    }
+    words := memory_init_tracker_state_words(t)
+    first := start / METADATA_WORD_BITS
+    last := (end - 1) / METADATA_WORD_BITS
+    for w in first ..= last {
+        lo := w == first ? start % METADATA_WORD_BITS : 0
+        hi := w == last ? (end - 1) % METADATA_WORD_BITS + 1 : METADATA_WORD_BITS
+        mask := init_word_mask(lo, hi)
+        if initialized {
+            words[w] |= mask
+        } else {
+            words[w] &= ~mask
+        }
+    }
+}
+
+// The bits `[lo, hi)` of one word. The caller keeps both below 64.
+init_word_mask :: proc(lo, hi: u32) -> u64 {
+    assert(lo < 64 && hi <= 64, "init mask out of one word")
+    low: u64 = lo == 0 ? ~u64(0) : ~((u64(1) << lo) - 1)
+    high: u64 = hi >= 64 ? ~u64(0) : (u64(1) << hi) - 1
+    return low & high
+}
+
+// The initialisation state of one texture: one chunk per (mip, layer, aspect),
+// laid out aspect-major and mip-major inside each aspect, so a range's layer span
+// is a contiguous run within each mip.
+//
+// A combined depth-stencil format has two aspects, and a multi-planar format has
+// two planes; both are tracked apart: a pass that discards its depth store leaves
+// the stencil aspect defined, and a write to plane 0 leaves plane 1 undefined, so
+// a later read of either clears only what is missing. Every other format has a
+// single aspect.
+//
+// The granularity is the port's subresource: a 3D texture counts as one layer, so
+// a depth slice is not tracked apart from its mip.
+Texture_Init_Tracker :: struct {
+    memory:       Memory_Init_Tracker,
+    mip_count:    u32,
+    layer_count:  u32,
+    // 2 for a combined depth-stencil format or a multi-planar one, 1 otherwise.
+    aspect_count: u32,
+}
+
+texture_init_tracker_init :: proc(
+    t: ^Texture_Init_Tracker,
+    allocator: runtime.Allocator,
+    mip_count: u32,
+    layer_count: u32,
+    aspect_count: u32 = 1,
+) {
+    t.mip_count = mip_count
+    t.layer_count = layer_count
+    t.aspect_count = aspect_count
+    memory_init_tracker_init(&t.memory, allocator, mip_count * layer_count * aspect_count)
+}
+
+texture_init_tracker_free :: proc(t: ^Texture_Init_Tracker) {
+    memory_init_tracker_free(&t.memory)
+    t.mip_count = 0
+    t.layer_count = 0
+    t.aspect_count = 0
+}
+
+// The chunk a subresource aspect occupies.
+texture_init_tracker_chunk :: #force_inline proc "contextless" (
+    t: ^Texture_Init_Tracker,
+    mip, layer, aspect: u32,
+) -> u32 {
+    return aspect * t.mip_count * t.layer_count + mip * t.layer_count + layer
+}
+
+// True when every subresource `range` names holds defined contents in `aspect`.
+texture_init_tracker_check_is_initialized :: proc(
+    t: ^Texture_Init_Tracker,
+    range: Texture_Init_Range,
+    aspect: u32 = INIT_ASPECT_PRIMARY,
+) -> bool {
+    if aspect >= t.aspect_count {
+        return true
+    }
+    if range.mip_end > t.mip_count || range.layer_end > t.layer_count {
+        return false
+    }
+    for m in range.mip_start ..< range.mip_end {
+        lo := texture_init_tracker_chunk(t, m, range.layer_start, aspect)
+        if !memory_init_tracker_is_initialized(
+            &t.memory,
+            lo,
+            lo + (range.layer_end - range.layer_start),
+        ) {
+            return false
+        }
+    }
+    return true
+}
+
+// True when any subresource `range` names holds defined contents in `aspect`.
+texture_init_tracker_is_partially_initialized :: proc(
+    t: ^Texture_Init_Tracker,
+    range: Texture_Init_Range,
+    aspect: u32 = INIT_ASPECT_PRIMARY,
+) -> bool {
+    if aspect >= t.aspect_count {
+        return false
+    }
+    for m in range.mip_start ..< min(range.mip_end, t.mip_count) {
+        for l in range.layer_start ..< min(range.layer_end, t.layer_count) {
+            chunk := texture_init_tracker_chunk(t, m, l, aspect)
+            if memory_init_tracker_is_initialized(&t.memory, chunk, chunk + 1) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+// Mark every subresource `range` names as holding undefined contents in `aspect`:
+// a store that discarded them. A range that lies outside this texture marks
+// nothing.
+texture_init_tracker_mark_uninitialized :: proc(
+    t: ^Texture_Init_Tracker,
+    range: Texture_Init_Range,
+    aspect: u32 = INIT_ASPECT_PRIMARY,
+) {
+    if aspect >= t.aspect_count {
+        return
+    }
+    mip_end := min(range.mip_end, t.mip_count)
+    layer_end := min(range.layer_end, t.layer_count)
+    for m in range.mip_start ..< mip_end {
+        lo := texture_init_tracker_chunk(t, m, range.layer_start, aspect)
+        hi := texture_init_tracker_chunk(t, m, layer_end, aspect)
+        memory_init_tracker_mark(&t.memory, lo, hi, false)
+    }
+}
+
+// Mark every subresource `range` names as holding defined contents in `aspect`. A
+// range that lies outside this texture marks nothing.
+texture_init_tracker_mark_initialized :: proc(
+    t: ^Texture_Init_Tracker,
+    range: Texture_Init_Range,
+    aspect: u32 = INIT_ASPECT_PRIMARY,
+) {
+    if aspect >= t.aspect_count {
+        return
+    }
+    mip_end := min(range.mip_end, t.mip_count)
+    layer_end := min(range.layer_end, t.layer_count)
+    for m in range.mip_start ..< mip_end {
+        lo := texture_init_tracker_chunk(t, m, range.layer_start, aspect)
+        hi := texture_init_tracker_chunk(t, m, layer_end, aspect)
+        memory_init_tracker_mark(&t.memory, lo, hi, true)
+    }
+}
+
+// Hand over the sub-ranges of `range` that do *not* hold defined contents in
+// `aspect`, and count the whole range as defined afterwards: a caller that clears
+// what it is handed leaves the range usable.
+texture_init_tracker_drain_uninitialized :: proc(
+    t: ^Texture_Init_Tracker,
+    range: Texture_Init_Range,
+    out: ^[dynamic]Texture_Init_Range,
+    aspect: u32 = INIT_ASPECT_PRIMARY,
+) {
+    if aspect >= t.aspect_count {
+        return
+    }
+    mip_end := min(range.mip_end, t.mip_count)
+    layer_end := min(range.layer_end, t.layer_count)
+    for m in range.mip_start ..< mip_end {
+        run_start: u32 = 0
+        in_run := false
+        for l in range.layer_start ..< layer_end {
+            chunk := texture_init_tracker_chunk(t, m, l, aspect)
+            defined := memory_init_tracker_is_initialized(&t.memory, chunk, chunk + 1)
+            if !defined && !in_run {
+                run_start = l
+                in_run = true
+            } else if defined && in_run {
+                append(out, Texture_Init_Range {
+                    mip_start   = m,
+                    mip_end     = m + 1,
+                    layer_start = run_start,
+                    layer_end   = l,
+                })
+                in_run = false
+            }
+        }
+        if in_run {
+            append(out, Texture_Init_Range {
+                mip_start   = m,
+                mip_end     = m + 1,
+                layer_start = run_start,
+                layer_end   = layer_end,
+            })
+        }
+    }
+    texture_init_tracker_mark_initialized(t, {
+            mip_start   = range.mip_start,
+            mip_end     = mip_end,
+            layer_start = range.layer_start,
+            layer_end   = layer_end,
+        }, aspect)
+}
+
+// A byte range in the tracker's own half-open form. Buffers are tracked per byte —
+// a partially written buffer only needs the holes cleared — so the range is the
+// granularity, and there is no chunk table.
+Buffer_Init_Range :: struct {
+    start: u64,
+    end:   u64,
+}
+
+// One buffer action a command buffer recorded, applied when it is submitted.
+Buffer_Init_Action :: struct {
+    buffer: Buffer,
+    range:  Buffer_Init_Range,
+    kind:   Memory_Init_Kind,
+}
+
+// The initialisation state of one buffer: a sorted, non-overlapping list of the
+// byte ranges known to be undefined. A fully initialised buffer is the empty list,
+// which is the common case, so nothing is allocated for it.
+//
+// Ranges instead of a bit per byte because a buffer is large and sparsely used: a
+// 256 MiB buffer bound in small slices would cost a 32 MiB bitmap, while the list
+// holds one entry per hole a caller actually leaves.
+Buffer_Init_Tracker :: struct {
+    uninitialized: [dynamic]Buffer_Init_Range,
+    size:          u64,
+}
+
+buffer_init_tracker_init :: proc(
+    t: ^Buffer_Init_Tracker,
+    allocator: runtime.Allocator,
+    size: u64,
+) {
+    t.uninitialized = nil
+    t.uninitialized.allocator = allocator
+    t.size = size
+    if size != 0 {
+        append(&t.uninitialized, Buffer_Init_Range{start = 0, end = size})
+    }
+}
+
+buffer_init_tracker_free :: proc(t: ^Buffer_Init_Tracker) {
+    delete(t.uninitialized)
+    t.uninitialized = nil
+    t.size = 0
+}
+
+// Clamp `[start, end)` to the buffer and report whether anything is left of it.
+buffer_init_tracker_clamp :: proc(t: ^Buffer_Init_Tracker, start: ^u64, end: ^u64) -> bool {
+    if start^ > t.size {
+        start^ = t.size
+    }
+    if end^ > t.size {
+        end^ = t.size
+    }
+    return start^ < end^
+}
+
+// Remove the entry at `index`, keeping the order of what follows. `remove_at` is
+// not a dynamic-array builtin, and the buffer init holes must stay sorted.
+tracker_dynamic_remove_at :: proc(arr: ^[dynamic]$T, index: int) -> T {
+    removed := arr[index]
+    for i in index ..< len(arr) - 1 {
+        arr[i] = arr[i + 1]
+    }
+    pop(arr)
+    return removed
+}
+
+// True when every byte of `[start, end)` is known to hold defined contents.
+buffer_init_tracker_check_is_initialized :: proc(
+    t: ^Buffer_Init_Tracker,
+    start, end: u64,
+) -> bool {
+    for range in t.uninitialized {
+        if range.start < end && start < range.end {
+            return false
+        }
+    }
+    return true
+}
+
+// Mark `[start, end)` as defined: the caller wrote every byte of it. The undefined
+// ranges the write covers are trimmed away, and one it splits is cut in two.
+buffer_init_tracker_mark_initialized :: proc(t: ^Buffer_Init_Tracker, start: u64, end: u64) {
+    lo := start
+    hi := end
+    if !buffer_init_tracker_clamp(t, &lo, &hi) {
+        return
+    }
+    i := 0
+    for i < len(t.uninitialized) {
+        hole := t.uninitialized[i]
+        if hole.end <= lo || hi <= hole.start {
+            i += 1
+            continue
+        }
+        if hole.start < lo && hi < hole.end {
+            // The write lands inside one hole: keep the two pieces around it.
+            t.uninitialized[i] = {
+                start = hole.start,
+                end   = lo,
+            }
+            ok, _ := inject_at(
+                &t.uninitialized,
+                i + 1,
+                Buffer_Init_Range{start = hi, end = hole.end},
+            )
+            assert(ok, "buffer init holes out of memory")
+            return
+        }
+        if hole.start < lo {
+            t.uninitialized[i] = {
+                start = hole.start,
+                end   = lo,
+            }
+            i += 1
+            continue
+        }
+        if hi < hole.end {
+            t.uninitialized[i] = {
+                start = hi,
+                end   = hole.end,
+            }
+            return
+        }
+        _ = tracker_dynamic_remove_at(&t.uninitialized, i)
+    }
+}
+
+// Mark `[start, end)` as undefined: a store discarded whatever it wrote. The range
+// is merged into the list so the holes stay disjoint and sorted.
+buffer_init_tracker_mark_uninitialized :: proc(t: ^Buffer_Init_Tracker, start: u64, end: u64) {
+    lo := start
+    hi := end
+    if !buffer_init_tracker_clamp(t, &lo, &hi) {
+        return
+    }
+    at := 0
+    for at < len(t.uninitialized) && t.uninitialized[at].start < lo {
+        at += 1
+    }
+    ok, _ := inject_at(&t.uninitialized, at, Buffer_Init_Range{start = lo, end = hi})
+    assert(ok, "buffer init holes out of memory")
+    // Merge with the neighbours it overlaps or touches, then keep the list sorted.
+    i := 0
+    for i + 1 < len(t.uninitialized) {
+        left := t.uninitialized[i]
+        right := t.uninitialized[i + 1]
+        if right.start > left.end {
+            i += 1
+            continue
+        }
+        t.uninitialized[i] = {
+            start = left.start,
+            end   = right.end > left.end ? right.end : left.end,
+        }
+        _ = tracker_dynamic_remove_at(&t.uninitialized, i + 1)
+    }
+}
+
+// Hand over the undefined parts of `[start, end)` and count the whole range as
+// defined afterwards: a caller that clears what it is handed leaves the range
+// usable. The ranges come out sorted and disjoint.
+buffer_init_tracker_drain_uninitialized :: proc(
+    t: ^Buffer_Init_Tracker,
+    start: u64,
+    end: u64,
+    out: ^[dynamic]Buffer_Init_Range,
+) {
+    lo := start
+    hi := end
+    if !buffer_init_tracker_clamp(t, &lo, &hi) {
+        return
+    }
+    for range in t.uninitialized {
+        if range.start >= hi {
+            break
+        }
+        if range.end <= lo {
+            continue
+        }
+        append(out, Buffer_Init_Range {
+            start = range.start > lo ? range.start : lo,
+            end   = range.end < hi ? range.end : hi,
+        })
+    }
+    buffer_init_tracker_mark_initialized(t, lo, hi)
+}
+
+// -----------------------------------------------------------------------------
+// Tracker
+// -----------------------------------------------------------------------------
+
+// The tracker shell: one pass's usage scope, one command buffer's tracker, the
+// device's authoritative state, and the bind group / render bundle state they
+// merge.
+//
+// A usage scope is the only place a *conflict* can be reported: it is the union of
+// the uses within one render pass or one compute dispatch, and WebGPU forbids
+// exclusive uses from sharing it. A tracker never conflicts — it has already been
+// checked — so it only moves state and emits transitions.
+
+// Details of a rejected usage merge: which resource, which subresources and the
+// two use sets that could not coexist.
+Usage_Conflict :: struct {
+    is_texture:          bool,
+    texture:             Texture,
+    buffer:              Buffer,
+    selector:            Texture_Selector,
+    current_texture_use: Texture_Uses,
+    new_texture_use:     Texture_Uses,
+    current_buffer_use:  Buffer_Uses,
+    new_buffer_use:      Buffer_Uses,
+}
+
+// The merged state of all stateful resources used within one usage scope.
+Usage_Scope :: struct {
+    allocator: runtime.Allocator,
+    buffers:   Buffer_Usage_Scope,
+    textures:  Texture_Usage_Scope,
+}
+
+usage_scope_init :: proc(s: ^Usage_Scope, allocator: runtime.Allocator) {
+    s.allocator = allocator
+    buffer_usage_scope_init(&s.buffers, allocator)
+    texture_usage_scope_init(&s.textures, allocator)
+}
+
+usage_scope_free :: proc(s: ^Usage_Scope) {
+    buffer_usage_scope_free(&s.buffers)
+    texture_usage_scope_free(&s.textures)
+    s^ = {}
+}
+
+usage_scope_clear :: proc(s: ^Usage_Scope) {
+    buffer_usage_scope_clear(&s.buffers)
+    texture_usage_scope_clear(&s.textures)
+}
+
+// Presize both sides for the tracker indices this device has handed out.
+usage_scope_set_size :: proc(s: ^Usage_Scope, buffers: u32, textures: u32) {
+    buffer_usage_scope_set_size(&s.buffers, buffers)
+    texture_usage_scope_set_size(&s.textures, textures)
+}
+
+usage_scope_set_ordered_uses_masks :: proc(
+    s: ^Usage_Scope,
+    buffer_mask: Buffer_Uses,
+    texture_mask: Texture_Uses,
+) {
+    buffer_usage_scope_set_ordered_uses_mask(&s.buffers, buffer_mask)
+    texture_usage_scope_set_ordered_uses_mask(&s.textures, texture_mask)
+}
+
+// Merge one texture range's use. False is a conflict, filled into `conflict`.
+usage_scope_add_texture :: proc(
+    s: ^Usage_Scope,
+    texture: Tracked_Texture,
+    selector: Texture_Selector,
+    uses: Texture_Uses,
+    conflict: ^Usage_Conflict,
+) -> bool {
+    at: Texture_Selector
+    current: Texture_Uses
+    added: Texture_Uses
+    // A selector that covers the whole texture is the cheap single-state arm.
+    has_selector := !texture_selector_equals(selector, texture.full)
+    if texture_usage_scope_merge_single(
+        &s.textures,
+        texture,
+        has_selector,
+        selector,
+        uses,
+        &at,
+        &current,
+        &added,
+    ) {
+        return true
+    }
+    conflict.is_texture = true
+    conflict.texture = texture.texture
+    conflict.selector = at
+    conflict.current_texture_use = current
+    conflict.new_texture_use = added
+    return false
+}
+
+// Merge one buffer's use. False is a conflict, filled into `conflict`.
+usage_scope_add_buffer :: proc(
+    s: ^Usage_Scope,
+    index: Tracker_Index,
+    buffer: Buffer,
+    uses: Buffer_Uses,
+    conflict: ^Usage_Conflict,
+) -> bool {
+    current: Buffer_Uses
+    added: Buffer_Uses
+    if buffer_usage_scope_merge_single(&s.buffers, index, buffer, uses, &current, &added) {
+        return true
+    }
+    conflict.is_texture = false
+    conflict.buffer = buffer
+    conflict.current_buffer_use = current
+    conflict.new_buffer_use = added
+    return false
+}
+
+// Merge every stateful resource of a bind group into the scope.
+usage_scope_merge_bind_group :: proc(
+    s: ^Usage_Scope,
+    group: ^Bind_Group_States,
+    conflict: ^Usage_Conflict,
+) -> bool {
+    at: Texture_Selector
+    texture_current: Texture_Uses
+    texture_added: Texture_Uses
+    if !texture_usage_scope_merge_bind_group(
+        &s.textures,
+        &group.views,
+        &at,
+        &texture_current,
+        &texture_added,
+    ) {
+        conflict.is_texture = true
+        conflict.selector = at
+        conflict.current_texture_use = texture_current
+        conflict.new_texture_use = texture_added
+        return false
+    }
+    buffer_current: Buffer_Uses
+    buffer_added: Buffer_Uses
+    if !buffer_usage_scope_merge_bind_group(
+        &s.buffers,
+        &group.buffers,
+        &buffer_current,
+        &buffer_added,
+    ) {
+        conflict.is_texture = false
+        conflict.current_buffer_use = buffer_current
+        conflict.new_buffer_use = buffer_added
+        return false
+    }
+    return true
+}
+
+// Merge every stateful resource of a render bundle scope.
+usage_scope_merge_render_bundle :: proc(
+    s: ^Usage_Scope,
+    bundle: ^Render_Bundle_Scope,
+    conflict: ^Usage_Conflict,
+) -> bool {
+    at: Texture_Selector
+    texture_current: Texture_Uses
+    texture_added: Texture_Uses
+    if !texture_usage_scope_merge_usage_scope(
+        &s.textures,
+        &bundle.textures,
+        &at,
+        &texture_current,
+        &texture_added,
+    ) {
+        conflict.is_texture = true
+        conflict.selector = at
+        conflict.current_texture_use = texture_current
+        conflict.new_texture_use = texture_added
+        return false
+    }
+    buffer_current: Buffer_Uses
+    buffer_added: Buffer_Uses
+    if !buffer_usage_scope_merge_usage_scope(
+        &s.buffers,
+        &bundle.buffers,
+        &buffer_current,
+        &buffer_added,
+    ) {
+        conflict.is_texture = false
+        conflict.current_buffer_use = buffer_current
+        conflict.new_buffer_use = buffer_added
+        return false
+    }
+    return true
+}
+
+// Recycles usage scopes. The tables only grow with the device's tracker indices
+// and a scope's contents are discarded on release, so a pass costs no allocation
+// after the first few frames.
+Usage_Scope_Pool :: struct {
+    allocator:       runtime.Allocator,
+    idle:            [dynamic]^Usage_Scope,
+    buffer_ordered:  Buffer_Uses,
+    texture_ordered: Texture_Uses,
+}
+
+usage_scope_pool_init :: proc(
+    p: ^Usage_Scope_Pool,
+    allocator: runtime.Allocator,
+    buffer_ordered: Buffer_Uses,
+    texture_ordered: Texture_Uses,
+) {
+    p.allocator = allocator
+    p.buffer_ordered = buffer_ordered
+    p.texture_ordered = texture_ordered
+    p.idle = nil
+    p.idle.allocator = allocator
+}
+
+usage_scope_pool_free :: proc(p: ^Usage_Scope_Pool) {
+    for scope in p.idle {
+        usage_scope_free(scope)
+        free(scope, p.allocator)
+    }
+    delete(p.idle)
+    p.idle = nil
+}
+
+// Take a cleared, sized scope carrying this device's ordering policy.
+usage_scope_pool_acquire :: proc(p: ^Usage_Scope_Pool) -> ^Usage_Scope {
+    scope: ^Usage_Scope
+    if len(p.idle) > 0 {
+        scope = pop(&p.idle)
+    } else {
+        scope = new(Usage_Scope, p.allocator)
+        usage_scope_init(scope, p.allocator)
+    }
+    usage_scope_set_ordered_uses_masks(scope, p.buffer_ordered, p.texture_ordered)
+    return scope
+}
+
+// Clear a scope and return it to the pool.
+usage_scope_pool_release :: proc(p: ^Usage_Scope_Pool, scope: ^Usage_Scope) {
+    if scope == nil {
+        return
+    }
+    usage_scope_clear(scope)
+    append(&p.idle, scope)
+}
+
+// What a bind group contributes to a usage scope, resolved once when the bind group
+// is created: the buffers it references and the views (with their parent texture
+// and subresource range).
 Bind_Group_States :: struct {
-    buffers:                 Buffer_Bind_Group_State,
-    views:                   Texture_View_Bind_Group_State,
-    external_textures:       Stateless_Tracker(External_Texture),
-    samplers:                Stateless_Tracker(Sampler),
-    acceleration_structures: Stateless_Tracker(Tlas),
+    buffers: Buffer_Bind_Group_State,
+    views:   Texture_View_Bind_Group_State,
 }
 
-bind_group_state_init :: proc(
-    b: ^Bind_Group_States,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(b != nil, loc = loc)
-    buffer_bind_group_state_init(&b.buffers, allocator, loc)
-    texture_view_bind_group_state_init(&b.views, allocator, loc)
-    stateless_tracker_init(&b.external_textures, allocator, loc)
-    stateless_tracker_init(&b.samplers, allocator, loc)
-    stateless_tracker_init(&b.acceleration_structures, allocator, loc)
+bind_group_states_init :: proc(s: ^Bind_Group_States, allocator: runtime.Allocator) {
+    buffer_bind_group_state_init(&s.buffers, allocator)
+    texture_view_bind_group_state_init(&s.views, allocator)
 }
 
-bind_group_state_uiinit :: proc(b: ^Bind_Group_States, loc := #caller_location) {
-    assert(b != nil, loc = loc)
-    buffer_bind_group_state_uninit(&b.buffers, loc)
-    texture_view_bind_group_state_uninit(&b.views, loc)
-    stateless_tracker_uninit(&b.external_textures, loc)
-    stateless_tracker_uninit(&b.samplers, loc)
-    stateless_tracker_uninit(&b.acceleration_structures, loc)
+bind_group_states_free :: proc(s: ^Bind_Group_States) {
+    buffer_bind_group_state_free(&s.buffers)
+    texture_view_bind_group_state_free(&s.views)
 }
 
-// Optimize the bind group states by sorting them by tracker index.
-bind_group_states_optimize :: proc(b: ^Bind_Group_States, loc := #caller_location) {
-    assert(b != nil, loc = loc)
-    buffer_bind_group_state_optimize(&b.buffers)
-    // Views are stateless as resources, however `Texture_View_Bind_Group_State`
-    // is special as it will be merged with the texture trackers, so it is
-    // sorted too.
-    texture_view_bind_group_state_optimize(&b.views, loc)
-    // External textures, samplers and TLASes are stateless and never merged
-    // with another tracker, so they don't need to be optimized.
+// Sort both sides by tracker index, so merging them into a scope walks memory
+// forward. Called once, when the bind group is created.
+bind_group_states_optimize :: proc(s: ^Bind_Group_States) {
+    buffer_bind_group_state_optimize(&s.buffers)
+    texture_view_bind_group_state_optimize(&s.views)
 }
 
-// A render bundle specific usage scope. It includes the stateless resources
-// that are not normally in a usage scope, but are used by render bundles and
-// need to be owned by them.
+// What a render bundle contributes: the merged uses of its passes, plus the bind
+// groups and render pipelines it was recorded with (they must outlive it).
 Render_Bundle_Scope :: struct {
     buffers:          Buffer_Usage_Scope,
     textures:         Texture_Usage_Scope,
@@ -4372,227 +4503,350 @@ Render_Bundle_Scope :: struct {
     render_pipelines: Stateless_Tracker(Render_Pipeline),
 }
 
-render_bundle_scope_init :: proc(
-    scope: ^Render_Bundle_Scope,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
-) {
-    assert(scope != nil, loc = loc)
-    scope^ = {}
-    buffer_usage_scope_init(&scope.buffers, 0, allocator, loc)
-    texture_usage_scope_init(&scope.textures, allocator, loc)
-    stateless_tracker_init(&scope.bind_groups, allocator, loc)
-    stateless_tracker_init(&scope.render_pipelines, allocator, loc)
+render_bundle_scope_init :: proc(s: ^Render_Bundle_Scope, allocator: runtime.Allocator) {
+    buffer_usage_scope_init(&s.buffers, allocator)
+    texture_usage_scope_init(&s.textures, allocator)
+    stateless_tracker_init(&s.bind_groups, allocator)
+    stateless_tracker_init(&s.render_pipelines, allocator)
 }
 
-render_bundle_scope_uninit :: proc(scope: ^Render_Bundle_Scope, loc := #caller_location) {
-    assert(scope != nil, loc = loc)
-    buffer_usage_scope_uninit(&scope.buffers, loc)
-    texture_usage_scope_uninit(&scope.textures, loc)
-    stateless_tracker_uninit(&scope.bind_groups, loc)
-    stateless_tracker_uninit(&scope.render_pipelines, loc)
-    scope^ = {}
+render_bundle_scope_free :: proc(s: ^Render_Bundle_Scope) {
+    buffer_usage_scope_free(&s.buffers)
+    texture_usage_scope_free(&s.textures)
+    stateless_tracker_free(&s.bind_groups)
+    stateless_tracker_free(&s.render_pipelines)
 }
 
-// Merges the inner contents of a bind group into the render bundle scope. Only
-// stateful things are merged in; the other resources are owned indirectly by
-// the bind group.
 render_bundle_scope_merge_bind_group :: proc(
-    scope: ^Render_Bundle_Scope,
-    bind_group: ^Bind_Group_States,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    assert(scope != nil, loc = loc)
-    assert(bind_group != nil, loc = loc)
-    err = buffer_usage_scope_merge_bind_group(&scope.buffers, &bind_group.buffers)
-    if err != nil {
-        return
+    s: ^Render_Bundle_Scope,
+    group: ^Bind_Group_States,
+    conflict: ^Usage_Conflict,
+) -> bool {
+    at: Texture_Selector
+    texture_current: Texture_Uses
+    texture_added: Texture_Uses
+    if !texture_usage_scope_merge_bind_group(
+        &s.textures,
+        &group.views,
+        &at,
+        &texture_current,
+        &texture_added,
+    ) {
+        conflict.is_texture = true
+        conflict.selector = at
+        conflict.current_texture_use = texture_current
+        conflict.new_texture_use = texture_added
+        return false
     }
-    return texture_usage_scope_merge_bind_group(&scope.textures, &bind_group.views, loc)
+    buffer_current: Buffer_Uses
+    buffer_added: Buffer_Uses
+    if !buffer_usage_scope_merge_bind_group(
+        &s.buffers,
+        &group.buffers,
+        &buffer_current,
+        &buffer_added,
+    ) {
+        conflict.is_texture = false
+        conflict.current_buffer_use = buffer_current
+        conflict.new_buffer_use = buffer_added
+        return false
+    }
+    return true
 }
 
-// A pool for the memory used by usage scopes. The memory is returned to the
-// pool when a scope is dropped to avoid reallocation: the required memory only
-// grows and allocation is significant when a large number of resources have
-// been used.
-Usage_Scope_Pair :: struct {
-    buffers:  Buffer_Usage_Scope,
-    textures: Texture_Usage_Scope,
+// One query slot a command buffer wrote.
+//
+// Queries carry no use state, so "did this command buffer write that slot" is the
+// only thing a resolve needs from them: a slot this encoder wrote has a result to
+// copy, one it did not may still be waiting for its first write.
+Query_Set_Write :: struct {
+    query_set: Query_Set,
+    index:     u32,
 }
 
-Usage_Scope_Pool :: struct {
-    mtx:   sync.Mutex,
-    pairs: [dynamic]Usage_Scope_Pair,
+// One command buffer's tracker: the stateful transcript plus the stateless
+// resources it referenced, and the memory-initialisation actions it recorded.
+//
+// The actions are not applied here: submit applies them, so a discarded encoder
+// never leaves a mark.
+Tracker :: struct {
+    buffers:             Buffer_Tracker,
+    textures:            Texture_Tracker,
+    views:               Stateless_Tracker(Texture_View),
+    bind_groups:         Stateless_Tracker(Bind_Group),
+    compute_pipelines:   Stateless_Tracker(Compute_Pipeline),
+    render_pipelines:    Stateless_Tracker(Render_Pipeline),
+    bundles:             Stateless_Tracker(Render_Bundle),
+    query_sets:          Query_Set_Tracker,
+    blas_s:              Blas_Tracker,
+    tlas_s:              Stateless_Tracker(Tlas),
+    init_actions:        [dynamic]Texture_Init_Action,
+    // The buffer counterpart: the byte ranges a command buffer defines, needs or
+    // discards, in the order it recorded them.
+    buffer_init_actions: [dynamic]Buffer_Init_Action,
+    // The query slots it wrote: what tells a resolve whether its results exist.
+    query_set_writes:    [dynamic]Query_Set_Write,
+    // Scratch projection of a bind group's buffers onto tracker indices, reused by
+    // `tracker_set_and_remove_from_usage_scope_sparse` so the sparse merge allocates
+    // nothing per dispatch. Storage only: `clear` empties it, `free` releases it.
+    scratch_indices:     [dynamic]Tracker_Index,
 }
 
-usage_scope_pool_init :: proc(
-    pool: ^Usage_Scope_Pool,
+tracker_init :: proc(
+    t: ^Tracker,
     allocator: runtime.Allocator,
-    loc := #caller_location,
+    buffer_ordered: Buffer_Uses,
+    texture_ordered: Texture_Uses,
 ) {
-    assert(pool != nil, loc = loc)
-    pool^ = {} // reset memory
-    pool.pairs = make([dynamic]Usage_Scope_Pair, allocator)
+    t^ = {}
+    buffer_tracker_init(&t.buffers, allocator, buffer_ordered)
+    texture_tracker_init(&t.textures, allocator, texture_ordered)
+    stateless_tracker_init(&t.views, allocator)
+    stateless_tracker_init(&t.bind_groups, allocator)
+    stateless_tracker_init(&t.compute_pipelines, allocator)
+    stateless_tracker_init(&t.render_pipelines, allocator)
+    stateless_tracker_init(&t.bundles, allocator)
+    query_set_tracker_init(&t.query_sets, allocator)
+    blas_tracker_init(&t.blas_s, allocator)
+    stateless_tracker_init(&t.tlas_s, allocator)
+    t.init_actions.allocator = allocator
+    t.buffer_init_actions.allocator = allocator
+    t.query_set_writes.allocator = allocator
+    t.scratch_indices.allocator = allocator
 }
 
-usage_scope_pool_uninit :: proc(pool: ^Usage_Scope_Pool, loc := #caller_location) {
-    assert(pool != nil, loc = loc)
-    sync.guard(&pool.mtx)
-    for &pair in pool.pairs {
-        buffer_usage_scope_uninit(&pair.buffers, loc)
-        texture_usage_scope_uninit(&pair.textures, loc)
-    }
-    delete(pool.pairs)
-    pool^ = {} // reset memory
+tracker_free :: proc(t: ^Tracker) {
+    buffer_tracker_free(&t.buffers)
+    texture_tracker_free(&t.textures)
+    stateless_tracker_free(&t.views)
+    stateless_tracker_free(&t.bind_groups)
+    stateless_tracker_free(&t.compute_pipelines)
+    stateless_tracker_free(&t.render_pipelines)
+    stateless_tracker_free(&t.bundles)
+    query_set_tracker_free(&t.query_sets)
+    blas_tracker_free(&t.blas_s)
+    stateless_tracker_free(&t.tlas_s)
+    delete(t.init_actions)
+    delete(t.buffer_init_actions)
+    delete(t.query_set_writes)
+    delete(t.scratch_indices)
+    t^ = {}
 }
 
-usage_scope_pool_push :: proc(
-    pool: ^Usage_Scope_Pool,
-    buffers: Buffer_Usage_Scope,
-    textures: Texture_Usage_Scope,
-    loc := #caller_location,
-) {
-    assert(pool != nil, loc = loc)
-    sync.guard(&pool.mtx)
-    append(&pool.pairs, Usage_Scope_Pair{buffers = buffers, textures = textures})
+// Drop the transcript, keeping the storage: a cleared tracker has the shape a
+// fresh one does, minus the allocations. The ordering policy survives — it is
+// device policy, not transcript state — and every complex texture state is
+// released, so what a cleared tracker retains is list capacity only.
+tracker_clear :: proc(t: ^Tracker) {
+    buffer_tracker_clear(&t.buffers)
+    texture_tracker_clear(&t.textures)
+    stateless_tracker_clear(&t.views)
+    stateless_tracker_clear(&t.bind_groups)
+    stateless_tracker_clear(&t.compute_pipelines)
+    stateless_tracker_clear(&t.render_pipelines)
+    stateless_tracker_clear(&t.bundles)
+    query_set_tracker_clear(&t.query_sets)
+    blas_tracker_clear(&t.blas_s)
+    stateless_tracker_clear(&t.tlas_s)
+    clear(&t.init_actions)
+    clear(&t.buffer_init_actions)
+    clear(&t.query_set_writes)
+    clear(&t.scratch_indices)
 }
 
-usage_scope_pool_pop :: proc(
-    pool: ^Usage_Scope_Pool,
-    loc := #caller_location,
-) -> (
-    pair: Usage_Scope_Pair,
-    ok: bool,
-) {
-    assert(pool != nil, loc = loc)
-    sync.guard(&pool.mtx)
-    if len(pool.pairs) > 0 {
-        return pop(&pool.pairs), true
-    }
-    return {}, false
+// Fold a pass's scope into this transcript.
+tracker_set_from_usage_scope :: proc(t: ^Tracker, scope: ^Usage_Scope) {
+    buffer_tracker_set_from_usage_scope(&t.buffers, &scope.buffers)
+    texture_tracker_set_from_usage_scope(&t.textures, &scope.textures)
 }
 
-// Moves the scope tables out of `scope`, leaving a fresh empty scope in place.
-buffer_usage_scope_take :: proc(
-    scope: ^Buffer_Usage_Scope,
-    loc := #caller_location,
-) -> Buffer_Usage_Scope {
-    assert(scope != nil, loc = loc)
-    out := scope^
-    buffer_usage_scope_clear(scope, loc)
-    return out
-}
-
-texture_usage_scope_take :: proc(
-    scope: ^Texture_Usage_Scope,
-    loc := #caller_location,
-) -> Texture_Usage_Scope {
-    assert(scope != nil, loc = loc)
-    out := scope^
-    texture_usage_scope_clear(scope, loc)
-    return out
-}
-
-// A usage scope tracker. Only stores stateful resources because stateless
-// resources cannot have a usage conflict. The buffer and texture tables are
-// pooled: dropping a scope clears it and returns the allocation to the pool.
-Usage_Scope :: struct {
-    pool:     ^Usage_Scope_Pool,
-    buffers:  Buffer_Usage_Scope,
-    textures: Texture_Usage_Scope,
-}
-
-// Creates a usage scope sized for the tracker indices of every allocated
-// resource of the given allocators, pulling storage from the pool when
-// available.
-usage_scope_init :: proc(
+// Fold the resources a bind group names into this transcript and remove them from
+// the scope, so a second dispatch in the same compute pass does not merge them
+// again. This is how a compute pass moves one dispatch's bindings into its tracker.
+tracker_set_and_remove_from_usage_scope_sparse :: proc(
+    t: ^Tracker,
     scope: ^Usage_Scope,
-    pool: ^Usage_Scope_Pool,
-    allocators: ^Tracker_Index_Allocators,
-    ordered_buffer_usages: Buffer_Uses,
-    ordered_texture_usages: Texture_Uses,
-    allocator: runtime.Allocator,
-    loc := #caller_location,
+    group: ^Bind_Group_States,
 ) {
-    assert(scope != nil, loc = loc)
-    scope^ = {}
-    if pair, ok := usage_scope_pool_pop(pool, loc); ok {
-        scope.pool = pool
-        scope.buffers = pair.buffers
-        scope.textures = pair.textures
-    } else {
-        scope.pool = pool
-        buffer_usage_scope_init(&scope.buffers, 0, allocator, loc)
-        texture_usage_scope_init(&scope.textures, allocator, loc)
+    // The buffer side is named by index, the texture side by view (so the texture's
+    // own range is used).
+    clear(&t.scratch_indices)
+    for &entry in group.buffers.buffers {
+        append(&t.scratch_indices, entry.index)
     }
-    buffer_usage_scope_set_size(
+    buffer_tracker_set_and_remove_from_usage_scope_sparse(
+        &t.buffers,
         &scope.buffers,
-        shared_tracker_index_allocator_size(&allocators.buffers, loc),
-        loc,
+        t.scratch_indices[:],
     )
-    buffer_usage_scope_set_ordered_uses_mask(&scope.buffers, ordered_buffer_usages, loc)
-    texture_usage_scope_set_size(
+    texture_tracker_set_and_remove_from_usage_scope_sparse(
+        &t.textures,
         &scope.textures,
-        shared_tracker_index_allocator_size(&allocators.textures, loc),
-        loc,
+        &group.views,
     )
-    texture_usage_scope_set_ordered_uses_mask(&scope.textures, ordered_texture_usages, loc)
 }
 
-usage_scope_uninit :: proc(scope: ^Usage_Scope, loc := #caller_location) {
-    assert(scope != nil, loc = loc)
-    buffer_usage_scope_uninit(&scope.buffers, loc)
-    texture_usage_scope_uninit(&scope.textures, loc)
-    scope^ = {}
-}
-
-// Merges the inner contents of a bind group into the usage scope. Only
-// stateful things are merged in; the other resources are owned indirectly by
-// the bind group.
-usage_scope_merge_bind_group :: proc(
-    scope: ^Usage_Scope,
-    bind_group: ^Bind_Group_States,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
+// Record what this encoder did to a texture's contents. Applied at submit, in
+// order.
+tracker_record_init :: proc(
+    t: ^Tracker,
+    texture: Texture,
+    range: Texture_Init_Range,
+    kind: Memory_Init_Kind,
+    aspect: Texture_Aspect = .All,
 ) {
-    assert(scope != nil, loc = loc)
-    assert(bind_group != nil, loc = loc)
-    err = buffer_usage_scope_merge_bind_group(&scope.buffers, &bind_group.buffers)
-    if err != nil {
+    append(
+        &t.init_actions,
+        Texture_Init_Action{texture = texture, range = range, kind = kind, aspect = aspect},
+    )
+}
+
+// Record what this encoder did to a buffer's contents. Buffers are tracked per
+// byte, so the caller passes the range it wrote, read or discarded; the submission
+// applies the actions in order, exactly as it does for textures.
+tracker_record_buffer_init :: proc(
+    t: ^Tracker,
+    buffer: Buffer,
+    range: Buffer_Init_Range,
+    kind: Memory_Init_Kind,
+) {
+    append(&t.buffer_init_actions, Buffer_Init_Action{buffer = buffer, range = range, kind = kind})
+}
+
+// True when the latest action this encoder recorded for exactly `range` and
+// `aspect` is a discard: a pass about to load it has to clear it first, in place.
+// Actions are recorded per aspect, so one that does not name `aspect` (an `All`
+// action names both) says nothing about it.
+tracker_was_discarded :: proc(
+    t: ^Tracker,
+    texture: Texture,
+    range: Texture_Init_Range,
+    aspect: Texture_Aspect = .All,
+) -> bool {
+    for i := len(t.init_actions) - 1; i >= 0; i -= 1 {
+        action := t.init_actions[i]
+        if action.texture != texture {
+            continue
+        }
+        if action.range.mip_start != range.mip_start ||
+           action.range.mip_end != range.mip_end ||
+           action.range.layer_start != range.layer_start ||
+           action.range.layer_end != range.layer_end {
+            continue
+        }
+        if action.aspect != .All && aspect != .All && action.aspect != aspect {
+            continue
+        }
+        return action.kind == .Discarded
+    }
+    return false
+}
+
+// Record that this command buffer wrote `query_set`'s slot `index`. The write is
+// the one thing that makes a slot's result available to a resolve.
+tracker_record_query_write :: proc(t: ^Tracker, query_set: Query_Set, index: u32) {
+    if tracker_query_written(t, query_set, index) {
         return
     }
-    return texture_usage_scope_merge_bind_group(&scope.textures, &bind_group.views, loc)
+    append(&t.query_set_writes, Query_Set_Write{query_set = query_set, index = index})
 }
 
-// Merges the inner contents of a render bundle into the usage scope.
-usage_scope_merge_render_bundle :: proc(
-    scope: ^Usage_Scope,
-    render_bundle: ^Render_Bundle_Scope,
-    loc := #caller_location,
-) -> (
-    err: Usage_Error,
-) {
-    assert(scope != nil, loc = loc)
-    assert(render_bundle != nil, loc = loc)
-    err = buffer_usage_scope_merge_usage_scope(&scope.buffers, &render_bundle.buffers)
-    if err != nil {
-        return
+// True when this command buffer wrote `query_set`'s slot `index`.
+tracker_query_written :: proc(t: ^Tracker, query_set: Query_Set, index: u32) -> bool {
+    for write in t.query_set_writes {
+        if write.query_set == query_set && write.index == index {
+            return true
+        }
     }
-    return texture_usage_scope_merge_usage_scope(&scope.textures, &render_bundle.textures, loc)
+    return false
 }
 
-// Clears the scope and returns its storage to the pool.
-usage_scope_drop :: proc(scope: ^Usage_Scope, loc := #caller_location) {
-    assert(scope != nil, loc = loc)
-    buffer_usage_scope_clear(&scope.buffers, loc)
-    texture_usage_scope_clear(&scope.textures, loc)
-    usage_scope_pool_push(
-        scope.pool,
-        buffer_usage_scope_take(&scope.buffers, loc),
-        texture_usage_scope_take(&scope.textures, loc),
-        loc,
-    )
+// True when this command buffer wrote every slot of `[first, end)`: the resolve can
+// copy the range directly, since no slot depends on an earlier submission.
+tracker_query_range_written :: proc(
+    t: ^Tracker,
+    query_set: Query_Set,
+    first: u32,
+    end: u32,
+) -> bool {
+    for index in first ..< end {
+        if !tracker_query_written(t, query_set, index) {
+            return false
+        }
+    }
+    return true
+}
+
+// Drop the transitions collected so far.
+tracker_clear_pending :: proc(t: ^Tracker) {
+    buffer_tracker_clear_pending(&t.buffers)
+    texture_tracker_clear_pending(&t.textures)
+}
+
+// The transitions this command buffer owes itself.
+tracker_texture_transitions :: proc(t: ^Tracker) -> ^[dynamic]Texture_State_Transition {
+    return &t.textures.temp
+}
+
+tracker_buffer_transitions :: proc(t: ^Tracker) -> ^[dynamic]Buffer_State_Transition {
+    return &t.buffers.temp
+}
+
+// The device's authoritative state across submissions.
+//
+// A submission is applied by bringing the device state to each command buffer's
+// `start` state — recording those transitions — and then advancing it to that
+// buffer's `end` state.
+Device_Tracker :: struct {
+    allocator:       runtime.Allocator,
+    buffers:         Device_Buffer_Tracker,
+    textures:        Device_Texture_Tracker,
+    buffer_ordered:  Buffer_Uses,
+    texture_ordered: Texture_Uses,
+}
+
+device_tracker_init :: proc(
+    d: ^Device_Tracker,
+    allocator: runtime.Allocator,
+    buffer_ordered: Buffer_Uses,
+    texture_ordered: Texture_Uses,
+) {
+    d^ = {}
+    d.allocator = allocator
+    d.buffer_ordered = buffer_ordered
+    d.texture_ordered = texture_ordered
+    device_buffer_tracker_init(&d.buffers, allocator, buffer_ordered)
+    device_texture_tracker_init(&d.textures, allocator, texture_ordered)
+}
+
+device_tracker_free :: proc(d: ^Device_Tracker) {
+    device_buffer_tracker_free(&d.buffers)
+    device_texture_tracker_free(&d.textures)
+    d^ = {}
+}
+
+// Apply one submission: for each command buffer, emit the barriers that bring the
+// device state to its `start` and advance the device state to its `end`. One
+// transition list per command buffer, since each gets its own pre-barrier buffer.
+device_tracker_track_submission :: proc(
+    d: ^Device_Tracker,
+    trackers: []^Tracker,
+    texture_transitions: []^[dynamic]Texture_State_Transition,
+    buffer_transitions: []^[dynamic]Buffer_State_Transition,
+) {
+    for tracker, i in trackers {
+        if tracker == nil {
+            continue
+        }
+        device_texture_tracker_set_from_tracker_and_drain_transitions(
+            &d.textures,
+            &tracker.textures,
+            texture_transitions[i],
+        )
+        device_buffer_tracker_set_from_tracker_and_drain_transitions(
+            &d.buffers,
+            &tracker.buffers,
+            buffer_transitions[i],
+        )
+    }
 }

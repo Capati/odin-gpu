@@ -574,14 +574,14 @@ _validate_render_pipeline_descriptor :: proc(
     ta := default_temp_allocator()
     DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
-    vertex_module := _shader_module_get_state(descriptor.vertex.module, loc)
+    vertex_module := _shader_module_get_internal_impl(descriptor.vertex.module, loc)
     valid &= gpu_validate(
         device,
-        vertex_module.live,
+        vertex_module != nil,
         "render pipeline vertex shader module is not live",
         loc,
     )
-    if vertex_module.live && vertex_module.device != device {
+    if vertex_module != nil && vertex_module.device != device {
         valid &= gpu_validate(
             device,
             false,
@@ -598,14 +598,14 @@ _validate_render_pipeline_descriptor :: proc(
 
     if descriptor.fragment != nil {
         frag := descriptor.fragment
-        fragment_module := _shader_module_get_state(frag.module, loc)
+        fragment_module := _shader_module_get_internal_impl(frag.module, loc)
         valid &= gpu_validate(
             device,
-            fragment_module.live,
+            fragment_module != nil,
             "render pipeline fragment shader module is not live",
             loc,
         )
-        if fragment_module.live && fragment_module.device != device {
+        if fragment_module != nil && fragment_module.device != device {
             valid &= gpu_validate(
                 device,
                 false,
@@ -622,9 +622,14 @@ _validate_render_pipeline_descriptor :: proc(
     }
 
     if descriptor.layout != {} {
-        layout_state := _pipeline_layout_get_state(descriptor.layout, loc)
-        valid &= gpu_validate(device, layout_state.live, "render pipeline layout is not live", loc)
-        if layout_state.live && layout_state.device != device {
+        layout_state := _pipeline_layout_get_impl(descriptor.layout, loc)
+        valid &= gpu_validate(
+            device,
+            layout_state != nil,
+            "render pipeline layout is not live",
+            loc,
+        )
+        if layout_state != nil && layout_state.device != device {
             valid &= gpu_validate(
                 device,
                 false,

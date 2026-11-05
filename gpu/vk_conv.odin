@@ -582,15 +582,6 @@ vk_conv_to_primitive_topology :: proc "contextless" (
     }
 }
 
-vk_conv_to_polygon_mode :: proc "contextless" (mode: Polygon_Mode) -> vk.PolygonMode {
-    switch mode {
-    case .Fill:  return .FILL
-    case .Line:  return .LINE
-    case .Point: return .POINT
-    }
-    unreachable()
-}
-
 vk_conv_to_front_face :: proc "contextless" (
     front_face: Front_Face,
     loc := #caller_location,
@@ -858,100 +849,60 @@ vk_conv_buffer_uses_to_barrier :: proc "contextless" (
     return
 }
 
-vk_conv_texture_uses_to_barrier :: proc "contextless" (
-    uses: Texture_Uses,
-    queue_flags: vk.QueueFlags,
-    support_store_op_none: bool,
-) -> (
-    stages: vk.PipelineStageFlags,
-    access: vk.AccessFlags,
-) {
-    shader_stages := vk_shader_stages(queue_flags)
-
-    if .Copy_Src in uses {
-        stages |= {.TRANSFER}
-        access |= {.TRANSFER_READ}
-    }
-    if .Copy_Dst in uses {
-        stages |= {.TRANSFER}
-        access |= {.TRANSFER_WRITE}
-    }
-    if .Resource in uses {
-        stages |= shader_stages
-        access |= {.SHADER_READ}
-    }
-    if .Color_Target in uses {
-        stages |= {.COLOR_ATTACHMENT_OUTPUT}
-        access |= {.COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE}
-    }
-
-    if uses & {.Depth_Read, .Stencil_Read} != {} {
-        stages |= {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS}
-        access |= support_store_op_none \
-            ? {.DEPTH_STENCIL_ATTACHMENT_READ} \
-            : {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE}
-    }
-
-    if uses & {.Depth_Write, .Stencil_Write} != {} {
-        stages |= {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS}
-        access |= {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE}
-    }
-
-    if uses & {.Storage_Read_Only, .Storage_Read_Write, .Storage_Atomic} != {} {
-        stages |= shader_stages
-        access |= {.SHADER_READ}
-    }
-
-    if uses & {.Storage_Write_Only, .Storage_Read_Write, .Storage_Atomic} != {} {
-        stages |= shader_stages
-        access |= {.SHADER_WRITE}
-    }
-
-    if uses == {} || uses == {.Uninitialized} || uses == {.Present} {
-        stages |= {.TOP_OF_PIPE}
-        access = {}
-    }
-
-    return
-}
-
 vk_conv_texture_uses_to_image_layout :: proc(
     usage: Texture_Uses,
-    format: Texture_Format,
     loc := #caller_location,
 ) -> vk.ImageLayout {
-    is_color := !(texture_format_has_depth_aspect(format) ||
-        texture_format_has_stencil_aspect(format))
-
-    switch {
-    case usage == { .Uninitialized }:
-        return .UNDEFINED
-    case usage == { .Copy_Src }:
-        return .TRANSFER_SRC_OPTIMAL
-    case usage == { .Copy_Dst }:
-        return .TRANSFER_DST_OPTIMAL
-    case usage == { .Resource } && is_color:
-        return .SHADER_READ_ONLY_OPTIMAL
-    case usage == { .Color_Target }:
+    if .Color_Target in usage {
         return .COLOR_ATTACHMENT_OPTIMAL
-    case usage == { .Present }:
-        return .PRESENT_SRC_KHR
-    case is_color:
-        return .GENERAL
-    case:
+    }
+
+    // A depth-stencil set's layout follows which aspect is written: one written
+    // and one read shares the layout with a read-only aspect.
+    if usage & (Texture_Uses {
+            .Depth_Read,
+            .Depth_Write,
+            .Stencil_Read,
+            .Stencil_Write,
+        }) != {} {
         depth_write := .Depth_Write in usage
         stencil_write := .Stencil_Write in usage
         switch {
         case depth_write && stencil_write:
             return .DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        case !depth_write && stencil_write:
+        case stencil_write:
             return .DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
-        case depth_write && !stencil_write:
+        case depth_write:
             return .DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL
         case:
             return .DEPTH_STENCIL_READ_ONLY_OPTIMAL
         }
     }
+
+    if usage & (Texture_Uses {
+            .Storage_Read_Only,
+            .Storage_Write_Only,
+            .Storage_Read_Write,
+            .Storage_Atomic,
+        }) != {} {
+        return .GENERAL
+    }
+
+    if .Resource in usage {
+        return .SHADER_READ_ONLY_OPTIMAL
+    }
+    if .Copy_Dst in usage {
+        return .TRANSFER_DST_OPTIMAL
+    }
+    if .Copy_Src in usage {
+        return .TRANSFER_SRC_OPTIMAL
+    }
+    if .Present in usage {
+        return .PRESENT_SRC_KHR
+    }
+
+    // Uninitialized: only valid as a transition source.
+    return .UNDEFINED
 }
 
 is_binding_active :: #force_inline proc "contextless" (v: $T) -> bool {

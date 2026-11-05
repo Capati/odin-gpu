@@ -53,7 +53,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release: "false"
-          branch: dev-2026-10
+          branch: dev-2026-11
 
       - name: Set up Node
         uses: actions/setup-node@v4

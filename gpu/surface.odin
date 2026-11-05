@@ -1,5 +1,8 @@
 package gpu
 
+// Core
+import "base:runtime"
+
 // Handle to a presentable surface.
 //
 // A `Surface` represents a platform-specific surface (e.g. a window) onto which
@@ -41,7 +44,7 @@ Surface_Color_Spaces :: distinct bit_set[Surface_Color_Space;u32]
 // which the surface can present it.
 Surface_Format_Capabilities :: struct {
     // The texture format.
-    format: Texture_Format,
+    format:       Texture_Format,
     // The set of color spaces the surface supports for this format.
     //
     // This reports which color spaces the surface can be *configured* with; it
@@ -83,8 +86,11 @@ Surface_Capabilities :: struct {
     usages:              Texture_Usages,
 }
 
+// Color-management options for a surface configuration.
 Surface_Color_Management :: struct {
+    // The color space used for presentation.
     color_space:       Predefined_Color_Space,
+    // Tone mapping applied when presenting HDR content.
     tone_mapping_mode: Tone_Mapping_Mode,
 }
 
@@ -283,8 +289,76 @@ Surface_Descriptor :: struct {
     source: Surface_Source,
 }
 
+// Returns a reasonable default configuration for `surface` and `adapter`.
+//
+// Picks the adapter's preferred format, `Fifo` presentation when available,
+// opaque alpha when available, and `Srgb`; `width` and `height` are used as-is.
+surface_get_default_config :: proc(
+    surface: Surface,
+    adapter: Adapter,
+    width: u32,
+    height: u32,
+    allocator := context.allocator,
+    loc := #caller_location,
+) -> Surface_Configuration {
+    caps := surface_get_capabilities(surface, adapter, allocator, loc)
+    defer surface_capabilities_free_members(caps, allocator, loc)
+
+    config := Surface_Configuration {
+        usage                         = {.Render_Attachment},
+        width                         = width,
+        height                        = height,
+        color_space                   = .Srgb,
+        desired_maximum_frame_latency = 2,
+    }
+    if len(caps.formats) > 0 {
+        config.format = caps.formats[0]
+    }
+    if len(caps.present_modes) > 0 {
+        config.present_mode = caps.present_modes[0]
+        for mode in caps.present_modes {
+            if mode == .Fifo {
+                config.present_mode = .Fifo
+                break
+            }
+        }
+    }
+    if len(caps.alpha_modes) > 0 {
+        config.alpha_mode = caps.alpha_modes[0]
+        for mode in caps.alpha_modes {
+            if mode == .Opaque {
+                config.alpha_mode = .Opaque
+                break
+            }
+        }
+    }
+    return config
+}
+
+// Returns the surface's current configuration.
+//
+// The second result is false when the surface has not been configured. The
+// returned `view_formats` slice is borrowed.
+surface_get_configuration: proc(
+    surface: Surface,
+    loc := #caller_location,
+) -> (
+    Surface_Configuration,
+    bool,
+)
+
+// Configures the surface's swapchain for rendering with `config.device`.
+//
+// The device must be compatible with the surface, the format must be supported,
+// and width/height must be nonzero. Invalid configurations are reported through
+// the device's validation path.
 surface_configure: proc(surface: Surface, config: Surface_Configuration, loc := #caller_location)
 
+// Returns the surface capabilities for `adapter`.
+//
+// The returned slices are allocated with `allocator`; free them with
+// `surface_capabilities_free_members()`. An incompatible adapter returns empty
+// slices.
 surface_get_capabilities: proc(
     surface: Surface,
     adapter: Adapter,
@@ -292,18 +366,30 @@ surface_get_capabilities: proc(
     loc := #caller_location,
 ) -> Surface_Capabilities
 
+// Acquires the next image from the configured swapchain.
+//
+// The returned texture must be presented with `surface_texture_present()` or
+// retired with `surface_texture_discard()` before the next acquire.
 surface_get_current_texture: proc(surface: Surface, loc := #caller_location) -> Surface_Texture
 
+// Presents the most recently acquired surface texture.
 surface_present: proc(surface: Surface, loc := #caller_location) -> Status
 
+// Sets the debug label for the surface. It keeps its own copy.
 surface_set_label: proc(surface: Surface, label: string, loc := #caller_location)
 
+// Releases the current swapchain configuration.
+//
+// Existing `Surface_Texture` values from this surface become invalid.
 surface_unconfigure: proc(surface: Surface, loc := #caller_location)
 
+// Increments the surface's reference count.
 surface_add_ref: proc(surface: Surface, loc := #caller_location)
 
+// Decrements the surface's reference count, destroying it when it reaches zero.
 surface_release: proc(surface: Surface, loc := #caller_location)
 
+// Presents the acquired texture and returns the presentation status.
 surface_texture_present: proc(texture: Surface_Texture, loc := #caller_location) -> Status
 
 // Retires a successfully acquired surface texture when the caller has no work
@@ -311,19 +397,31 @@ surface_texture_present: proc(texture: Surface_Texture, loc := #caller_location)
 // the image first; it must not be used by later submissions. The backend may
 // submit a transition-only operation and present unchanged or undefined contents
 // to return the acquired image to the presentation engine.
-surface_texture_discard :: proc(
-    texture: Surface_Texture,
-    loc := #caller_location,
-) -> Status {
-    if texture.surface == {} ||
-        (texture.status != .Success && texture.status != .Suboptimal) {
+surface_texture_discard :: proc(texture: Surface_Texture, loc := #caller_location) -> Status {
+    if texture.surface == {} || (texture.status != .Success && texture.status != .Suboptimal) {
         return .Error
     }
     return surface_present(texture.surface, loc)
 }
 
+// Frees the slices returned by `surface_get_capabilities()`.
 surface_capabilities_free_members: proc(
     surface_capabilities: Surface_Capabilities,
     allocator := context.allocator,
     loc := #caller_location,
 )
+
+// -----------------------------------------------------------------------------
+// @private - Not part of the public API
+// -----------------------------------------------------------------------------
+
+_Surface_impl :: struct {
+    instance:  Instance,
+    device:    Device,
+    ref:       Ref_Count_Type,
+    config:    Surface_Configuration,
+    allocator: runtime.Allocator,
+}
+
+// Returns the concrete implementation behind a surface handle.
+_surface_get_impl: proc "contextless" (surface: Surface, loc := #caller_location) -> ^_Surface_impl

@@ -825,8 +825,8 @@ texture_format_sample_type :: proc "contextless" (
         return .Float
 
     case .R32_Float, .RG32_Float, .RGBA32_Float:
-        return slice.contains(device_features, Feature_Name.Float32_Filterable) \
-            ? .Float : .Unfilterable_Float
+        filterable := slice.contains(device_features, Feature_Name.Float32_Filterable)
+        return filterable ? .Float : .Unfilterable_Float
 
     case .R8_Uint, .RG8_Uint, .RGBA8_Uint,
          .R16_Uint, .RG16_Uint, .RGBA16_Uint,
@@ -1217,6 +1217,33 @@ texture_format_add_srgb_suffix :: proc "contextless" (
     case .ASTC12x12_Unorm:  return .ASTC12x12_Unorm_Srgb
     }
     return format
+}
+
+// The spec's copyable aspects for buffer<->depth/stencil texture copies. A host
+// write follows the buffer-to-texture direction.
+texture_format_depth_stencil_copy_supported :: proc "contextless" (
+    format: Texture_Format,
+    aspect: Texture_Aspect,
+    buffer_to_texture: bool,
+) -> bool {
+    #partial switch format {
+    case .Depth24Plus:
+        return false
+    case .Depth24Plus_Stencil8:
+        return aspect == .Stencil_Only
+    case .Depth32Float_Stencil8:
+        if aspect == .Stencil_Only {
+            return true
+        }
+        return aspect == .Depth_Only && !buffer_to_texture
+    case .Depth16_Unorm:
+        return aspect == .All || aspect == .Depth_Only
+    case .Depth32_Float:
+        return !buffer_to_texture && (aspect == .All || aspect == .Depth_Only)
+    case .Stencil8:
+        return aspect == .All || aspect == .Stencil_Only
+    }
+    return true
 }
 
 // Returns true for srgb formats.

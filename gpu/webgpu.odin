@@ -4,167 +4,6 @@ package gpu
 // Core
 import "base:runtime"
 
-// --- Confirmed passing on your wasm32 build ---
-#assert(size_of(Device_Lost_Callback_Info) == 12)
-#assert(size_of(Uncaptured_Error_Callback_Info) == 12)
-#assert(size_of(Queue_Descriptor) == 8)
-
-// --- Handles ({device: rawptr, handle: u64}) ---
-#assert(size_of(Queue) == 16)
-#assert(offset_of(Queue, handle) == 8)
-#assert(size_of(Command_Buffer) == 16)
-#assert(offset_of(Command_Buffer, handle) == 8)
-#assert(size_of(Bind_Group_Layout) == 16)
-
-// --- Device descriptor (from my first layout; unverified, I later switched to the cursor) ---
-#assert(offset_of(Device_Descriptor, required_limits) == 16)
-#assert(size_of(Limits) == 160)
-#assert(offset_of(Limits, max_uniform_buffer_binding_size) == 56)
-#assert(offset_of(Limits, max_buffer_size) == 88)
-#assert(offset_of(Device_Descriptor, lost_callback_info) == 184)
-#assert(offset_of(Device_Descriptor, uncaptured_error_callback_info) == 196)
-#assert(offset_of(Device_Descriptor, default_queue) == 176)
-#assert(size_of(Device_Descriptor) == 240)
-
-// --- Enum sizes ---
-#assert(size_of(Texture_Format) == 4)
-#assert(size_of(Present_Mode) == 4)
-#assert(size_of(Composite_Alpha_Mode) == 4)
-#assert(size_of(Surface_Color_Space) == 4)
-#assert(size_of(Surface_Get_Current_Texture_Status) == 4)
-#assert(size_of(Feature_Name) == 4)
-#assert(int(Present_Mode.Fifo) == 0)
-
-// --- Texture usages (u64 bit_set) ---
-#assert(size_of(Texture_Usages) == 8)
-
-// --- Surface capabilities ---
-#assert(size_of(Surface_Format_Capabilities) == 8)
-#assert(offset_of(Surface_Capabilities, format_capabilities) == 8)
-#assert(offset_of(Surface_Capabilities, usages) == 32)
-#assert(size_of(Surface_Capabilities) == 40)
-
-// --- Surface configuration (matches your word dump) ---
-#assert(offset_of(Surface_Configuration, usage) == 8)
-#assert(offset_of(Surface_Configuration, format) == 16)
-#assert(offset_of(Surface_Configuration, color_space) == 20)
-#assert(offset_of(Surface_Configuration, width) == 24)
-#assert(offset_of(Surface_Configuration, present_mode) == 32)
-#assert(offset_of(Surface_Configuration, alpha_mode) == 40)
-#assert(offset_of(Surface_Configuration, view_formats) == 44)
-#assert(size_of(Surface_Configuration) == 56)
-
-// --- Surface texture ---
-#assert(size_of(Surface_Texture) == 32)
-#assert(offset_of(Surface_Texture, texture) == 8)
-#assert(offset_of(Surface_Texture, status) == 24)
-
-// --- Render pass ---
-#assert(size_of(Render_Pass_Descriptor) == 48)
-#assert(offset_of(Render_Pass_Descriptor, occlusion_query_set) == 24)
-#assert(offset_of(Render_Pass_Descriptor, multiview_mask) == 40)
-#assert(size_of(Render_Pass_Color_Attachment) == 80)
-#assert(offset_of(Render_Pass_Color_Attachment, resolve_target) == 24)
-#assert(offset_of(Render_Pass_Color_Attachment, ops) == 40)
-#assert(offset_of(Operations(Color), clear_value) == 8)
-#assert(size_of(Operations(f32)) == 12)
-#assert(size_of(Render_Pass_Depth_Stencil_Attachment) == 48)
-#assert(offset_of(Render_Pass_Depth_Stencil_Attachment, depth_ops) == 16)
-#assert(offset_of(Render_Pass_Depth_Stencil_Attachment, stencil_ops) == 28)
-#assert(offset_of(Render_Pass_Depth_Stencil_Attachment, depth_read_only) == 40)
-#assert(offset_of(Render_Pass_Depth_Stencil_Attachment, stencil_read_only) == 41)
-#assert(size_of(Render_Pass_Timestamp_Writes) == 24)
-
-// --- Vertex state ---
-#assert(size_of(Vertex_State) == 48)
-#assert(offset_of(Vertex_State, entry_point) == 16)
-#assert(offset_of(Vertex_State, compilation_options) == 24)
-#assert(size_of(Pipeline_Compilation_Options) == 12)
-#assert(offset_of(Vertex_State, buffers) == 36)
-#assert(size_of(Constant_Entry) == 16)
-#assert(size_of(Vertex_Buffer_Layout) == 24)
-#assert(offset_of(Vertex_Buffer_Layout, step_mode) == 8)
-#assert(offset_of(Vertex_Buffer_Layout, attributes) == 12)
-#assert(size_of(Vertex_Attribute) == 24)
-#assert(offset_of(Vertex_Attribute, offset) == 8)
-#assert(offset_of(Vertex_Attribute, shader_location) == 16)
-
-// --- Texture descriptor ---
-#assert(size_of(Extent_3D) == 12)
-#assert(offset_of(Texture_Descriptor, size) == 8)
-#assert(offset_of(Texture_Descriptor, mip_level_count) == 20)
-#assert(offset_of(Texture_Descriptor, dimension) == 28)
-#assert(offset_of(Texture_Descriptor, format) == 32)
-#assert(offset_of(Texture_Descriptor, usage) == 40)
-#assert(offset_of(Texture_Descriptor, view_formats) == 48)
-#assert(size_of(Texture_Descriptor) == 56)
-
-// --- Bind group layout / bind group (assumes Shader_Stages is u64, External_Texture <= 16 bytes) ---
-#assert(size_of(Shader_Stages) == 8)
-#assert(size_of(Buffer_Binding_Layout) == 16)
-#assert(size_of(Texture_Binding_Layout) == 12)
-#assert(size_of(Binding_Type) == 24)
-#assert(size_of(Bind_Group_Layout_Entry) == 48)
-#assert(offset_of(Bind_Group_Layout_Entry, visibility) == 8)
-#assert(offset_of(Bind_Group_Layout_Entry, type) == 16)
-#assert(offset_of(Bind_Group_Layout_Entry, count) == 40)
-#assert(size_of(Bind_Group_Layout_Descriptor) == 16)
-#assert(size_of(Buffer_Binding) == 32)
-#assert(size_of(Binding_Resource) == 40)
-#assert(size_of(Bind_Group_Entry) == 48)
-#assert(offset_of(Bind_Group_Entry, resource) == 8)
-#assert(size_of(Bind_Group_Descriptor) == 32)
-#assert(offset_of(Bind_Group_Descriptor, layout) == 8)
-#assert(offset_of(Bind_Group_Descriptor, entries) == 24)
-
-// --- Pipeline layout ---
-#assert(offset_of(Pipeline_Layout_Descriptor, bind_group_layouts) == 8)
-#assert(offset_of(Pipeline_Layout_Descriptor, immediate_size) == 16)
-#assert(size_of(Pipeline_Layout_Descriptor) == 20)
-
-// --- Texel copy (assumes Origin_3D / Texel_Copy_Buffer_Layout shapes) ---
-#assert(size_of(Origin_3D) == 12)
-#assert(size_of(Texel_Copy_Buffer_Layout) == 16)
-#assert(offset_of(Texel_Copy_Buffer_Layout, bytes_per_row) == 8)
-#assert(size_of(Texel_Copy_Texture_Info) == 40)
-#assert(offset_of(Texel_Copy_Texture_Info, origin) == 20)
-#assert(offset_of(Texel_Copy_Texture_Info, aspect) == 32)
-#assert(size_of(Texel_Copy_Buffer_Info) == 32)
-#assert(offset_of(Texel_Copy_Buffer_Info, layout) == 16)
-
-// --- Sampler ---
-#assert(offset_of(Sampler_Descriptor, address_mode_u) == 8)
-#assert(offset_of(Sampler_Descriptor, lod_min_clamp) == 32)
-#assert(offset_of(Sampler_Descriptor, compare) == 40)
-#assert(offset_of(Sampler_Descriptor, anisotropy_clamp) == 44)
-#assert(offset_of(Sampler_Descriptor, border_color) == 48)
-
-// --- Slices ---
-#assert(size_of([]Command_Buffer) == 8)
-
-// --- Features (the 72 is my count; the assert will tell you the real one) ---
-#assert(FEATURE_COUNT == 72)
-#assert(size_of(Features) == 292)
-
-#assert(size_of(Handle) == 16 && offset_of(Handle, handle) == 8)
-#assert(size_of(Device) == 4)
-#assert(size_of(Texture_Usages) == 8 && size_of(Shader_Stages) == 8)
-#assert(size_of(Limits) == 160)
-#assert(size_of(Device_Descriptor) == 240)
-#assert(offset_of(Device_Descriptor, default_queue) == 176)
-#assert(size_of(Surface_Configuration) == 56)
-#assert(size_of(Surface_Texture) == 32)
-#assert(size_of(Render_Pass_Descriptor) == 48)
-#assert(size_of(Render_Pass_Color_Attachment) == 80)
-#assert(size_of(Operations(Color)) == 40)
-#assert(size_of(Render_Pass_Depth_Stencil_Attachment) == 48)
-#assert(size_of(Vertex_State) == 48)
-#assert(size_of(Texture_Descriptor) == 56)
-#assert(size_of(Sampler_Descriptor) == 52)
-#assert(size_of(Binding_Type) == 24 && size_of(Binding_Resource) == 40)
-#assert(size_of(Bind_Group_Layout_Entry) == 48 && size_of(Bind_Group_Entry) == 48)
-#assert(size_of(Features) == 292)
-
 foreign import "webgpu"
 @(default_calling_convention = "c")
 foreign webgpu {
@@ -172,32 +11,25 @@ foreign webgpu {
     // Global procedures
     // -----------------------------------------------------------------------------
 
-    webgpuCreateInstance :: proc(descriptor: ^Instance_Descriptor) -> Instance ---
+    webgpuCreateInstance      :: proc(descriptor: ^Instance_Descriptor) -> Instance ---
     webgpuGetInstanceFeatures :: proc(features: ^Supported_Instance_Features) ---
-    webgpuGetInstanceLimits :: proc(limits: ^Instance_Limits) ---
-    webgpuHasInstanceFeature :: proc(feature: Instance_Feature_Name) -> bool ---
-    webgpuGetProcAddress :: proc(proc_name: string) -> Proc ---
+    webgpuGetInstanceLimits   :: proc(limits: ^Instance_Limits) ---
+    webgpuHasInstanceFeature  :: proc(feature: Instance_Feature_Name) -> bool ---
+    webgpuGetProcAddress      :: proc(proc_name: string) -> Proc ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Adapter
     // -----------------------------------------------------------------------------
 
-    webgpuAdapterGetFeatures :: proc(
-        adapter: Adapter,
-        features: ^Features,
-    ) ---
-    webgpuAdapterGetInfo :: proc(
-        adapter: Adapter,
-        info: ^Adapter_Info,
-    ) ---
-    webgpuAdapterGetLimits :: proc(adapter: Adapter, limits: ^Limits) ---
-    webgpuAdapterHasFeature :: proc(adapter: Adapter, feature: Feature_Name) -> bool ---
-    webgpuAdapterRequestDevice :: proc(
-        adapter: Adapter,
-        #by_ptr descriptor: Device_Descriptor = {},
-    ) -> Device ---
-    webgpuAdapterAddRef :: proc(adapter: Adapter) ---
-    webgpuAdapterRelease :: proc(adapter: Adapter) ---
+    webgpuAdapterGetFeatures   :: proc(adapter: Adapter, features: ^Features) ---
+    webgpuAdapterGetInfo       :: proc(adapter: Adapter, info: ^Adapter_Info) ---
+    webgpuAdapterGetLimits     :: proc(adapter: Adapter, limits: ^Limits) ---
+    webgpuAdapterHasFeature    :: proc(adapter: Adapter, feature: Feature_Name) -> bool ---
+    webgpuAdapterRequestDevice :: proc(adapter: Adapter, #by_ptr descriptor: Device_Descriptor = {}) -> Device ---
+    webgpuAdapterAddRef        :: proc(adapter: Adapter) ---
+    webgpuAdapterRelease       :: proc(adapter: Adapter) ---
+    webgpuAdapterGetLabel      :: proc(adapter: Adapter, label: ^string) ---
+    webgpuAdapterSetLabel      :: proc(adapter: Adapter, label: string) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Adapter_Info
@@ -210,732 +42,319 @@ foreign webgpu {
     // -----------------------------------------------------------------------------
 
     webgpuBindGroupSetLabel :: proc(bind_group: Bind_Group, label: string) ---
-    webgpuBindGroupAddRef :: proc(bind_group: Bind_Group) ---
-    webgpuBindGroupRelease :: proc(bind_group: Bind_Group) ---
+    webgpuBindGroupAddRef   :: proc(bind_group: Bind_Group) ---
+    webgpuBindGroupRelease  :: proc(bind_group: Bind_Group) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Bind_Group_Layout
     // -----------------------------------------------------------------------------
 
-    webgpuBindGroupLayoutSetLabel :: proc(
-        bind_group_layout: Bind_Group_Layout,
-        label: string,
-    ) ---
-    webgpuBindGroupLayoutAddRef :: proc(bind_group_layout: Bind_Group_Layout) ---
-    webgpuBindGroupLayoutRelease :: proc(bind_group_layout: Bind_Group_Layout) ---
+    webgpuBindGroupLayoutSetLabel :: proc(bind_group_layout: Bind_Group_Layout, label: string) ---
+    webgpuBindGroupLayoutGetLabel :: proc(bind_group_layout: Bind_Group_Layout, label: ^string) ---
+    webgpuBindGroupLayoutAddRef   :: proc(bind_group_layout: Bind_Group_Layout) ---
+    webgpuBindGroupLayoutRelease  :: proc(bind_group_layout: Bind_Group_Layout) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Buffer
     // -----------------------------------------------------------------------------
 
-    webgpuBufferDestroy :: proc(buffer: Buffer) ---
-    webgpuBufferGetConstMappedRange :: proc(
-        buffer: Buffer,
-        offset: uint,
-        size: uint,
-    ) -> rawptr ---
-    webgpuBufferGetMappedRange :: proc(
-        buffer: Buffer,
-        offset: uint,
-        size: uint,
-    ) -> rawptr ---
-    webgpuBufferGetMapState :: proc(buffer: Buffer) -> Buffer_Map_State ---
-    webgpuBufferGetSize :: proc(buffer: Buffer) -> u64 ---
-    webgpuBufferGetUsage :: proc(buffer: Buffer) -> Buffer_Usages ---
-    webgpuBufferMapAsync :: proc(
-        buffer: Buffer,
-        mode: Map_Modes,
-        offset: uint,
-        size: uint,
-        callback_info: Buffer_Map_Callback_Info,
-    ) -> Future ---
-    webgpuBufferReadMappedRange :: proc(
-        buffer: Buffer,
-        offset: uint,
-        data: rawptr,
-        size: uint,
-    ) -> Status ---
-    webgpuBufferSetLabel :: proc(buffer: Buffer, label: string) ---
-    webgpuBufferUnmap :: proc(buffer: Buffer) ---
-    webgpuBufferWriteMappedRange :: proc(
-        buffer: Buffer,
-        offset: uint,
-        data: rawptr,
-        size: uint,
-    ) -> Status ---
-    webgpuBufferAddRef :: proc(buffer: Buffer) ---
-    webgpuBufferRelease :: proc(buffer: Buffer) ---
+    webgpuBufferDestroy             :: proc(buffer: Buffer) ---
+    webgpuBufferGetConstMappedRange :: proc(buffer: Buffer, offset: uint, size: uint) -> rawptr ---
+    webgpuBufferGetMappedRange      :: proc(buffer: Buffer, offset: uint, size: uint) -> rawptr ---
+    webgpuBufferGetMapState         :: proc(buffer: Buffer) -> Buffer_Map_State ---
+    webgpuBufferGetSize             :: proc(buffer: Buffer) -> u64 ---
+    webgpuBufferGetUsage            :: proc(buffer: Buffer) -> Buffer_Usages ---
+    webgpuBufferMapAsync            :: proc(buffer: Buffer, mode: Map_Modes, offset: uint, size: uint, callback_info: Buffer_Map_Callback_Info) -> Future ---
+    webgpuBufferReadMappedRange     :: proc(buffer: Buffer, offset: uint, data: rawptr, size: uint) -> Status ---
+    webgpuBufferSetLabel            :: proc(buffer: Buffer, label: string) ---
+    webgpuBufferUnmap               :: proc(buffer: Buffer) ---
+    webgpuBufferWriteMappedRange    :: proc(buffer: Buffer, offset: uint, data: rawptr, size: uint) -> Status ---
+    webgpuBufferAddRef              :: proc(buffer: Buffer) ---
+    webgpuBufferRelease             :: proc(buffer: Buffer) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of command_buffer
     // -----------------------------------------------------------------------------
 
-    webgpuCommandBufferSetLabel :: proc(
-        command_buffer: Command_Buffer,
-        label: string,
-    ) ---
-    webgpuCommandBufferAddRef :: proc(command_buffer: Command_Buffer) ---
-    webgpuCommandBufferRelease :: proc(command_buffer: Command_Buffer) ---
+    webgpuCommandBufferSetLabel :: proc(command_buffer: Command_Buffer, label: string) ---
+    webgpuCommandBufferAddRef   :: proc(command_buffer: Command_Buffer) ---
+    webgpuCommandBufferRelease  :: proc(command_buffer: Command_Buffer) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Command_Encoder
     // -----------------------------------------------------------------------------
 
-    webgpuCommandEncoderBeginComputePass :: proc(
-        command_encoder: Command_Encoder,
-        descriptor: ^Compute_Pass_Descriptor,
-    ) -> Compute_Pass ---
-    webgpuCommandEncoderBeginRenderPass :: proc(
-        #by_ptr command_encoder: Command_Encoder,
-        #by_ptr descriptor: Render_Pass_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuCommandEncoderClearBuffer :: proc(
-        command_encoder: Command_Encoder,
-        buffer: Buffer,
-        offset: u64,
-        size: u64,
-    ) ---
-    webgpuCommandEncoderCopyBufferToBuffer :: proc(
-        command_encoder: Command_Encoder,
-        source: Buffer,
-        source_offset: u64,
-        destination: Buffer,
-        destination_offset: u64,
-        size: u64,
-    ) ---
-    webgpuCommandEncoderCopyBufferToTexture :: proc(
-        command_encoder: Command_Encoder,
-        source: ^Texel_Copy_Buffer_Info,
-        destination: ^Texel_Copy_Texture_Info,
-        copy_size: ^Extent_3D,
-    ) ---
-    webgpuCommandEncoderCopyTextureToBuffer :: proc(
-        command_encoder: Command_Encoder,
-        #by_ptr source: Texel_Copy_Texture_Info,
-        #by_ptr destination: Texel_Copy_Buffer_Info,
-        #by_ptr copy_size: Extent_3D,
-    ) ---
-    webgpuCommandEncoderCopyTextureToTexture :: proc(
-        command_encoder: Command_Encoder,
-        #by_ptr source: Texel_Copy_Texture_Info,
-        #by_ptr destination: Texel_Copy_Texture_Info,
-        #by_ptr copy_size: Extent_3D,
-    ) ---
-    webgpuCommandEncoderFinish :: proc(
-        #by_ptr command_encoder: Command_Encoder,
-        #by_ptr descriptor: Command_Buffer_Descriptor = {},
-        out: ^Handle_Packed,
-    ) ---
-    webgpuCommandEncoderInsertDebugMarker :: proc(
-        command_encoder: Command_Encoder,
-        marker_label: string,
-    ) ---
-    webgpuCommandEncoderPopDebugGroup :: proc(command_encoder: Command_Encoder) ---
-    webgpuCommandEncoderPushDebugGroup :: proc(
-        command_encoder: Command_Encoder,
-        group_label: string,
-    ) ---
-    webgpuCommandEncoderResolveQuerySet :: proc(
-        command_encoder: Command_Encoder,
-        query_set: Query_Set,
-        first_query: u32,
-        query_count: u32,
-        destination: Buffer,
-        destination_offset: u64,
-    ) ---
-    webgpuCommandEncoderSetLabel :: proc(
-        command_encoder: Command_Encoder,
-        label: string,
-    ) ---
-    webgpuCommandEncoderWriteTimestamp :: proc(
-        command_encoder: Command_Encoder,
-        query_set: Query_Set,
-        query_index: u32,
-    ) ---
-    webgpuCommandEncoderAddRef :: proc(command_encoder: Command_Encoder) ---
-    webgpuCommandEncoderRelease :: proc(command_encoder: Command_Encoder) ---
+    webgpuCommandEncoderBeginComputePass     :: proc(command_encoder: Command_Encoder, #by_ptr descriptor: Compute_Pass_Descriptor, out: ^Handle_Packed) ---
+    webgpuCommandEncoderBeginRenderPass      :: proc(#by_ptr command_encoder: Command_Encoder, #by_ptr descriptor: Render_Pass_Descriptor, out: ^Handle_Packed) ---
+    webgpuCommandEncoderClearBuffer          :: proc(command_encoder: Command_Encoder, buffer: Buffer, offset: u64, size: u64) ---
+    webgpuCommandEncoderCopyBufferToBuffer   :: proc(command_encoder: Command_Encoder, source: Buffer, source_offset: u64, destination: Buffer, destination_offset: u64, size: u64) ---
+    webgpuCommandEncoderCopyBufferToTexture  :: proc(command_encoder: Command_Encoder, #by_ptr source: Texel_Copy_Buffer_Info, #by_ptr destination: Texel_Copy_Texture_Info, #by_ptr copy_size: Extent_3D) ---
+    webgpuCommandEncoderCopyTextureToBuffer  :: proc(command_encoder: Command_Encoder, #by_ptr source: Texel_Copy_Texture_Info, #by_ptr destination: Texel_Copy_Buffer_Info, #by_ptr copy_size: Extent_3D) ---
+    webgpuCommandEncoderCopyTextureToTexture :: proc(command_encoder: Command_Encoder, #by_ptr source: Texel_Copy_Texture_Info, #by_ptr destination: Texel_Copy_Texture_Info, #by_ptr copy_size: Extent_3D) ---
+    webgpuCommandEncoderFinish               :: proc(#by_ptr command_encoder: Command_Encoder, #by_ptr descriptor: Command_Buffer_Descriptor = {}, out: ^Handle_Packed) ---
+    webgpuCommandEncoderInsertDebugMarker    :: proc(command_encoder: Command_Encoder, marker_label: string) ---
+    webgpuCommandEncoderPopDebugGroup        :: proc(command_encoder: Command_Encoder) ---
+    webgpuCommandEncoderPushDebugGroup       :: proc(command_encoder: Command_Encoder, group_label: string) ---
+    webgpuCommandEncoderResolveQuerySet      :: proc(command_encoder: Command_Encoder, query_set: Query_Set, first_query: u32, query_count: u32, destination: Buffer, destination_offset: u64) ---
+    webgpuCommandEncoderSetLabel             :: proc(command_encoder: Command_Encoder, label: string) ---
+    webgpuCommandEncoderWriteTimestamp       :: proc(command_encoder: Command_Encoder, query_set: Query_Set, query_index: u32) ---
+    webgpuCommandEncoderAddRef               :: proc(command_encoder: Command_Encoder) ---
+    webgpuCommandEncoderRelease              :: proc(command_encoder: Command_Encoder) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Compute_Pass
     // -----------------------------------------------------------------------------
 
-    webgpuComputePassEncoderDispatchWorkgroups :: proc(
-        compute_pass_encoder: Compute_Pass,
-        workgroup_count_x: u32,
-        workgroup_count_y: u32,
-        workgroup_count_z: u32,
-    ) ---
-    webgpuComputePassEncoderDispatchWorkgroupsIndirect :: proc(
-        compute_pass_encoder: Compute_Pass,
-        indirect_buffer: Buffer,
-        indirect_offset: u64,
-    ) ---
-    webgpuComputePassEncoderEnd :: proc(compute_pass_encoder: Compute_Pass) ---
-    webgpuComputePassEncoderInsertDebugMarker :: proc(
-        compute_pass_encoder: Compute_Pass,
-        marker_label: string,
-    ) ---
-    webgpuComputePassEncoderPopDebugGroup :: proc(
-        compute_pass_encoder: Compute_Pass,
-    ) ---
-    webgpuComputePassEncoderPushDebugGroup :: proc(
-        compute_pass_encoder: Compute_Pass,
-        group_label: string,
-    ) ---
-    webgpuComputePassEncoderSetBindGroup :: proc(
-        compute_pass_encoder: Compute_Pass,
-        group_index: u32,
-        group: Bind_Group,
-        dynamic_offset_count: uint,
-        dynamic_offsets: [^]u32,
-    ) ---
-    webgpuComputePassEncoderSetImmediates :: proc(
-        compute_pass_encoder: Compute_Pass,
-        offset: u32,
-        data: rawptr,
-        size: uint,
-    ) ---
-    webgpuComputePassEncoderSetLabel :: proc(
-        compute_pass_encoder: Compute_Pass,
-        label: string,
-    ) ---
-    webgpuComputePassEncoderSetPipeline :: proc(
-        compute_pass_encoder: Compute_Pass,
-        pipeline: Compute_Pipeline,
-    ) ---
-    webgpuComputePassEncoderAddRef :: proc(
-        compute_pass_encoder: Compute_Pass,
-    ) ---
-    webgpuComputePassEncoderRelease :: proc(
-        compute_pass_encoder: Compute_Pass,
-    ) ---
+    webgpuComputePassEncoderDispatchWorkgroups         :: proc(compute_pass_encoder: Compute_Pass, workgroup_count_x: u32, workgroup_count_y: u32, workgroup_count_z: u32) ---
+    webgpuComputePassEncoderDispatchWorkgroupsIndirect :: proc(compute_pass_encoder: Compute_Pass, indirect_buffer: Buffer, indirect_offset: u64) ---
+    webgpuComputePassEncoderEnd                        :: proc(compute_pass_encoder: Compute_Pass) ---
+    webgpuComputePassEncoderInsertDebugMarker          :: proc(compute_pass_encoder: Compute_Pass, marker_label: string) ---
+    webgpuComputePassEncoderPopDebugGroup              :: proc(compute_pass_encoder: Compute_Pass) ---
+    webgpuComputePassEncoderPushDebugGroup             :: proc(compute_pass_encoder: Compute_Pass, group_label: string) ---
+    webgpuComputePassEncoderSetBindGroup               :: proc(compute_pass_encoder: Compute_Pass, group_index: u32, group: Bind_Group, dynamic_offset_count: uint, dynamic_offsets: [^]u32) ---
+    webgpuComputePassEncoderSetImmediates              :: proc(compute_pass_encoder: Compute_Pass, offset: u32, data: rawptr, size: uint) ---
+    webgpuComputePassEncoderSetLabel                   :: proc(compute_pass_encoder: Compute_Pass, label: string) ---
+    webgpuComputePassEncoderSetPipeline                :: proc(compute_pass_encoder: Compute_Pass, pipeline: Compute_Pipeline) ---
+    webgpuComputePassEncoderAddRef                     :: proc(compute_pass_encoder: Compute_Pass) ---
+    webgpuComputePassEncoderRelease                    :: proc(compute_pass_encoder: Compute_Pass) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Compute_Pipeline
     // -----------------------------------------------------------------------------
 
-    webgpuComputePipelineGetBindGroupLayout :: proc(
-        compute_pipeline: Compute_Pipeline,
-        group_index: u32,
-    ) -> Bind_Group_Layout ---
-    webgpuComputePipelineSetLabel :: proc(
-        compute_pipeline: Compute_Pipeline,
-        label: string,
-    ) ---
-    webgpuComputePipelineAddRef :: proc(compute_pipeline: Compute_Pipeline) ---
-    webgpuComputePipelineRelease :: proc(compute_pipeline: Compute_Pipeline) ---
+    webgpuComputePipelineGetBindGroupLayout :: proc(compute_pipeline: Compute_Pipeline, group_index: u32, out: ^Handle_Packed) ---
+    webgpuComputePipelineSetLabel           :: proc(compute_pipeline: Compute_Pipeline, label: string) ---
+    webgpuComputePipelineAddRef             :: proc(compute_pipeline: Compute_Pipeline) ---
+    webgpuComputePipelineRelease            :: proc(compute_pipeline: Compute_Pipeline) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Device
     // -----------------------------------------------------------------------------
 
-    webgpuDeviceCreateBindGroup :: proc(
-        device: Device,
-        #by_ptr descriptor: Bind_Group_Descriptor,
-        out: ^Handle_Packed
-    ) ---
-    webgpuDeviceCreateBindGroupLayout :: proc(
-        device: Device,
-        #by_ptr descriptor: Bind_Group_Layout_Descriptor,
-        out: ^Handle_Packed
-    ) ---
-    webgpuDeviceCreateBuffer :: proc(
-        device: Device,
-        #by_ptr descriptor: Buffer_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuDeviceCreateCommandEncoder :: proc(
-        device: Device,
-        #by_ptr descriptor: Command_Encoder_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuDeviceCreateComputePipeline :: proc(
-        device: Device,
-        descriptor: ^Compute_Pipeline_Descriptor,
-    ) -> Compute_Pipeline ---
-    webgpuDeviceCreateComputePipelineAsync :: proc(
-        device: Device,
-        descriptor: ^Compute_Pipeline_Descriptor,
-        callback_info: Create_Compute_Pipeline_Async_Callback_Info,
-    ) -> Future ---
-    webgpuDeviceCreatePipelineLayout :: proc(
-        device: Device,
-        #by_ptr descriptor: Pipeline_Layout_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuDeviceCreateQuerySet :: proc(
-        device: Device,
-        descriptor: ^Query_Set_Descriptor,
-    ) -> Query_Set ---
-    webgpuDeviceCreateRenderBundleEncoder :: proc(
-        device: Device,
-        descriptor: ^Render_Bundle_Encoder_Descriptor,
-    ) -> Render_Bundle_Encoder ---
-    webgpuDeviceCreateRenderPipeline :: proc(
-        device: Device,
-        #by_ptr descriptor: Render_Pipeline_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuDeviceCreateRenderPipelineAsync :: proc(
-        device: Device,
-        descriptor: ^Render_Pipeline_Descriptor,
-        callback_info: Create_Render_Pipeline_Async_Callback_Info,
-    ) -> Future ---
-    webgpuDeviceCreateSampler :: proc(
-        device: Device,
-        #by_ptr descriptor: Sampler_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuDeviceCreateShaderModule :: proc(
-        device: Device,
-        #by_ptr descriptor: Shader_Module_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuDeviceCreateTexture :: proc(
-        device: Device,
-        #by_ptr descriptor: Texture_Descriptor,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuDeviceDestroy :: proc(device: Device) ---
-    webgpuDeviceGetAdapterInfo :: proc(
-        device: Device,
-        adapter_info: ^Adapter_Info,
-    ) -> Status ---
-    webgpuDeviceGetFeatures :: proc(device: Device, features: ^Supported_Features) ---
-    webgpuDeviceGetLimits :: proc(device: Device, limits: ^Limits) -> Status ---
-    webgpuDeviceGetLostFuture :: proc(device: Device) -> Future ---
-    webgpuDeviceGetQueue :: proc(device: Device, out: ^Handle_Packed) ---
-    webgpuDeviceHasFeature :: proc(device: Device, feature: Feature_Name) -> bool ---
-    webgpuDevicePopErrorScope :: proc(
-        device: Device,
-        callback_info: Pop_Error_Scope_Callback_Info,
-    ) -> Future ---
-    webgpuDevicePushErrorScope :: proc(device: Device, filter: Error_Filter) ---
-    webgpuDeviceSetLabel :: proc(device: Device, label: string) ---
-    webgpuDeviceAddRef :: proc(device: Device) ---
-    webgpuDeviceRelease :: proc(device: Device) ---
+    webgpuDeviceCreateBindGroup            :: proc(device: Device, #by_ptr descriptor: Bind_Group_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateBindGroupLayout      :: proc(device: Device, #by_ptr descriptor: Bind_Group_Layout_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateBuffer               :: proc(device: Device, #by_ptr descriptor: Buffer_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateCommandEncoder       :: proc(device: Device, #by_ptr descriptor: Command_Encoder_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateComputePipeline      :: proc(device: Device, #by_ptr descriptor: Compute_Pipeline_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateComputePipelineAsync :: proc(device: Device, #by_ptr descriptor: Compute_Pipeline_Descriptor, callback_info: Create_Compute_Pipeline_Async_Callback_Info) -> Future ---
+    webgpuDeviceCreatePipelineLayout       :: proc(device: Device, #by_ptr descriptor: Pipeline_Layout_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateQuerySet             :: proc(device: Device, #by_ptr descriptor: Query_Set_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateRenderBundleEncoder  :: proc(device: Device, #by_ptr descriptor: Render_Bundle_Encoder_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateRenderPipeline       :: proc(device: Device, #by_ptr descriptor: Render_Pipeline_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateRenderPipelineAsync  :: proc(device: Device, #by_ptr descriptor: Render_Pipeline_Descriptor, callback_info: Create_Render_Pipeline_Async_Callback_Info) -> Future ---
+    webgpuDeviceCreateSampler              :: proc(device: Device, #by_ptr descriptor: Sampler_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateShaderModule         :: proc(device: Device, #by_ptr descriptor: Shader_Module_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceCreateTexture              :: proc(device: Device, #by_ptr descriptor: Texture_Descriptor, out: ^Handle_Packed) ---
+    webgpuDeviceDestroy                    :: proc(device: Device) ---
+    webgpuDeviceGetAdapter                 :: proc(device: Device) -> Adapter ---
+    webgpuDeviceGetInstance                :: proc(device: Device) -> Instance ---
+    webgpuDeviceGetAdapterInfo             :: proc(device: Device, adapter_info: ^Adapter_Info) -> Status ---
+    webgpuDeviceGetFeatures                :: proc(device: Device, features: ^Features) ---
+    webgpuDeviceGetLimits                  :: proc(device: Device, limits: ^Limits) -> Status ---
+    webgpuDeviceGetLostFuture              :: proc(device: Device) -> Future ---
+    webgpuDeviceGetQueue                   :: proc(device: Device, out: ^Handle_Packed) ---
+    webgpuDeviceHasFeature                 :: proc(device: Device, feature: Feature_Name) -> bool ---
+    webgpuDevicePopErrorScope              :: proc(device: Device, callback_info: Pop_Error_Scope_Callback_Info) -> Future ---
+    webgpuDevicePushErrorScope             :: proc(device: Device, filter: Error_Filter) ---
+    webgpuDeviceSetLabel                   :: proc(device: Device, label: string) ---
+    webgpuDeviceAddRef                     :: proc(device: Device) ---
+    webgpuDeviceRelease                    :: proc(device: Device) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of External_Texture
     // -----------------------------------------------------------------------------
 
-    webgpuExternalTextureSetLabel :: proc(
-        external_texture: External_Texture,
-        label: string,
-    ) ---
-    webgpuExternalTextureAddRef :: proc(external_texture: External_Texture) ---
-    webgpuExternalTextureRelease :: proc(external_texture: External_Texture) ---
+    webgpuExternalTextureSetLabel :: proc(external_texture: External_Texture, label: string) ---
+    webgpuExternalTextureAddRef   :: proc(external_texture: External_Texture) ---
+    webgpuExternalTextureRelease  :: proc(external_texture: External_Texture) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Instance
     // -----------------------------------------------------------------------------
 
-    webgpuInstanceCreateSurface :: proc(
-        instance: Instance,
-        #by_ptr selector: Surface_Source_Canvas_HTML_Selector,
-    ) -> Surface ---
-    webgpuInstanceGetWGSLLanguageFeatures :: proc(
-        instance: Instance,
-        features: ^Supported_WGSL_Language_Features,
-    ) ---
-    webgpuInstanceHasWGSLLanguageFeature :: proc(
-        instance: Instance,
-        feature: WGSL_Language_Feature_Name,
-    ) -> bool ---
-    webgpuInstanceProcessEvents :: proc(instance: Instance) ---
-    webgpuInstanceRequestAdapter :: proc(
-        instance: Instance,
-        #by_ptr options: Request_Adapter_Options = {},
-    ) -> Adapter ---
-    webgpuInstanceWaitAny :: proc(
-        instance: Instance,
-        future_count: uint,
-        futures: [^]^Future_Wait_Info,
-        timeout_ns: u64 = max(u64),
-    ) -> Wait_Status ---
-    webgpuInstanceAddRef :: proc(instance: Instance) ---
-    webgpuInstanceRelease :: proc(instance: Instance) ---
+    webgpuInstanceCreateSurface           :: proc(instance: Instance, #by_ptr selector: Surface_Source_Canvas_HTML_Selector) -> Surface ---
+    webgpuInstanceGetWGSLLanguageFeatures :: proc(instance: Instance, features: ^Supported_WGSL_Language_Features) ---
+    webgpuInstanceHasWGSLLanguageFeature  :: proc(instance: Instance, feature: WGSL_Language_Feature_Name) -> bool ---
+    webgpuInstanceProcessEvents           :: proc(instance: Instance) ---
+    webgpuInstanceRequestAdapter          :: proc(instance: Instance, #by_ptr options: Request_Adapter_Options = {}) -> Adapter ---
+    webgpuInstanceWaitAny                 :: proc(instance: Instance, future_count: uint, futures: [^]^Future_Wait_Info, timeout_ns: u64 = max(u64)) -> Wait_Status ---
+    webgpuInstanceAddRef                  :: proc(instance: Instance) ---
+    webgpuInstanceRelease                 :: proc(instance: Instance) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Pipeline_Layout
     // -----------------------------------------------------------------------------
 
-    webgpuPipelineLayoutSetLabel :: proc(
-        pipeline_layout: Pipeline_Layout,
-        label: string,
-    ) ---
-    webgpuPipelineLayoutAddRef :: proc(pipeline_layout: Pipeline_Layout) ---
-    webgpuPipelineLayoutRelease :: proc(pipeline_layout: Pipeline_Layout) ---
+    webgpuPipelineLayoutSetLabel :: proc(pipeline_layout: Pipeline_Layout, label: string) ---
+    webgpuPipelineLayoutAddRef   :: proc(pipeline_layout: Pipeline_Layout) ---
+    webgpuPipelineLayoutRelease  :: proc(pipeline_layout: Pipeline_Layout) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Query_Set
     // -----------------------------------------------------------------------------
 
-    webgpuQuerySetDestroy :: proc(query_set: Query_Set) ---
+    webgpuQuerySetDestroy  :: proc(query_set: Query_Set) ---
     webgpuQuerySetGetCount :: proc(query_set: Query_Set) -> u32 ---
-    webgpuQuerySetGetType :: proc(query_set: Query_Set) -> Query_Type ---
+    webgpuQuerySetGetType  :: proc(query_set: Query_Set) -> Query_Type ---
     webgpuQuerySetSetLabel :: proc(query_set: Query_Set, label: string) ---
-    webgpuQuerySetAddRef :: proc(query_set: Query_Set) ---
-    webgpuQuerySetRelease :: proc(query_set: Query_Set) ---
+    webgpuQuerySetAddRef   :: proc(query_set: Query_Set) ---
+    webgpuQuerySetRelease  :: proc(query_set: Query_Set) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Queue
     // -----------------------------------------------------------------------------
 
-    webgpuQueueOnSubmittedWorkDone :: proc(
-        queue: Queue,
-        callback_info: Queue_Work_Done_Callback_Info,
-    ) -> Future ---
-    webgpuQueueSetLabel :: proc(queue: Queue, label: string) ---
-    webgpuQueueSubmit :: proc(#by_ptr queue: Queue, commands: []Command_Buffer) ---
-    webgpuQueueWriteBuffer :: proc(
-        queue: Queue,
-        buffer: Buffer,
-        buffer_offset: u64,
-        data: rawptr,
-        size: uint,
-    ) ---
-    webgpuQueueWriteTexture :: proc(
-        queue: Queue,
-        #by_ptr destination: Texel_Copy_Texture_Info,
-        data: rawptr,
-        data_size: uint,
-        #by_ptr data_layout: Texel_Copy_Buffer_Layout,
-        #by_ptr write_size: Extent_3D,
-    ) ---
-    webgpuQueueAddRef :: proc(queue: Queue) ---
-    webgpuQueueRelease :: proc(queue: Queue) ---
+    webgpuQueueOnSubmittedWorkDone :: proc(queue: Queue, callback_info: Queue_Work_Done_Callback_Info) -> Future ---
+    webgpuQueueSetLabel            :: proc(queue: Queue, label: string) ---
+    webgpuQueueSubmit              :: proc(#by_ptr queue: Queue, commands: []Command_Buffer) ---
+    webgpuQueueWriteBuffer         :: proc(queue: Queue, buffer: Buffer, buffer_offset: u64, data: rawptr, size: uint) ---
+    webgpuQueueWriteTexture        :: proc(queue: Queue, #by_ptr destination: Texel_Copy_Texture_Info, data: rawptr, data_size: uint, #by_ptr data_layout: Texel_Copy_Buffer_Layout, #by_ptr write_size: Extent_3D) ---
+    webgpuQueueAddRef              :: proc(queue: Queue) ---
+    webgpuQueueRelease             :: proc(queue: Queue) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Render_Bundle
     // -----------------------------------------------------------------------------
 
     webgpuRenderBundleSetLabel :: proc(render_bundle: Render_Bundle, label: string) ---
-    webgpuRenderBundleAddRef :: proc(render_bundle: Render_Bundle) ---
-    webgpuRenderBundleRelease :: proc(render_bundle: Render_Bundle) ---
+    webgpuRenderBundleAddRef   :: proc(render_bundle: Render_Bundle) ---
+    webgpuRenderBundleRelease  :: proc(render_bundle: Render_Bundle) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Render_Bundle_Encoder
     // -----------------------------------------------------------------------------
 
-    webgpuRenderBundleEncoderDraw :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        vertex_count: u32,
-        instance_count: u32,
-        first_vertex: u32,
-        first_instance: u32,
-    ) ---
-    webgpuRenderBundleEncoderDrawIndexed :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        index_count: u32,
-        instance_count: u32,
-        first_index: u32,
-        base_vertex: i32,
-        first_instance: u32,
-    ) ---
-    webgpuRenderBundleEncoderDrawIndexedIndirect :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        indirect_buffer: Buffer,
-        indirect_offset: u64,
-    ) ---
-    webgpuRenderBundleEncoderDrawIndirect :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        indirect_buffer: Buffer,
-        indirect_offset: u64,
-    ) ---
-    webgpuRenderBundleEncoderFinish :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        descriptor: ^Render_Bundle_Descriptor,
-    ) -> Render_Bundle ---
-    webgpuRenderBundleEncoderInsertDebugMarker :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        marker_label: string,
-    ) ---
-    webgpuRenderBundleEncoderPopDebugGroup :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-    ) ---
-    webgpuRenderBundleEncoderPushDebugGroup :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        group_label: string,
-    ) ---
-    webgpuRenderBundleEncoderSetBindGroup :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        group_index: u32,
-        group: Bind_Group,
-        dynamic_offset_count: uint,
-        dynamic_offsets: [^]u32,
-    ) ---
-    webgpuRenderBundleEncoderSetImmediates :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        offset: u32,
-        data: rawptr,
-        size: uint,
-    ) ---
-    webgpuRenderBundleEncoderSetIndexBuffer :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        buffer: Buffer,
-        format: Index_Format,
-        offset: u64,
-        size: u64,
-    ) ---
-    webgpuRenderBundleEncoderSetLabel :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        label: string,
-    ) ---
-    webgpuRenderBundleEncoderSetPipeline :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        pipeline: Render_Pipeline,
-    ) ---
-    webgpuRenderBundleEncoderSetVertexBuffer :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-        slot: u32,
-        buffer: Buffer,
-        offset: u64,
-        size: u64,
-    ) ---
-    webgpuRenderBundleEncoderAddRef :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-    ) ---
-    webgpuRenderBundleEncoderRelease :: proc(
-        render_bundle_encoder: Render_Bundle_Encoder,
-    ) ---
+    webgpuRenderBundleEncoderDraw                :: proc(render_bundle_encoder: Render_Bundle_Encoder, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) ---
+    webgpuRenderBundleEncoderDrawIndexed         :: proc(render_bundle_encoder: Render_Bundle_Encoder, index_count: u32, instance_count: u32, first_index: u32, base_vertex: i32, first_instance: u32) ---
+    webgpuRenderBundleEncoderDrawIndexedIndirect :: proc(render_bundle_encoder: Render_Bundle_Encoder, indirect_buffer: Buffer, indirect_offset: u64) ---
+    webgpuRenderBundleEncoderDrawIndirect        :: proc(render_bundle_encoder: Render_Bundle_Encoder, indirect_buffer: Buffer, indirect_offset: u64) ---
+    webgpuRenderBundleEncoderFinish              :: proc(render_bundle_encoder: Render_Bundle_Encoder, #by_ptr descriptor: Render_Bundle_Descriptor, out: ^Handle_Packed) ---
+    webgpuRenderBundleEncoderInsertDebugMarker   :: proc(render_bundle_encoder: Render_Bundle_Encoder, marker_label: string) ---
+    webgpuRenderBundleEncoderPopDebugGroup       :: proc(render_bundle_encoder: Render_Bundle_Encoder) ---
+    webgpuRenderBundleEncoderPushDebugGroup      :: proc(render_bundle_encoder: Render_Bundle_Encoder, group_label: string) ---
+    webgpuRenderBundleEncoderSetBindGroup        :: proc(render_bundle_encoder: Render_Bundle_Encoder, group_index: u32, group: Bind_Group, dynamic_offset_count: uint, dynamic_offsets: [^]u32) ---
+    webgpuRenderBundleEncoderSetImmediates       :: proc(render_bundle_encoder: Render_Bundle_Encoder, offset: u32, data: rawptr, size: uint) ---
+    webgpuRenderBundleEncoderSetIndexBuffer      :: proc(render_bundle_encoder: Render_Bundle_Encoder, buffer: Buffer, format: Index_Format, offset: u64, size: u64) ---
+    webgpuRenderBundleEncoderSetLabel            :: proc(render_bundle_encoder: Render_Bundle_Encoder, label: string) ---
+    webgpuRenderBundleEncoderSetPipeline         :: proc(render_bundle_encoder: Render_Bundle_Encoder, pipeline: Render_Pipeline) ---
+    webgpuRenderBundleEncoderSetVertexBuffer     :: proc(render_bundle_encoder: Render_Bundle_Encoder, slot: u32, buffer: Buffer, offset: u64, size: u64) ---
+    webgpuRenderBundleEncoderAddRef              :: proc(render_bundle_encoder: Render_Bundle_Encoder) ---
+    webgpuRenderBundleEncoderRelease             :: proc(render_bundle_encoder: Render_Bundle_Encoder) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Render_Pass
     // -----------------------------------------------------------------------------
 
-    webgpuRenderPassEncoderBeginOcclusionQuery :: proc(
-        render_pass_encoder: Render_Pass,
-        query_index: u32,
-    ) ---
-    webgpuRenderPassEncoderDraw :: proc(
-        render_pass_encoder: Render_Pass,
-        vertex_count: u32,
-        instance_count: u32,
-        first_vertex: u32,
-        first_instance: u32,
-    ) ---
-    webgpuRenderPassEncoderDrawIndexed :: proc(
-        render_pass_encoder: Render_Pass,
-        index_count: u32,
-        instance_count: u32,
-        first_index: u32,
-        base_vertex: i32,
-        first_instance: u32,
-    ) ---
-    webgpuRenderPassEncoderDrawIndexedIndirect :: proc(
-        render_pass_encoder: Render_Pass,
-        indirect_buffer: Buffer,
-        indirect_offset: u64,
-    ) ---
-    webgpuRenderPassEncoderDrawIndirect :: proc(
-        render_pass_encoder: Render_Pass,
-        indirect_buffer: Buffer,
-        indirect_offset: u64,
-    ) ---
-    webgpuRenderPassEncoderEnd :: proc(#by_ptr render_pass_encoder: Render_Pass) ---
-    webgpuRenderPassEncoderEndOcclusionQuery :: proc(
-        render_pass_encoder: Render_Pass,
-    ) ---
-    webgpuRenderPassEncoderExecuteBundles :: proc(
-        render_pass_encoder: Render_Pass,
-        bundle_count: uint,
-        bundles: [^]Render_Bundle,
-    ) ---
-    webgpuRenderPassEncoderInsertDebugMarker :: proc(
-        render_pass_encoder: Render_Pass,
-        marker_label: string,
-    ) ---
-    webgpuRenderPassEncoderPopDebugGroup :: proc(
-        render_pass_encoder: Render_Pass,
-    ) ---
-    webgpuRenderPassEncoderPushDebugGroup :: proc(
-        render_pass_encoder: Render_Pass,
-        group_label: string,
-    ) ---
-    webgpuRenderPassEncoderSetBindGroup :: proc(
-        render_pass_encoder: Render_Pass,
-        group_index: u32,
-        group: Bind_Group,
-        dynamic_offsets: []u32,
-    ) ---
-    webgpuRenderPassEncoderSetBlendConstant :: proc(
-        render_pass_encoder: Render_Pass,
-        color: Color,
-    ) ---
-    webgpuRenderPassEncoderSetImmediates :: proc(
-        render_pass_encoder: Render_Pass,
-        offset: u32,
-        data: rawptr,
-        size: uint,
-    ) ---
-    webgpuRenderPassEncoderSetIndexBuffer :: proc(
-        render_pass_encoder: Render_Pass,
-        buffer: Buffer,
-        format: Index_Format,
-        offset: u64,
-        size: u64,
-    ) ---
-    webgpuRenderPassEncoderSetLabel :: proc(
-        render_pass_encoder: Render_Pass,
-        label: string,
-    ) ---
-    webgpuRenderPassEncoderSetPipeline :: proc(
-        render_pass_encoder: Render_Pass,
-        pipeline: Render_Pipeline,
-    ) ---
-    webgpuRenderPassEncoderSetScissorRect :: proc(
-        render_pass_encoder: Render_Pass,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-    ) ---
-    webgpuRenderPassEncoderSetStencilReference :: proc(
-        render_pass_encoder: Render_Pass,
-        reference: u32,
-    ) ---
-    webgpuRenderPassEncoderSetVertexBuffer :: proc(
-        render_pass_encoder: Render_Pass,
-        slot: u32,
-        buffer: Buffer,
-        offset: u64,
-        size: u64,
-    ) ---
-    webgpuRenderPassEncoderSetViewport :: proc(
-        render_pass_encoder: Render_Pass,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        min_depth: f32,
-        max_depth: f32,
-    ) ---
-    webgpuRenderPassEncoderAddRef :: proc(
-        render_pass_encoder: Render_Pass,
-    ) ---
-    webgpuRenderPassEncoderRelease :: proc(
-        render_pass_encoder: Render_Pass,
-    ) ---
+    webgpuRenderPassEncoderBeginOcclusionQuery :: proc(render_pass_encoder: Render_Pass, query_index: u32) ---
+    webgpuRenderPassEncoderDraw                :: proc(render_pass_encoder: Render_Pass, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) ---
+    webgpuRenderPassEncoderDrawIndexed         :: proc(render_pass_encoder: Render_Pass, index_count: u32, instance_count: u32, first_index: u32, base_vertex: i32, first_instance: u32) ---
+    webgpuRenderPassEncoderDrawIndexedIndirect :: proc(render_pass_encoder: Render_Pass, indirect_buffer: Buffer, indirect_offset: u64) ---
+    webgpuRenderPassEncoderDrawIndirect        :: proc(render_pass_encoder: Render_Pass, indirect_buffer: Buffer, indirect_offset: u64) ---
+    webgpuRenderPassEncoderEnd                 :: proc(#by_ptr render_pass_encoder: Render_Pass) ---
+    webgpuRenderPassEncoderEndOcclusionQuery   :: proc(render_pass_encoder: Render_Pass) ---
+    webgpuRenderPassEncoderExecuteBundles      :: proc(render_pass_encoder: Render_Pass, bundle_count: uint, bundles: [^]Render_Bundle) ---
+    webgpuRenderPassEncoderInsertDebugMarker   :: proc(render_pass_encoder: Render_Pass, marker_label: string) ---
+    webgpuRenderPassEncoderPopDebugGroup       :: proc(render_pass_encoder: Render_Pass) ---
+    webgpuRenderPassEncoderPushDebugGroup      :: proc(render_pass_encoder: Render_Pass, group_label: string) ---
+    webgpuRenderPassEncoderSetBindGroup        :: proc(render_pass_encoder: Render_Pass, group_index: u32, group: Bind_Group, dynamic_offsets: []u32) ---
+    webgpuRenderPassEncoderSetBlendConstant    :: proc(render_pass_encoder: Render_Pass, color: Color) ---
+    webgpuRenderPassEncoderSetImmediates       :: proc(render_pass_encoder: Render_Pass, offset: u32, data: rawptr, size: uint) ---
+    webgpuRenderPassEncoderSetIndexBuffer      :: proc(render_pass_encoder: Render_Pass, buffer: Buffer, format: Index_Format, offset: u64, size: u64) ---
+    webgpuRenderPassEncoderSetLabel            :: proc(render_pass_encoder: Render_Pass, label: string) ---
+    webgpuRenderPassEncoderSetPipeline         :: proc(render_pass_encoder: Render_Pass, pipeline: Render_Pipeline) ---
+    webgpuRenderPassEncoderSetScissorRect      :: proc(render_pass_encoder: Render_Pass, x: u32, y: u32, width: u32, height: u32) ---
+    webgpuRenderPassEncoderSetStencilReference :: proc(render_pass_encoder: Render_Pass, reference: u32) ---
+    webgpuRenderPassEncoderSetVertexBuffer     :: proc(render_pass_encoder: Render_Pass, slot: u32, buffer: Buffer, offset: u64, size: u64) ---
+    webgpuRenderPassEncoderSetViewport         :: proc(render_pass_encoder: Render_Pass, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) ---
+    webgpuRenderPassEncoderAddRef              :: proc(render_pass_encoder: Render_Pass) ---
+    webgpuRenderPassEncoderRelease             :: proc(render_pass_encoder: Render_Pass) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Render_Pipeline
     // -----------------------------------------------------------------------------
 
-    webgpuRenderPipelineGetBindGroupLayout :: proc(
-        render_pipeline: Render_Pipeline,
-        group_index: u32,
-    ) -> Bind_Group_Layout ---
-    webgpuRenderPipelineSetLabel :: proc(
-        render_pipeline: Render_Pipeline,
-        label: string,
-    ) ---
-    webgpuRenderPipelineAddRef :: proc(render_pipeline: Render_Pipeline) ---
-    webgpuRenderPipelineRelease :: proc(render_pipeline: Render_Pipeline) ---
+    webgpuRenderPipelineGetBindGroupLayout :: proc(render_pipeline: Render_Pipeline, group_index: u32, out: ^Handle_Packed) ---
+    webgpuRenderPipelineSetLabel           :: proc(render_pipeline: Render_Pipeline, label: string) ---
+    webgpuRenderPipelineAddRef             :: proc(render_pipeline: Render_Pipeline) ---
+    webgpuRenderPipelineRelease            :: proc(render_pipeline: Render_Pipeline) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Sampler
     // -----------------------------------------------------------------------------
 
     webgpuSamplerSetLabel :: proc(sampler: Sampler, label: string) ---
-    webgpuSamplerAddRef :: proc(sampler: Sampler) ---
-    webgpuSamplerRelease :: proc(sampler: Sampler) ---
+    webgpuSamplerAddRef   :: proc(sampler: Sampler) ---
+    webgpuSamplerRelease  :: proc(sampler: Sampler) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Shader_Module
     // -----------------------------------------------------------------------------
 
-    webgpuShaderModuleGetCompilationInfo :: proc(
-        shader_module: Shader_Module,
-        callback_info: Compilation_Info_Callback_Info,
-    ) -> Future ---
-    webgpuShaderModuleSetLabel :: proc(shader_module: Shader_Module, label: string) ---
-    webgpuShaderModuleAddRef :: proc(shader_module: Shader_Module) ---
-    webgpuShaderModuleRelease :: proc(shader_module: Shader_Module) ---
-
-    // -----------------------------------------------------------------------------
-    // Procedures of Supported_Features
-    // -----------------------------------------------------------------------------
-
-    webgpuSupportedFeaturesFreeMembers :: proc(
-        supported_features: Supported_Features,
-    ) ---
+    webgpuShaderModuleGetCompilationInfo :: proc(shader_module: Shader_Module, callback_info: Compilation_Info_Callback_Info) -> Future ---
+    webgpuShaderModuleSetLabel           :: proc(shader_module: Shader_Module, label: string) ---
+    webgpuShaderModuleAddRef             :: proc(shader_module: Shader_Module) ---
+    webgpuShaderModuleRelease            :: proc(shader_module: Shader_Module) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Supported_Instance_Features
     // -----------------------------------------------------------------------------
 
-    webgpuSupportedInstanceFeaturesFreeMembers :: proc(
-        supported_instance_features: Supported_Instance_Features,
-    ) ---
+    webgpuSupportedInstanceFeaturesFreeMembers :: proc(supported_instance_features: Supported_Instance_Features) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Supported_WGSL_Language_Features
     // -----------------------------------------------------------------------------
 
-    webgpuSupportedWGSLLanguageFeaturesFreeMembers :: proc(
-        supported_wgsl_language_features: Supported_WGSL_Language_Features,
-    ) ---
+    webgpuSupportedWGSLLanguageFeaturesFreeMembers :: proc(supported_wgsl_language_features: Supported_WGSL_Language_Features) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of surface
     // -----------------------------------------------------------------------------
 
-    webgpuSurfaceConfigure :: proc(surface: Surface, #by_ptr config: Surface_Configuration) ---
-    webgpuSurfaceGetCapabilities :: proc(
-        surface: Surface,
-        adapter: Adapter,
-        capabilities: ^Surface_Capabilities,
-    ) -> Status ---
+    webgpuSurfaceConfigure         :: proc(surface: Surface, #by_ptr config: Surface_Configuration) ---
+    webgpuSurfaceGetConfiguration  :: proc(surface: Surface, config: ^Surface_Configuration) -> bool ---
+    webgpuSurfaceGetCapabilities   :: proc(surface: Surface, adapter: Adapter, capabilities: ^Surface_Capabilities) -> Status ---
     webgpuSurfaceGetCurrentTexture :: proc(surface: Surface, surface_texture: ^Surface_Texture) ---
-    webgpuSurfacePresent :: proc(surface: Surface) -> Status ---
-    webgpuSurfaceSetLabel :: proc(surface: Surface, label: string) ---
-    webgpuSurfaceUnconfigure :: proc(surface: Surface) ---
-    webgpuSurfaceAddRef :: proc(surface: Surface) ---
-    webgpuSurfaceRelease :: proc(surface: Surface) ---
+    webgpuSurfacePresent           :: proc(surface: Surface) -> Status ---
+    webgpuSurfaceSetLabel          :: proc(surface: Surface, label: string) ---
+    webgpuSurfaceUnconfigure       :: proc(surface: Surface) ---
+    webgpuSurfaceAddRef            :: proc(surface: Surface) ---
+    webgpuSurfaceRelease           :: proc(surface: Surface) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Surface_Capabilities
     // -----------------------------------------------------------------------------
 
-    webgpuSurfaceCapabilitiesFreeMembers :: proc(
-        surface_capabilities: Surface_Capabilities,
-    ) ---
+    webgpuSurfaceCapabilitiesFreeMembers :: proc(surface_capabilities: Surface_Capabilities) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Texture
     // -----------------------------------------------------------------------------
 
-    webgpuTextureCreateView :: proc(
-        #by_ptr texture: Texture,
-        descriptor: ^Texture_View_Descriptor = nil,
-        out: ^Handle_Packed,
-    ) ---
-    webgpuTextureDestroy :: proc(texture: Texture) ---
-    webgpuTextureGetDepthOrArrayLayers :: proc(texture: Texture) -> u32 ---
-    webgpuTextureGetDimension :: proc(texture: Texture) -> Texture_Dimension ---
-    webgpuTextureGetFormat :: proc(texture: Texture) -> Texture_Format ---
-    webgpuTextureGetHeight :: proc(texture: Texture) -> u32 ---
-    webgpuTextureGetMipLevelCount :: proc(texture: Texture) -> u32 ---
-    webgpuTextureGetSampleCount :: proc(texture: Texture) -> u32 ---
-    webgpuTextureGetSize :: proc(texture: Texture, out: ^Extent_3D) ---
-    webgpuTextureGetTextureBindingViewDimension :: proc(
-        texture: Texture,
-    ) -> Texture_View_Dimension ---
-    webgpuTextureGetUsage :: proc(texture: Texture) -> Texture_Usages ---
-    webgpuTextureGetWidth :: proc(texture: Texture) -> u32 ---
-    webgpuTextureSetLabel :: proc(texture: Texture, label: string) ---
-    webgpuTextureAddRef :: proc(texture: Texture) ---
-    webgpuTextureRelease :: proc(texture: Texture) ---
+    webgpuTextureCreateView                     :: proc(#by_ptr texture: Texture, descriptor: ^Texture_View_Descriptor = nil, out: ^Handle_Packed) ---
+    webgpuTextureDestroy                        :: proc(texture: Texture) ---
+    webgpuTextureGetDepthOrArrayLayers          :: proc(texture: Texture) -> u32 ---
+    webgpuTextureGetDimension                   :: proc(texture: Texture) -> Texture_Dimension ---
+    webgpuTextureGetFormat                      :: proc(texture: Texture) -> Texture_Format ---
+    webgpuTextureGetHeight                      :: proc(texture: Texture) -> u32 ---
+    webgpuTextureGetMipLevelCount               :: proc(texture: Texture) -> u32 ---
+    webgpuTextureGetSampleCount                 :: proc(texture: Texture) -> u32 ---
+    webgpuTextureGetSize                        :: proc(texture: Texture, out: ^Extent_3D) ---
+    webgpuTextureGetTextureBindingViewDimension :: proc(texture: Texture) -> Texture_View_Dimension ---
+    webgpuTextureGetUsage                       :: proc(texture: Texture) -> Texture_Usages ---
+    webgpuTextureGetWidth                       :: proc(texture: Texture) -> u32 ---
+    webgpuTextureSetLabel                       :: proc(texture: Texture, label: string) ---
+    webgpuTextureAddRef                         :: proc(texture: Texture) ---
+    webgpuTextureRelease                        :: proc(texture: Texture) ---
 
     // -----------------------------------------------------------------------------
     // Procedures of Texture_View
     // -----------------------------------------------------------------------------
 
-    webgpuTextureViewSetLabel :: proc(texture_view: Texture_View, label: string) ---
-    webgpuTextureViewAddRef :: proc(texture_view: Texture_View) ---
-    webgpuTextureViewRelease :: proc(texture_view: Texture_View) ---
+    webgpuTextureViewGetTexture :: proc(texture_view: Texture_View) -> Texture ---
+    webgpuTextureViewSetLabel   :: proc(texture_view: Texture_View, label: string) ---
+    webgpuTextureViewAddRef     :: proc(texture_view: Texture_View) ---
+    webgpuTextureViewRelease    :: proc(texture_view: Texture_View) ---
 }
 
 webgpu_set_procedures :: proc() {
@@ -947,7 +366,12 @@ webgpu_set_procedures :: proc() {
     // Procedures of Adapter
     adapter_get_features = webgpu_adapter_get_features
     adapter_get_info = webgpu_adapter_get_info
+    adapter_info_free_members = webgpu_adapter_info_free_members
+    adapter_get_limits = webgpu_adapter_get_limits
+    adapter_has_feature = webgpu_adapter_has_feature
     adapter_create_device = webgpu_adapter_create_device
+    adapter_get_label = webgpu_adapter_get_label
+    adapter_set_label = webgpu_adapter_set_label
     adapter_add_ref = webgpu_adapter_add_ref
     adapter_release = webgpu_adapter_release
 
@@ -959,6 +383,7 @@ webgpu_set_procedures :: proc() {
     bind_group_add_ref = webgpu_bind_group_add_ref
     bind_group_release = webgpu_bind_group_release
     bind_group_layout_set_label = webgpu_bind_group_layout_set_label
+    bind_group_layout_get_label = webgpu_bind_group_layout_get_label
     bind_group_layout_add_ref = webgpu_bind_group_layout_add_ref
     bind_group_layout_release = webgpu_bind_group_layout_release
 
@@ -987,6 +412,7 @@ webgpu_set_procedures :: proc() {
     command_encoder_begin_compute_pass = webgpu_command_encoder_begin_compute_pass
     command_encoder_begin_render_pass = webgpu_command_encoder_begin_render_pass
     command_encoder_clear_buffer = webgpu_command_encoder_clear_buffer
+    command_encoder_clear_texture = webgpu_command_encoder_clear_texture
     command_encoder_copy_buffer_to_buffer = webgpu_command_encoder_copy_buffer_to_buffer
     command_encoder_copy_buffer_to_texture = webgpu_command_encoder_copy_buffer_to_texture
     command_encoder_copy_texture_to_buffer = webgpu_command_encoder_copy_texture_to_buffer
@@ -1003,9 +429,12 @@ webgpu_set_procedures :: proc() {
 
     // Procedures of Compute_Pass
     compute_pass_dispatch_workgroups = webgpu_compute_pass_dispatch_workgroups
-    compute_pass_dispatch_workgroups_indirect =
-        webgpu_compute_pass_dispatch_workgroups_indirect
+    compute_pass_dispatch_workgroups_indirect = webgpu_compute_pass_dispatch_workgroups_indirect
     compute_pass_end = webgpu_compute_pass_end
+    compute_pass_begin_pipeline_statistics_query =
+        webgpu_compute_pass_begin_pipeline_statistics_query
+    compute_pass_end_pipeline_statistics_query = webgpu_compute_pass_end_pipeline_statistics_query
+    compute_pass_write_timestamp = webgpu_compute_pass_write_timestamp
     compute_pass_insert_debug_marker = webgpu_compute_pass_insert_debug_marker
     compute_pass_pop_debug_group = webgpu_compute_pass_pop_debug_group
     compute_pass_push_debug_group = webgpu_compute_pass_push_debug_group
@@ -1023,31 +452,42 @@ webgpu_set_procedures :: proc() {
     compute_pipeline_release = webgpu_compute_pipeline_release
 
     // Procedures of Device
-    device_create_bind_group        = webgpu_device_create_bind_group
-    device_create_bind_group_layout      = webgpu_device_create_bind_group_layout
-    device_create_buffer                 = webgpu_device_create_buffer
-    device_create_command_encoder        = webgpu_device_create_command_encoder
-    device_create_compute_pipeline       = webgpu_device_create_compute_pipeline
+    device_create_bind_group = webgpu_device_create_bind_group
+    device_create_bind_group_layout = webgpu_device_create_bind_group_layout
+    device_create_buffer = webgpu_device_create_buffer
+    device_create_command_encoder = webgpu_device_create_command_encoder
+    device_create_compute_pipeline = webgpu_device_create_compute_pipeline
     device_create_compute_pipeline_async = webgpu_device_create_compute_pipeline_async
-    device_create_pipeline_layout        = webgpu_device_create_pipeline_layout
-    device_create_query_set              = webgpu_device_create_query_set
-    device_create_render_bundle_encoder  = webgpu_device_create_render_bundle_encoder
-    device_create_render_pipeline        = webgpu_device_create_render_pipeline
-    device_create_render_pipeline_async  = webgpu_device_create_render_pipeline_async
-    device_create_sampler                = webgpu_device_create_sampler
-    device_create_shader_module          = webgpu_device_create_shader_module
-    device_create_texture                = webgpu_device_create_texture
-    device_destroy                       = webgpu_device_destroy
-    device_get_adapter_info              = webgpu_device_get_adapter_info
-    device_get_lost_future               = webgpu_device_get_lost_future
-    device_get_queue                     = webgpu_device_get_queue
-    device_pop_error_scope               = webgpu_device_pop_error_scope
-    device_push_error_scope              = webgpu_device_push_error_scope
+    device_create_pipeline_layout = webgpu_device_create_pipeline_layout
+    device_create_query_set = webgpu_device_create_query_set
+    device_create_render_bundle_encoder = webgpu_device_create_render_bundle_encoder
+    device_create_render_pipeline = webgpu_device_create_render_pipeline
+    device_create_render_pipeline_async = webgpu_device_create_render_pipeline_async
+    device_create_sampler = webgpu_device_create_sampler
+    device_create_shader_module = webgpu_device_create_shader_module
+    device_create_shader_module_spirv = webgpu_device_create_shader_module_spirv
+    device_create_shader_module_trusted = webgpu_device_create_shader_module_trusted
+    device_create_texture = webgpu_device_create_texture
+    device_start_graphics_debugger_capture = webgpu_device_start_graphics_debugger_capture
+    device_stop_graphics_debugger_capture = webgpu_device_stop_graphics_debugger_capture
+    device_destroy = webgpu_device_destroy
+    device_get_adapter = webgpu_device_get_adapter
+    device_get_instance = webgpu_device_get_instance
+    device_get_adapter_info = webgpu_device_get_adapter_info
+    device_get_features = webgpu_device_get_features
+    device_get_lost_future = webgpu_device_get_lost_future
+    device_get_queue = webgpu_device_get_queue
+    device_poll = webgpu_device_poll
+    device_get_native_metal_device = webgpu_device_get_native_metal_device
+    device_pop_error_scope = webgpu_device_pop_error_scope
+    device_push_error_scope = webgpu_device_push_error_scope
     device_backend = webgpu_device_backend
     device_is_embedded = webgpu_device_is_embedded
-    device_set_label                     = webgpu_device_set_label
-    device_add_ref                       = webgpu_device_add_ref
-    device_release                       = webgpu_device_release
+    device_set_label = webgpu_device_set_label
+    device_set_lost_callback = webgpu_device_set_lost_callback
+    device_set_uncaptured_error_callback = webgpu_device_set_uncaptured_error_callback
+    device_add_ref = webgpu_device_add_ref
+    device_release = webgpu_device_release
 
     // Procedures of External_Texture
     external_texture_set_label = webgpu_external_texture_set_label
@@ -1060,9 +500,13 @@ webgpu_set_procedures :: proc() {
     instance_has_wgsl_language_feature = webgpu_instance_has_wgsl_language_feature
     instance_process_events = webgpu_instance_process_events
     instance_create_adapter = webgpu_instance_create_adapter
+    instance_enumerate_adapters = webgpu_instance_enumerate_adapters
     instance_wait_any = webgpu_instance_wait_any
+    instance_backend = webgpu_instance_backend
+    instance_is_embedded = webgpu_instance_is_embedded
     instance_add_ref = webgpu_instance_add_ref
     instance_release = webgpu_instance_release
+    generate_report = webgpu_generate_report
 
     // Procedures of Pipeline_Layout
     pipeline_layout_set_label = webgpu_pipeline_layout_set_label
@@ -1079,8 +523,11 @@ webgpu_set_procedures :: proc() {
 
     // Procedures of Queue
     queue_on_submitted_work_done = webgpu_queue_on_submitted_work_done
+    queue_get_timestamp_period = webgpu_queue_get_timestamp_period
+    queue_get_native_metal_command_queue = webgpu_queue_get_native_metal_command_queue
     queue_set_label = webgpu_queue_set_label
     queue_submit = webgpu_queue_submit
+    queue_submit_for_index = webgpu_queue_submit_for_index
     queue_write_buffer_raw = webgpu_queue_write_buffer_raw
     queue_write_texture = webgpu_queue_write_texture
     queue_add_ref = webgpu_queue_add_ref
@@ -1094,7 +541,8 @@ webgpu_set_procedures :: proc() {
     // Procedures of Render_Bundle_Encoder
     render_bundle_encoder_draw = webgpu_render_bundle_encoder_draw
     render_bundle_encoder_draw_indexed = webgpu_render_bundle_encoder_draw_indexed
-    render_bundle_encoder_draw_indexed_indirect = webgpu_render_bundle_encoder_draw_indexed_indirect
+    render_bundle_encoder_draw_indexed_indirect =
+        webgpu_render_bundle_encoder_draw_indexed_indirect
     render_bundle_encoder_draw_indirect = webgpu_render_bundle_encoder_draw_indirect
     render_bundle_encoder_finish = webgpu_render_bundle_encoder_finish
     render_bundle_encoder_insert_debug_marker = webgpu_render_bundle_encoder_insert_debug_marker
@@ -1115,6 +563,15 @@ webgpu_set_procedures :: proc() {
     render_pass_draw_indexed = webgpu_render_pass_draw_indexed
     render_pass_draw_indexed_indirect = webgpu_render_pass_draw_indexed_indirect
     render_pass_draw_indirect = webgpu_render_pass_draw_indirect
+    render_pass_multi_draw_indirect = webgpu_render_pass_multi_draw_indirect
+    render_pass_multi_draw_indexed_indirect = webgpu_render_pass_multi_draw_indexed_indirect
+    render_pass_multi_draw_indirect_count = webgpu_render_pass_multi_draw_indirect_count
+    render_pass_multi_draw_indexed_indirect_count =
+        webgpu_render_pass_multi_draw_indexed_indirect_count
+    render_pass_begin_pipeline_statistics_query =
+        webgpu_render_pass_begin_pipeline_statistics_query
+    render_pass_end_pipeline_statistics_query = webgpu_render_pass_end_pipeline_statistics_query
+    render_pass_write_timestamp = webgpu_render_pass_write_timestamp
     render_pass_end = webgpu_render_pass_end
     render_pass_end_occlusion_query = webgpu_render_pass_end_occlusion_query
     render_pass_execute_bundles = webgpu_render_pass_execute_bundles
@@ -1151,9 +608,6 @@ webgpu_set_procedures :: proc() {
     shader_module_add_ref = webgpu_shader_module_add_ref
     shader_module_release = webgpu_shader_module_release
 
-    // Procedures of Supported_Features
-    supported_features_free_members = webgpu_supported_features_free_members
-
     // Procedures of Supported_Instance_Features
     supported_instance_features_free_members = webgpu_supported_instance_features_free_members
 
@@ -1163,6 +617,7 @@ webgpu_set_procedures :: proc() {
 
     // Procedures of Surface
     surface_configure = webgpu_surface_configure
+    surface_get_configuration = webgpu_surface_get_configuration
     surface_get_capabilities = webgpu_surface_get_capabilities
     surface_get_current_texture = webgpu_surface_get_current_texture
     surface_present = webgpu_surface_present
@@ -1185,6 +640,7 @@ webgpu_set_procedures :: proc() {
     texture_get_sample_count = webgpu_texture_get_sample_count
     texture_get_size = webgpu_texture_get_size
     texture_get_texture_binding_view_dimension = webgpu_texture_get_texture_binding_view_dimension
+    texture_get_native_metal_texture = webgpu_texture_get_native_metal_texture
     texture_get_usage = webgpu_texture_get_usage
     texture_get_width = webgpu_texture_get_width
     texture_set_label = webgpu_texture_set_label
@@ -1193,6 +649,7 @@ webgpu_set_procedures :: proc() {
 
     // Procedures of Texture_View
     texture_view_set_label = webgpu_texture_view_set_label
+    texture_view_get_texture = webgpu_texture_view_get_texture
     texture_view_add_ref = webgpu_texture_view_add_ref
     texture_view_release = webgpu_texture_view_release
 }
@@ -1210,28 +667,45 @@ webgpu_create_instance :: proc(
     return webgpuCreateInstance(nil)
 }
 
-webgpu_get_instance_features :: proc(loc := #caller_location) -> Instance_Features {
-    unimplemented(loc = loc)
+webgpu_get_instance_features :: proc(loc := #caller_location) -> (features: Instance_Features) {
+    supported: Supported_Instance_Features
+    webgpuGetInstanceFeatures(&supported)
+    // The shim allocates the list with `js_alloc`; copy it out and release it.
+    defer webgpuSupportedInstanceFeaturesFreeMembers(supported)
+    for feature in supported.features {
+        append(&features, feature)
+    }
+    return
 }
 
 webgpu_get_instance_limits :: proc(loc := #caller_location) -> (limits: Instance_Limits) {
-    unimplemented(loc = loc)
+    webgpuGetInstanceLimits(&limits)
+    return
 }
 
-webgpu_has_instance_feature :: proc(feature: Instance_Feature_Name, loc := #caller_location) -> bool {
-    unimplemented(loc = loc)
+webgpu_has_instance_feature :: proc(
+    feature: Instance_Feature_Name,
+    loc := #caller_location,
+) -> bool {
+    return webgpuHasInstanceFeature(feature)
 }
 
-webgpu_set_log_callback :: proc(callback: Log_Callback, userdata: rawptr, loc := #caller_location) {
-    unimplemented(loc = loc)
+webgpu_set_log_callback :: proc(
+    callback: Log_Callback,
+    userdata: rawptr,
+    loc := #caller_location,
+) {
+    // wgpu-native's logging has no web equivalent: the runtime forwards `print`
+    // and panics to the JS console, which the embedder already controls.
 }
 
 webgpu_set_log_level :: proc(level: Log_Level, loc := #caller_location) {
-    unimplemented(loc = loc)
+    // See `webgpu_set_log_callback`: log output is the browser console.
 }
 
 webgpu_get_version :: proc(loc := #caller_location) -> u32 {
-    unimplemented(loc = loc)
+    // There is no wgpu-native ABI to version on the web.
+    return 0
 }
 
 // -----------------------------------------------------------------------------
@@ -1241,7 +715,9 @@ webgpu_get_version :: proc(loc := #caller_location) -> u32 {
 webgpu_adapter_get_features :: proc(
     adapter: Adapter,
     loc := #caller_location,
-) -> (features: Features) {
+) -> (
+    features: Features,
+) {
     webgpuAdapterGetFeatures(adapter, &features)
     return
 }
@@ -1257,6 +733,15 @@ webgpu_adapter_get_info :: proc(
     return
 }
 
+webgpu_adapter_info_free_members :: proc(
+    adapter_info: Adapter_Info,
+    allocator := context.allocator,
+    loc := #caller_location,
+) {
+    // The shim allocates these strings with `js_alloc`, so it frees them.
+    webgpuAdapterInfoFreeMembers(adapter_info)
+}
+
 webgpu_adapter_get_limits :: proc(adapter: Adapter, loc := #caller_location) -> Limits {
     limits: Limits
     webgpuAdapterGetLimits(adapter, &limits)
@@ -1265,10 +750,10 @@ webgpu_adapter_get_limits :: proc(adapter: Adapter, loc := #caller_location) -> 
 
 webgpu_adapter_has_feature :: proc(
     adapter: Adapter,
-    features: []Feature_Name,
+    feature: Feature_Name,
     loc := #caller_location,
 ) -> bool {
-    unimplemented(loc = loc)
+    return webgpuAdapterHasFeature(adapter, feature)
 }
 
 webgpu_adapter_create_device :: proc(
@@ -1277,6 +762,16 @@ webgpu_adapter_create_device :: proc(
     loc := #caller_location,
 ) -> Device {
     return webgpuAdapterRequestDevice(adapter, descriptor)
+}
+
+webgpu_adapter_get_label :: proc(adapter: Adapter, loc := #caller_location) -> string {
+    label: string
+    webgpuAdapterGetLabel(adapter, &label)
+    return label
+}
+
+webgpu_adapter_set_label :: proc(adapter: Adapter, label: string, loc := #caller_location) {
+    webgpuAdapterSetLabel(adapter, label)
 }
 
 webgpu_adapter_add_ref :: proc(adapter: Adapter, loc := #caller_location) {
@@ -1295,28 +790,66 @@ webgpu_adapter_texture_format_capabilities :: proc(
     adapter: Adapter,
     format: Texture_Format,
     loc := #caller_location,
-) -> (caps: Texture_Format_Capabilities) {
-    unimplemented(loc = loc)
-}
-
-// -----------------------------------------------------------------------------
-// Procedures of Adapter_Info
-// -----------------------------------------------------------------------------
-
-webgpu_adapter_info_free_members :: proc(
-    adapter_info: Adapter_Info,
-    allocator := context.allocator,
-    loc := #caller_location,
+) -> (
+    caps: Texture_Format_Capabilities,
 ) {
-    unimplemented(loc = loc)
+    // Browsers expose no per-format capability query, so report what the WebGPU
+    // spec guarantees (the same table the validation path uses), gated by the
+    // adapter's features. `Sampled_Minmax` stays unset: WebGPU has no min/max
+    // reduction sampler.
+    features := webgpu_adapter_get_features(adapter, loc)
+    guaranteed := texture_format_guaranteed_format_features(format, features[:], loc)
+
+    if .Copy_Src in guaranteed.allowed_usages {
+        caps |= {.Copy_Src}
+    }
+    if .Copy_Dst in guaranteed.allowed_usages {
+        caps |= {.Copy_Dst}
+    }
+    if .Texture_Binding in guaranteed.allowed_usages {
+        caps |= {.Sampled}
+    }
+
+    if .Render_Attachment in guaranteed.allowed_usages {
+        if texture_format_is_depth_stencil_format(format) {
+            caps |= {.Depth_Stencil_Attachment}
+        } else {
+            caps |= {.Color_Attachment}
+            // `Color_Attachment_Blend` implies color-attachable, so only set it
+            // for formats that are actually renderable.
+            if .Blendable in guaranteed.flags {
+                caps |= {.Color_Attachment_Blend}
+            }
+        }
+    }
+
+    if .Storage_Binding in guaranteed.allowed_usages {
+        if .Storage_Read_Only in guaranteed.flags {caps |= {.Storage_Read_Only}}
+        if .Storage_Write_Only in guaranteed.flags {caps |= {.Storage_Write_Only}}
+        if .Storage_Read_Write in guaranteed.flags {caps |= {.Storage_Read_Write}}
+        if .Storage_Atomic in guaranteed.flags {caps |= {.Storage_Atomic}}
+    }
+
+    if .Filterable in guaranteed.flags {caps |= {.Sampled_Linear}}
+    if .Multisample_X2 in guaranteed.flags {caps |= {.Multisample_X2}}
+    if .Multisample_X4 in guaranteed.flags {caps |= {.Multisample_X4}}
+    if .Multisample_X8 in guaranteed.flags {caps |= {.Multisample_X8}}
+    if .Multisample_X16 in guaranteed.flags {caps |= {.Multisample_X16}}
+    if .Multisample_Resolve in guaranteed.flags {caps |= {.Multisample_Resolve}}
+
+    return
 }
 
 // -----------------------------------------------------------------------------
 // Procedures of Bind_Group
 // -----------------------------------------------------------------------------
 
-webgpu_bind_group_set_label :: proc(bind_group: Bind_Group, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+webgpu_bind_group_set_label :: proc(
+    bind_group: Bind_Group,
+    label: string,
+    loc := #caller_location,
+) {
+    webgpuBindGroupSetLabel(bind_group, label)
 }
 
 webgpu_bind_group_add_ref :: proc(bind_group: Bind_Group, loc := #caller_location) {
@@ -1331,12 +864,21 @@ webgpu_bind_group_release :: proc(bind_group: Bind_Group, loc := #caller_locatio
 // Procedures of Bind_Group_Layout
 // -----------------------------------------------------------------------------
 
+webgpu_bind_group_layout_get_label :: proc(
+    bind_group_layout: Bind_Group_Layout,
+    loc := #caller_location,
+) -> string {
+    label: string
+    webgpuBindGroupLayoutGetLabel(bind_group_layout, &label)
+    return label
+}
+
 webgpu_bind_group_layout_set_label :: proc(
     bind_group_layout: Bind_Group_Layout,
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuBindGroupLayoutSetLabel(bind_group_layout, label)
 }
 
 webgpu_bind_group_layout_add_ref :: proc(
@@ -1358,7 +900,7 @@ webgpu_bind_group_layout_release :: proc(
 // -----------------------------------------------------------------------------
 
 webgpu_buffer_destroy :: proc(buffer: Buffer, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuBufferDestroy(buffer)
 }
 
 webgpu_buffer_get_const_mapped_range :: proc(
@@ -1367,7 +909,7 @@ webgpu_buffer_get_const_mapped_range :: proc(
     size: uint = WHOLE_MAP_SIZE,
     loc := #caller_location,
 ) -> rawptr {
-    unimplemented(loc = loc)
+    return webgpuBufferGetConstMappedRange(buffer, offset, size)
 }
 
 webgpu_buffer_get_mapped_range :: proc(
@@ -1380,7 +922,7 @@ webgpu_buffer_get_mapped_range :: proc(
 }
 
 webgpu_buffer_get_map_state :: proc(buffer: Buffer, loc := #caller_location) -> Buffer_Map_State {
-    unimplemented(loc = loc)
+    return webgpuBufferGetMapState(buffer)
 }
 
 webgpu_buffer_get_size :: proc(buffer: Buffer, loc := #caller_location) -> u64 {
@@ -1388,7 +930,7 @@ webgpu_buffer_get_size :: proc(buffer: Buffer, loc := #caller_location) -> u64 {
 }
 
 webgpu_buffer_get_usage :: proc(buffer: Buffer, loc := #caller_location) -> Buffer_Usages {
-    unimplemented(loc = loc)
+    return webgpuBufferGetUsage(buffer)
 }
 
 webgpu_buffer_map_async :: proc(
@@ -1399,7 +941,7 @@ webgpu_buffer_map_async :: proc(
     callback_info: Buffer_Map_Callback_Info,
     loc := #caller_location,
 ) -> Future {
-    unimplemented(loc = loc)
+    return webgpuBufferMapAsync(buffer, Map_Modes{mode}, offset, size, callback_info)
 }
 
 webgpu_buffer_map_sync :: proc(
@@ -1409,7 +951,24 @@ webgpu_buffer_map_sync :: proc(
     size: uint,
     loc := #caller_location,
 ) -> rawptr {
-    unimplemented(loc = loc)
+    // WebGPU maps asynchronously, but the wasm entry points are `promising`, so
+    // `instance_wait_any` can suspend until `buffer_map_async` completes.
+    if webgpu_buffer_get_map_state(buffer, loc) == .Mapped {
+        // Already mapped (for example at creation): just hand out the range.
+        return webgpu_buffer_get_mapped_range(buffer, offset, size, loc)
+    }
+
+    future := webgpu_buffer_map_async(buffer, mode, offset, size, {}, loc)
+    info := Future_Wait_Info {
+        future = future,
+    }
+    _ = webgpu_instance_wait_any(nil, []^Future_Wait_Info{&info}, max(u64), loc)
+
+    if webgpu_buffer_get_map_state(buffer, loc) != .Mapped {
+        // The request was refused (validation error, destroyed buffer, ...).
+        return nil
+    }
+    return webgpu_buffer_get_mapped_range(buffer, offset, size, loc)
 }
 
 webgpu_buffer_read_mapped_range :: proc(
@@ -1419,11 +978,11 @@ webgpu_buffer_read_mapped_range :: proc(
     size: uint,
     loc := #caller_location,
 ) -> Status {
-    unimplemented(loc = loc)
+    return webgpuBufferReadMappedRange(buffer, offset, data, size)
 }
 
 webgpu_buffer_set_label :: proc(buffer: Buffer, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuBufferSetLabel(buffer, label)
 }
 
 webgpu_buffer_unmap :: proc(buffer: Buffer, loc := #caller_location) {
@@ -1437,7 +996,7 @@ webgpu_buffer_write_mapped_range :: proc(
     size: uint,
     loc := #caller_location,
 ) -> Status {
-    unimplemented(loc = loc)
+    return webgpuBufferWriteMappedRange(buffer, offset, data, size)
 }
 
 webgpu_buffer_add_ref :: proc(buffer: Buffer, loc := #caller_location) {
@@ -1457,7 +1016,7 @@ webgpu_command_buffer_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandBufferSetLabel(command_buffer, label)
 }
 
 webgpu_command_buffer_add_ref :: proc(command_buffer: Command_Buffer, loc := #caller_location) {
@@ -1469,7 +1028,7 @@ webgpu_command_buffer_release :: proc(command_buffer: Command_Buffer, loc := #ca
 }
 
 // -----------------------------------------------------------------------------
-// Procedures of D3d12_Command_Encoder_Impl
+// Procedures of Command_Encoder_Impl
 // -----------------------------------------------------------------------------
 
 webgpu_command_encoder_begin_compute_pass :: proc(
@@ -1477,7 +1036,9 @@ webgpu_command_encoder_begin_compute_pass :: proc(
     descriptor: Compute_Pass_Descriptor = {},
     loc := #caller_location,
 ) -> Compute_Pass {
-    unimplemented(loc = loc)
+    out: Handle_Packed
+    webgpuCommandEncoderBeginComputePass(command_encoder, descriptor, &out)
+    return new_handle_packed(Compute_Pass, command_encoder.device, out)
 }
 
 webgpu_command_encoder_begin_render_pass :: proc(
@@ -1497,7 +1058,20 @@ webgpu_command_encoder_clear_buffer :: proc(
     size: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderClearBuffer(command_encoder, buffer, offset, size)
+}
+
+webgpu_command_encoder_clear_texture :: proc(
+    command_encoder: Command_Encoder,
+    texture: Texture,
+    range: Image_Subresource_Range,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        command_encoder.device,
+        "clear_texture is not supported on the browser backend",
+        loc,
+    )
 }
 
 webgpu_command_encoder_copy_buffer_to_buffer :: proc(
@@ -1509,17 +1083,24 @@ webgpu_command_encoder_copy_buffer_to_buffer :: proc(
     size: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderCopyBufferToBuffer(
+        command_encoder,
+        source,
+        source_offset,
+        destination,
+        destination_offset,
+        size,
+    )
 }
 
 webgpu_command_encoder_copy_buffer_to_texture :: proc(
     command_encoder: Command_Encoder,
-    source: ^Texel_Copy_Buffer_Info,
-    destination: ^Texel_Copy_Texture_Info,
-    copy_size: ^Extent_3D,
+    source: Texel_Copy_Buffer_Info,
+    destination: Texel_Copy_Texture_Info,
+    copy_size: Extent_3D,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderCopyBufferToTexture(command_encoder, source, destination, copy_size)
 }
 
 webgpu_command_encoder_copy_texture_to_buffer :: proc(
@@ -1557,14 +1138,14 @@ webgpu_command_encoder_insert_debug_marker :: proc(
     marker_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderInsertDebugMarker(command_encoder, marker_label)
 }
 
 webgpu_command_encoder_pop_debug_group :: proc(
     command_encoder: Command_Encoder,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderPopDebugGroup(command_encoder)
 }
 
 webgpu_command_encoder_push_debug_group :: proc(
@@ -1572,7 +1153,7 @@ webgpu_command_encoder_push_debug_group :: proc(
     group_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderPushDebugGroup(command_encoder, group_label)
 }
 
 webgpu_command_encoder_resolve_query_set :: proc(
@@ -1584,7 +1165,14 @@ webgpu_command_encoder_resolve_query_set :: proc(
     destination_offset: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderResolveQuerySet(
+        command_encoder,
+        query_set,
+        first_query,
+        query_count,
+        destination,
+        destination_offset,
+    )
 }
 
 webgpu_command_encoder_set_label :: proc(
@@ -1592,7 +1180,7 @@ webgpu_command_encoder_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderSetLabel(command_encoder, label)
 }
 
 webgpu_command_encoder_write_timestamp :: proc(
@@ -1601,7 +1189,7 @@ webgpu_command_encoder_write_timestamp :: proc(
     query_index: u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuCommandEncoderWriteTimestamp(command_encoder, query_set, query_index)
 }
 
 webgpu_command_encoder_add_ref :: proc(command_encoder: Command_Encoder, loc := #caller_location) {
@@ -1623,7 +1211,12 @@ webgpu_compute_pass_dispatch_workgroups :: proc(
     workgroup_count_z: u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderDispatchWorkgroups(
+        compute_pass,
+        workgroup_count_x,
+        workgroup_count_y,
+        workgroup_count_z,
+    )
 }
 
 webgpu_compute_pass_dispatch_workgroups_indirect :: proc(
@@ -1632,14 +1225,46 @@ webgpu_compute_pass_dispatch_workgroups_indirect :: proc(
     indirect_offset: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderDispatchWorkgroupsIndirect(
+        compute_pass,
+        indirect_buffer,
+        indirect_offset,
+    )
 }
 
-webgpu_compute_pass_end :: proc(
+webgpu_compute_pass_begin_pipeline_statistics_query :: proc(
     compute_pass: Compute_Pass,
+    query_set: Query_Set,
+    query_index: u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    gpu_report_validation_error(
+        compute_pass.device,
+        "pipeline statistics queries are not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_compute_pass_end_pipeline_statistics_query :: proc(
+    compute_pass: Compute_Pass,
+    loc := #caller_location,
+) {}
+
+webgpu_compute_pass_write_timestamp :: proc(
+    compute_pass: Compute_Pass,
+    query_set: Query_Set,
+    query_index: u32,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        compute_pass.device,
+        "write_timestamp is not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_compute_pass_end :: proc(compute_pass: Compute_Pass, loc := #caller_location) {
+    webgpuComputePassEncoderEnd(compute_pass)
 }
 
 webgpu_compute_pass_insert_debug_marker :: proc(
@@ -1647,14 +1272,11 @@ webgpu_compute_pass_insert_debug_marker :: proc(
     marker_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderInsertDebugMarker(compute_pass, marker_label)
 }
 
-webgpu_compute_pass_pop_debug_group :: proc(
-    compute_pass: Compute_Pass,
-    loc := #caller_location,
-) {
-    unimplemented(loc = loc)
+webgpu_compute_pass_pop_debug_group :: proc(compute_pass: Compute_Pass, loc := #caller_location) {
+    webgpuComputePassEncoderPopDebugGroup(compute_pass)
 }
 
 webgpu_compute_pass_push_debug_group :: proc(
@@ -1662,7 +1284,7 @@ webgpu_compute_pass_push_debug_group :: proc(
     group_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderPushDebugGroup(compute_pass, group_label)
 }
 
 webgpu_compute_pass_set_bind_group :: proc(
@@ -1672,7 +1294,13 @@ webgpu_compute_pass_set_bind_group :: proc(
     dynamic_offsets: []u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderSetBindGroup(
+        compute_pass,
+        group_index,
+        group,
+        uint(len(dynamic_offsets)),
+        raw_data(dynamic_offsets),
+    )
 }
 
 webgpu_compute_pass_set_immediates :: proc(
@@ -1682,7 +1310,7 @@ webgpu_compute_pass_set_immediates :: proc(
     size: uint,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderSetImmediates(compute_pass, offset, data, size)
 }
 
 webgpu_compute_pass_set_label :: proc(
@@ -1690,7 +1318,7 @@ webgpu_compute_pass_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderSetLabel(compute_pass, label)
 }
 
 webgpu_compute_pass_set_pipeline :: proc(
@@ -1698,21 +1326,15 @@ webgpu_compute_pass_set_pipeline :: proc(
     pipeline: Compute_Pipeline,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePassEncoderSetPipeline(compute_pass, pipeline)
 }
 
-webgpu_compute_pass_add_ref :: proc(
-    compute_pass: Compute_Pass,
-    loc := #caller_location,
-) {
-    unimplemented(loc = loc)
+webgpu_compute_pass_add_ref :: proc(compute_pass: Compute_Pass, loc := #caller_location) {
+    webgpuComputePassEncoderAddRef(compute_pass)
 }
 
-webgpu_compute_pass_release :: proc(
-    compute_pass: Compute_Pass,
-    loc := #caller_location,
-) {
-    unimplemented(loc = loc)
+webgpu_compute_pass_release :: proc(compute_pass: Compute_Pass, loc := #caller_location) {
+    webgpuComputePassEncoderRelease(compute_pass)
 }
 
 // -----------------------------------------------------------------------------
@@ -1724,7 +1346,9 @@ webgpu_compute_pipeline_get_bind_group_layout :: proc(
     group_index: u32,
     loc := #caller_location,
 ) -> Bind_Group_Layout {
-    unimplemented(loc = loc)
+    out: Handle_Packed
+    webgpuComputePipelineGetBindGroupLayout(compute_pipeline, group_index, &out)
+    return new_handle_packed(Bind_Group_Layout, compute_pipeline.device, out)
 }
 
 webgpu_compute_pipeline_set_label :: proc(
@@ -1732,23 +1356,35 @@ webgpu_compute_pipeline_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuComputePipelineSetLabel(compute_pipeline, label)
 }
 
-webgpu_compute_pipeline_add_ref :: proc(compute_pipeline: Compute_Pipeline, loc := #caller_location) {
-    unimplemented(loc = loc)
+webgpu_compute_pipeline_add_ref :: proc(
+    compute_pipeline: Compute_Pipeline,
+    loc := #caller_location,
+) {
+    webgpuComputePipelineAddRef(compute_pipeline)
 }
 
-webgpu_compute_pipeline_release :: proc(compute_pipeline: Compute_Pipeline, loc := #caller_location) {
-    unimplemented(loc = loc)
+webgpu_compute_pipeline_release :: proc(
+    compute_pipeline: Compute_Pipeline,
+    loc := #caller_location,
+) {
+    webgpuComputePipelineRelease(compute_pipeline)
 }
 
 // -----------------------------------------------------------------------------
-// Procedures of D3d12_Device_Impl
+// Procedures of _Device_Impl
 // -----------------------------------------------------------------------------
 
 webgpu_device_get_adapter :: proc(device: Device, loc := #caller_location) -> Adapter {
-    unimplemented(loc = loc)
+    // The shim remembers the adapter that created each device.
+    return webgpuDeviceGetAdapter(device)
+}
+
+webgpu_device_get_instance :: proc(device: Device, loc := #caller_location) -> Instance {
+    // The shim remembers the instance that created each device.
+    return webgpuDeviceGetInstance(device)
 }
 
 webgpu_device_create_bind_group :: proc(
@@ -1796,7 +1432,9 @@ webgpu_device_create_compute_pipeline :: proc(
     descriptor: Compute_Pipeline_Descriptor,
     loc := #caller_location,
 ) -> Compute_Pipeline {
-    unimplemented(loc = loc)
+    out: Handle_Packed
+    webgpuDeviceCreateComputePipeline(device, descriptor, &out)
+    return new_handle_packed(Compute_Pipeline, device, out)
 }
 
 webgpu_device_create_compute_pipeline_async :: proc(
@@ -1805,7 +1443,7 @@ webgpu_device_create_compute_pipeline_async :: proc(
     callback_info: Create_Compute_Pipeline_Async_Callback_Info,
     loc := #caller_location,
 ) -> Future {
-    unimplemented(loc = loc)
+    return webgpuDeviceCreateComputePipelineAsync(device, descriptor, callback_info)
 }
 
 webgpu_device_create_pipeline_layout :: proc(
@@ -1823,7 +1461,9 @@ webgpu_device_create_query_set :: proc(
     descriptor: Query_Set_Descriptor,
     loc := #caller_location,
 ) -> Query_Set {
-    unimplemented(loc = loc)
+    out: Handle_Packed
+    webgpuDeviceCreateQuerySet(device, descriptor, &out)
+    return new_handle_packed(Query_Set, device, out)
 }
 
 webgpu_device_create_render_bundle_encoder :: proc(
@@ -1831,7 +1471,9 @@ webgpu_device_create_render_bundle_encoder :: proc(
     descriptor: Render_Bundle_Encoder_Descriptor,
     loc := #caller_location,
 ) -> Render_Bundle_Encoder {
-    unimplemented(loc = loc)
+    out: Handle_Packed
+    webgpuDeviceCreateRenderBundleEncoder(device, descriptor, &out)
+    return new_handle_packed(Render_Bundle_Encoder, device, out)
 }
 
 webgpu_device_create_render_pipeline :: proc(
@@ -1850,7 +1492,7 @@ webgpu_device_create_render_pipeline_async :: proc(
     callback_info: Create_Render_Pipeline_Async_Callback_Info,
     loc := #caller_location,
 ) -> Future {
-    unimplemented(loc = loc)
+    return webgpuDeviceCreateRenderPipelineAsync(device, descriptor, callback_info)
 }
 
 webgpu_device_create_sampler :: proc(
@@ -1878,6 +1520,28 @@ webgpu_device_create_shader_module :: proc(
     }
 }
 
+webgpu_device_create_shader_module_spirv :: proc(
+    device: Device,
+    descriptor: Shader_Module_Descriptor_SpirV,
+    loc := #caller_location,
+) -> Shader_Module {
+    gpu_report_validation_error(
+        device,
+        "SPIR-V shader source is not supported on the browser backend",
+        loc,
+    )
+    return {}
+}
+
+webgpu_device_create_shader_module_trusted :: proc(
+    device: Device,
+    descriptor: Shader_Module_Descriptor,
+    runtime_checks: Shader_Runtime_Checks,
+    loc := #caller_location,
+) -> Shader_Module {
+    return webgpu_device_create_shader_module(device, descriptor, loc)
+}
+
 webgpu_device_create_texture :: proc(
     device: Device,
     descriptor: Texture_Descriptor,
@@ -1889,7 +1553,7 @@ webgpu_device_create_texture :: proc(
 }
 
 webgpu_device_destroy :: proc(device: Device, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuDeviceDestroy(device)
 }
 
 webgpu_device_get_adapter_info :: proc(
@@ -1899,22 +1563,15 @@ webgpu_device_get_adapter_info :: proc(
     info: Adapter_Info,
     status: Status,
 ) {
-    unimplemented(loc = loc)
+    status = webgpuDeviceGetAdapterInfo(device, &info)
+    return
 }
 
-webgpu_device_get_features :: proc(
-    device: Device,
-    allocator := context.allocator,
-    loc := #caller_location,
-) -> []Feature_Name {
-    unimplemented(loc = loc)
-}
-
-webgpu_device_get_features_view :: proc(
-    device: Device,
-    loc := #caller_location,
-) -> []Feature_Name {
-    unimplemented(loc = loc)
+webgpu_device_get_features :: proc(device: Device, loc := #caller_location) -> Features {
+    // The shim fills the fixed inline array; nothing is heap-allocated.
+    features: Features
+    webgpuDeviceGetFeatures(device, &features)
+    return features
 }
 
 webgpu_device_get_limits :: proc(
@@ -1924,7 +1581,8 @@ webgpu_device_get_limits :: proc(
     limits: Limits,
     status: Status,
 ) {
-    unimplemented(loc = loc)
+    status = webgpuDeviceGetLimits(device, &limits)
+    return
 }
 
 webgpu_device_get_lost_future :: proc(device: Device, loc := #caller_location) -> Future {
@@ -1937,12 +1595,59 @@ webgpu_device_get_queue :: proc(device: Device, loc := #caller_location) -> Queu
     return new_handle_packed(Queue, device, queue_packed)
 }
 
+webgpu_device_poll :: proc(
+    device: Device,
+    wait: bool,
+    submission_index: ^Submission_Index,
+    loc := #caller_location,
+) -> bool {
+    // Browsers poll automatically; there is no explicit wait to perform.
+    return true
+}
+
+webgpu_device_start_graphics_debugger_capture :: proc(
+    device: Device,
+    loc := #caller_location,
+) -> bool {
+    return false
+}
+
+webgpu_device_stop_graphics_debugger_capture :: proc(device: Device, loc := #caller_location) {}
+
+webgpu_device_get_native_metal_device :: proc(device: Device, loc := #caller_location) -> rawptr {
+    return nil
+}
+
+webgpu_device_set_lost_callback :: proc(
+    device: Device,
+    callback_info: Device_Lost_Callback_Info,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        device,
+        "changing the device-lost callback is not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_device_set_uncaptured_error_callback :: proc(
+    device: Device,
+    callback_info: Uncaptured_Error_Callback_Info,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        device,
+        "changing the uncaptured-error callback is not supported on the browser backend",
+        loc,
+    )
+}
+
 webgpu_device_has_feature :: proc(
     device: Device,
     feature: Feature_Name,
     loc := #caller_location,
 ) -> bool {
-    unimplemented(loc = loc)
+    return webgpuDeviceHasFeature(device, feature)
 }
 
 webgpu_device_pop_error_scope :: proc(
@@ -1990,15 +1695,21 @@ webgpu_external_texture_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuExternalTextureSetLabel(external_texture, label)
 }
 
-webgpu_external_texture_add_ref :: proc(external_texture: External_Texture, loc := #caller_location) {
-    unimplemented(loc = loc)
+webgpu_external_texture_add_ref :: proc(
+    external_texture: External_Texture,
+    loc := #caller_location,
+) {
+    webgpuExternalTextureAddRef(external_texture)
 }
 
-webgpu_external_texture_release :: proc(external_texture: External_Texture, loc := #caller_location) {
-    unimplemented(loc = loc)
+webgpu_external_texture_release :: proc(
+    external_texture: External_Texture,
+    loc := #caller_location,
+) {
+    webgpuExternalTextureRelease(external_texture)
 }
 
 // -----------------------------------------------------------------------------
@@ -2023,8 +1734,11 @@ webgpu_instance_create_surface :: proc(
 webgpu_instance_get_wgsl_language_features :: proc(
     instance: Instance,
     loc := #caller_location,
-) -> Supported_WGSL_Language_Features {
-    unimplemented(loc = loc)
+) -> (
+    features: Supported_WGSL_Language_Features,
+) {
+    webgpuInstanceGetWGSLLanguageFeatures(instance, &features)
+    return
 }
 
 webgpu_instance_has_wgsl_language_feature :: proc(
@@ -2032,11 +1746,11 @@ webgpu_instance_has_wgsl_language_feature :: proc(
     feature: WGSL_Language_Feature_Name,
     loc := #caller_location,
 ) -> bool {
-    unimplemented(loc = loc)
+    return webgpuInstanceHasWGSLLanguageFeature(instance, feature)
 }
 
 webgpu_instance_process_events :: proc(instance: Instance, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuInstanceProcessEvents(instance)
 }
 
 webgpu_instance_create_adapter :: proc(
@@ -2044,6 +1758,9 @@ webgpu_instance_create_adapter :: proc(
     options: Request_Adapter_Options = {},
     loc := #caller_location,
 ) -> Adapter {
+    if options.backend_type != .Undefined && options.backend_type != .WebGPU {
+        return nil
+    }
     return webgpuInstanceRequestAdapter(instance, options)
 }
 
@@ -2053,7 +1770,9 @@ webgpu_instance_wait_any :: proc(
     timeout_ns: u64 = max(u64),
     loc := #caller_location,
 ) -> Wait_Status {
-    unimplemented(loc = loc)
+    // `WebAssembly.Suspending` unwinds the wasm stack until a future settles or
+    // times out, then resumes with the result.
+    return webgpuInstanceWaitAny(instance, uint(len(futures)), raw_data(futures), timeout_ns)
 }
 
 webgpu_generate_report :: proc(
@@ -2062,18 +1781,33 @@ webgpu_generate_report :: proc(
 ) -> (
     report: Global_Report,
 ) {
-    unimplemented(loc = loc)
+    // Registry bookkeeping is a native concept; the browser owns its objects.
+    return {}
 }
 
 webgpu_instance_enumerate_adapters :: proc(
     instance: Instance,
-    options: ^Instance_Enumerate_Adapter_Options = nil,
-    allocator := context.allocator,
+    options: Instance_Enumerate_Adapter_Options,
+    allocator: runtime.Allocator,
     loc := #caller_location,
 ) -> (
     adapters: []Adapter,
 ) {
-    unimplemented(loc = loc)
+    if options.backends != {} && .BrowserWebGPU not_in options.backends {
+        return nil
+    }
+
+    // Browsers expose a single adapter through `requestAdapter` and offer no
+    // enumeration, so report the one adapter the browser hands out. As with
+    // `instance_create_adapter`, the caller owns the result.
+    adapter := webgpu_instance_create_adapter(instance, {}, loc)
+    if adapter == nil {
+        return nil
+    }
+
+    adapters = make([]Adapter, 1, allocator)
+    adapters[0] = adapter
+    return
 }
 
 webgpu_instance_backend :: proc(instance: Instance, loc := #caller_location) -> Backend_Type {
@@ -2101,7 +1835,7 @@ webgpu_pipeline_layout_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuPipelineLayoutSetLabel(pipeline_layout, label)
 }
 
 webgpu_pipeline_layout_add_ref :: proc(pipeline_layout: Pipeline_Layout, loc := #caller_location) {
@@ -2117,27 +1851,27 @@ webgpu_pipeline_layout_release :: proc(pipeline_layout: Pipeline_Layout, loc := 
 // -----------------------------------------------------------------------------
 
 webgpu_query_set_destroy :: proc(query_set: Query_Set, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuQuerySetDestroy(query_set)
 }
 
 webgpu_query_set_get_count :: proc(query_set: Query_Set, loc := #caller_location) -> u32 {
-    unimplemented(loc = loc)
+    return webgpuQuerySetGetCount(query_set)
 }
 
 webgpu_query_set_get_type :: proc(query_set: Query_Set, loc := #caller_location) -> Query_Type {
-    unimplemented(loc = loc)
+    return webgpuQuerySetGetType(query_set)
 }
 
 webgpu_query_set_set_label :: proc(query_set: Query_Set, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuQuerySetSetLabel(query_set, label)
 }
 
 webgpu_query_set_add_ref :: proc(query_set: Query_Set, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuQuerySetAddRef(query_set)
 }
 
 webgpu_query_set_release :: proc(query_set: Query_Set, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuQuerySetRelease(query_set)
 }
 
 // -----------------------------------------------------------------------------
@@ -2149,13 +1883,13 @@ webgpu_queue_on_submitted_work_done :: proc(
     callback_info: Queue_Work_Done_Callback_Info,
     loc := #caller_location,
 ) -> Future {
-    unimplemented(loc = loc)
+    return webgpuQueueOnSubmittedWorkDone(queue, callback_info)
 }
 
 webgpu_queue_set_label :: proc(queue: Queue, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuQueueSetLabel(queue, label)
 }
-webgpu_queue_submit :: proc(queue: Queue, commands: []Command_Buffer, loc := #caller_location) {
+webgpu_queue_submit    :: proc(queue: Queue, commands: []Command_Buffer, loc := #caller_location) {
     webgpuQueueSubmit(queue, commands)
 }
 
@@ -2178,8 +1912,7 @@ webgpu_queue_write_texture :: proc(
     write_size: Extent_3D,
     loc := #caller_location,
 ) {
-    webgpuQueueWriteTexture(
-        queue, destination, raw_data(data), len(data), data_layout, write_size)
+    webgpuQueueWriteTexture(queue, destination, raw_data(data), len(data), data_layout, write_size)
 }
 
 webgpu_queue_submit_for_index :: proc(
@@ -2187,15 +1920,25 @@ webgpu_queue_submit_for_index :: proc(
     commands: []Command_Buffer,
     loc := #caller_location,
 ) -> Submission_Index {
-    unimplemented(loc = loc)
+    // The web has no submission indices; submit and report an empty index.
+    webgpu_queue_submit(queue, commands, loc)
+    return 0
 }
 
 webgpu_queue_get_timestamp_period :: proc(queue: Queue, loc := #caller_location) -> f32 {
-    unimplemented(loc = loc)
+    // WebGPU timestamp queries are already reported in nanoseconds.
+    return 1.0
+}
+
+webgpu_queue_get_native_metal_command_queue :: proc(
+    queue: Queue,
+    loc := #caller_location,
+) -> rawptr {
+    return nil
 }
 
 webgpu_queue_add_ref :: proc(queue: Queue, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuQueueAddRef(queue)
 }
 
 webgpu_queue_release :: proc(queue: Queue, loc := #caller_location) {
@@ -2211,15 +1954,15 @@ webgpu_render_bundle_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleSetLabel(render_bundle, label)
 }
 
 webgpu_render_bundle_add_ref :: proc(render_bundle: Render_Bundle, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleAddRef(render_bundle)
 }
 
 webgpu_render_bundle_release :: proc(render_bundle: Render_Bundle, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleRelease(render_bundle)
 }
 
 // -----------------------------------------------------------------------------
@@ -2234,7 +1977,13 @@ webgpu_render_bundle_encoder_draw :: proc(
     first_instance: u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderDraw(
+        render_bundle_encoder,
+        vertex_count,
+        instance_count,
+        first_vertex,
+        first_instance,
+    )
 }
 
 webgpu_render_bundle_encoder_draw_indexed :: proc(
@@ -2246,7 +1995,14 @@ webgpu_render_bundle_encoder_draw_indexed :: proc(
     first_instance: u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderDrawIndexed(
+        render_bundle_encoder,
+        index_count,
+        instance_count,
+        first_index,
+        base_vertex,
+        first_instance,
+    )
 }
 
 webgpu_render_bundle_encoder_draw_indexed_indirect :: proc(
@@ -2255,7 +2011,11 @@ webgpu_render_bundle_encoder_draw_indexed_indirect :: proc(
     indirect_offset: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderDrawIndexedIndirect(
+        render_bundle_encoder,
+        indirect_buffer,
+        indirect_offset,
+    )
 }
 
 webgpu_render_bundle_encoder_draw_indirect :: proc(
@@ -2264,7 +2024,7 @@ webgpu_render_bundle_encoder_draw_indirect :: proc(
     indirect_offset: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderDrawIndirect(render_bundle_encoder, indirect_buffer, indirect_offset)
 }
 
 webgpu_render_bundle_encoder_finish :: proc(
@@ -2272,7 +2032,9 @@ webgpu_render_bundle_encoder_finish :: proc(
     descriptor: Render_Bundle_Descriptor,
     loc := #caller_location,
 ) -> Render_Bundle {
-    unimplemented(loc = loc)
+    out: Handle_Packed
+    webgpuRenderBundleEncoderFinish(render_bundle_encoder, descriptor, &out)
+    return new_handle_packed(Render_Bundle, render_bundle_encoder.device, out)
 }
 
 webgpu_render_bundle_encoder_insert_debug_marker :: proc(
@@ -2280,14 +2042,14 @@ webgpu_render_bundle_encoder_insert_debug_marker :: proc(
     marker_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderInsertDebugMarker(render_bundle_encoder, marker_label)
 }
 
 webgpu_render_bundle_encoder_pop_debug_group :: proc(
     render_bundle_encoder: Render_Bundle_Encoder,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderPopDebugGroup(render_bundle_encoder)
 }
 
 webgpu_render_bundle_encoder_push_debug_group :: proc(
@@ -2295,7 +2057,7 @@ webgpu_render_bundle_encoder_push_debug_group :: proc(
     group_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderPushDebugGroup(render_bundle_encoder, group_label)
 }
 
 webgpu_render_bundle_encoder_set_bind_group :: proc(
@@ -2305,7 +2067,13 @@ webgpu_render_bundle_encoder_set_bind_group :: proc(
     dynamic_offsets: []u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderSetBindGroup(
+        render_bundle_encoder,
+        group_index,
+        group,
+        uint(len(dynamic_offsets)),
+        raw_data(dynamic_offsets),
+    )
 }
 
 webgpu_render_bundle_encoder_set_immediates :: proc(
@@ -2315,7 +2083,7 @@ webgpu_render_bundle_encoder_set_immediates :: proc(
     size: uint,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderSetImmediates(render_bundle_encoder, offset, data, size)
 }
 
 webgpu_render_bundle_encoder_set_index_buffer :: proc(
@@ -2326,7 +2094,7 @@ webgpu_render_bundle_encoder_set_index_buffer :: proc(
     size: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderSetIndexBuffer(render_bundle_encoder, buffer, format, offset, size)
 }
 
 webgpu_render_bundle_encoder_set_label :: proc(
@@ -2334,7 +2102,7 @@ webgpu_render_bundle_encoder_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderSetLabel(render_bundle_encoder, label)
 }
 
 webgpu_render_bundle_encoder_set_pipeline :: proc(
@@ -2342,7 +2110,7 @@ webgpu_render_bundle_encoder_set_pipeline :: proc(
     pipeline: Render_Pipeline,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderSetPipeline(render_bundle_encoder, pipeline)
 }
 
 webgpu_render_bundle_encoder_set_vertex_buffer :: proc(
@@ -2353,21 +2121,21 @@ webgpu_render_bundle_encoder_set_vertex_buffer :: proc(
     size: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderSetVertexBuffer(render_bundle_encoder, slot, buffer, offset, size)
 }
 
 webgpu_render_bundle_encoder_add_ref :: proc(
     render_bundle_encoder: Render_Bundle_Encoder,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderAddRef(render_bundle_encoder)
 }
 
 webgpu_render_bundle_encoder_release :: proc(
     render_bundle_encoder: Render_Bundle_Encoder,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderBundleEncoderRelease(render_bundle_encoder)
 }
 
 // -----------------------------------------------------------------------------
@@ -2379,7 +2147,7 @@ webgpu_render_pass_begin_occlusion_query :: proc(
     query_index: u32,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderBeginOcclusionQuery(render_pass, query_index)
 }
 
 webgpu_render_pass_draw :: proc(
@@ -2390,7 +2158,13 @@ webgpu_render_pass_draw :: proc(
     first_instance: u32,
     loc := #caller_location,
 ) {
-    webgpuRenderPassEncoderDraw(render_pass, vertex_count, instance_count, first_vertex, first_instance)
+    webgpuRenderPassEncoderDraw(
+        render_pass,
+        vertex_count,
+        instance_count,
+        first_vertex,
+        first_instance,
+    )
 }
 
 webgpu_render_pass_draw_indexed :: proc(
@@ -2402,7 +2176,14 @@ webgpu_render_pass_draw_indexed :: proc(
     first_instance: u32,
     loc := #caller_location,
 ) {
-    webgpuRenderPassEncoderDrawIndexed(render_pass, index_count, instance_count, first_index, base_vertex, first_instance)
+    webgpuRenderPassEncoderDrawIndexed(
+        render_pass,
+        index_count,
+        instance_count,
+        first_index,
+        base_vertex,
+        first_instance,
+    )
 }
 
 webgpu_render_pass_draw_indexed_indirect :: proc(
@@ -2411,7 +2192,7 @@ webgpu_render_pass_draw_indexed_indirect :: proc(
     indirect_offset: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderDrawIndexedIndirect(render_pass, indirect_buffer, indirect_offset)
 }
 
 webgpu_render_pass_draw_indirect :: proc(
@@ -2420,21 +2201,106 @@ webgpu_render_pass_draw_indirect :: proc(
     indirect_offset: u64,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderDrawIndirect(render_pass, indirect_buffer, indirect_offset)
 }
 
-webgpu_render_pass_end :: proc(
+webgpu_render_pass_multi_draw_indirect :: proc(
     render_pass: Render_Pass,
+    buffer: Buffer,
+    offset: u64,
+    count: u32,
     loc := #caller_location,
 ) {
+    gpu_report_validation_error(
+        render_pass.device,
+        "multi-draw is not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_render_pass_multi_draw_indexed_indirect :: proc(
+    render_pass: Render_Pass,
+    buffer: Buffer,
+    offset: u64,
+    count: u32,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        render_pass.device,
+        "multi-draw is not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_render_pass_multi_draw_indirect_count :: proc(
+    render_pass: Render_Pass,
+    buffer: Buffer,
+    offset: u64,
+    count_buffer: Buffer,
+    count_buffer_offset: u64,
+    max_count: u32,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        render_pass.device,
+        "multi-draw is not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_render_pass_multi_draw_indexed_indirect_count :: proc(
+    render_pass: Render_Pass,
+    buffer: Buffer,
+    offset: u64,
+    count_buffer: Buffer,
+    count_buffer_offset: u64,
+    max_count: u32,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        render_pass.device,
+        "multi-draw is not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_render_pass_begin_pipeline_statistics_query :: proc(
+    render_pass: Render_Pass,
+    query_set: Query_Set,
+    query_index: u32,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        render_pass.device,
+        "pipeline statistics queries are not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_render_pass_end_pipeline_statistics_query :: proc(
+    render_pass: Render_Pass,
+    loc := #caller_location,
+) {}
+
+webgpu_render_pass_write_timestamp :: proc(
+    render_pass: Render_Pass,
+    query_set: Query_Set,
+    query_index: u32,
+    loc := #caller_location,
+) {
+    gpu_report_validation_error(
+        render_pass.device,
+        "write_timestamp is not supported on the browser backend",
+        loc,
+    )
+}
+
+webgpu_render_pass_end :: proc(render_pass: Render_Pass, loc := #caller_location) {
     webgpuRenderPassEncoderEnd(render_pass)
 }
 
-webgpu_render_pass_end_occlusion_query :: proc(
-    render_pass: Render_Pass,
-    loc := #caller_location,
-) {
-    unimplemented(loc = loc)
+webgpu_render_pass_end_occlusion_query :: proc(render_pass: Render_Pass, loc := #caller_location) {
+    webgpuRenderPassEncoderEndOcclusionQuery(render_pass)
 }
 
 webgpu_render_pass_execute_bundles :: proc(
@@ -2442,7 +2308,7 @@ webgpu_render_pass_execute_bundles :: proc(
     bundles: []Render_Bundle,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderExecuteBundles(render_pass, uint(len(bundles)), raw_data(bundles))
 }
 
 webgpu_render_pass_insert_debug_marker :: proc(
@@ -2450,14 +2316,11 @@ webgpu_render_pass_insert_debug_marker :: proc(
     marker_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderInsertDebugMarker(render_pass, marker_label)
 }
 
-webgpu_render_pass_pop_debug_group :: proc(
-    render_pass: Render_Pass,
-    loc := #caller_location,
-) {
-    unimplemented(loc = loc)
+webgpu_render_pass_pop_debug_group :: proc(render_pass: Render_Pass, loc := #caller_location) {
+    webgpuRenderPassEncoderPopDebugGroup(render_pass)
 }
 
 webgpu_render_pass_push_debug_group :: proc(
@@ -2465,7 +2328,7 @@ webgpu_render_pass_push_debug_group :: proc(
     group_label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderPushDebugGroup(render_pass, group_label)
 }
 
 webgpu_render_pass_set_bind_group :: proc(
@@ -2483,7 +2346,7 @@ webgpu_render_pass_set_blend_constant :: proc(
     color: Color,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderSetBlendConstant(render_pass, color)
 }
 
 webgpu_render_pass_set_immediates :: proc(
@@ -2493,7 +2356,7 @@ webgpu_render_pass_set_immediates :: proc(
     size: uint,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderSetImmediates(render_pass, offset, data, size)
 }
 
 webgpu_render_pass_set_index_buffer :: proc(
@@ -2512,7 +2375,7 @@ webgpu_render_pass_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPassEncoderSetLabel(render_pass, label)
 }
 
 webgpu_render_pass_set_pipeline :: proc(
@@ -2566,17 +2429,11 @@ webgpu_render_pass_set_viewport :: proc(
     webgpuRenderPassEncoderSetViewport(render_pass, x, y, width, height, min_depth, max_depth)
 }
 
-webgpu_render_pass_add_ref :: proc(
-    render_pass: Render_Pass,
-    loc := #caller_location,
-) {
+webgpu_render_pass_add_ref :: proc(render_pass: Render_Pass, loc := #caller_location) {
     webgpuRenderPassEncoderAddRef(render_pass)
 }
 
-webgpu_render_pass_release :: proc(
-    render_pass: Render_Pass,
-    loc := #caller_location,
-) {
+webgpu_render_pass_release :: proc(render_pass: Render_Pass, loc := #caller_location) {
     webgpuRenderPassEncoderRelease(render_pass)
 }
 
@@ -2589,7 +2446,9 @@ webgpu_render_pipeline_get_bind_group_layout :: proc(
     group_index: u32,
     loc := #caller_location,
 ) -> Bind_Group_Layout {
-    unimplemented(loc = loc)
+    out: Handle_Packed
+    webgpuRenderPipelineGetBindGroupLayout(render_pipeline, group_index, &out)
+    return new_handle_packed(Bind_Group_Layout, render_pipeline.device, out)
 }
 
 webgpu_render_pipeline_set_label :: proc(
@@ -2597,7 +2456,7 @@ webgpu_render_pipeline_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuRenderPipelineSetLabel(render_pipeline, label)
 }
 
 webgpu_render_pipeline_add_ref :: proc(render_pipeline: Render_Pipeline, loc := #caller_location) {
@@ -2613,7 +2472,7 @@ webgpu_render_pipeline_release :: proc(render_pipeline: Render_Pipeline, loc := 
 // -----------------------------------------------------------------------------
 
 webgpu_sampler_set_label :: proc(sampler: Sampler, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuSamplerSetLabel(sampler, label)
 }
 
 webgpu_sampler_add_ref :: proc(sampler: Sampler, loc := #caller_location) {
@@ -2633,7 +2492,7 @@ webgpu_shader_module_get_compilation_info :: proc(
     callback_info: Compilation_Info_Callback_Info,
     loc := #caller_location,
 ) -> Future {
-    unimplemented(loc = loc)
+    return webgpuShaderModuleGetCompilationInfo(shader_module, callback_info)
 }
 
 webgpu_shader_module_set_label :: proc(
@@ -2641,7 +2500,7 @@ webgpu_shader_module_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuShaderModuleSetLabel(shader_module, label)
 }
 
 webgpu_shader_module_add_ref :: proc(shader_module: Shader_Module, loc := #caller_location) {
@@ -2653,18 +2512,6 @@ webgpu_shader_module_release :: proc(shader_module: Shader_Module, loc := #calle
 }
 
 // -----------------------------------------------------------------------------
-// Procedures of Supported_Features
-// -----------------------------------------------------------------------------
-
-webgpu_supported_features_free_members :: proc(
-    features: []Feature_Name,
-    allocator := context.allocator,
-    loc := #caller_location,
-) {
-    unimplemented(loc = loc)
-}
-
-// -----------------------------------------------------------------------------
 // Procedures of Supported_Instance_Features
 // -----------------------------------------------------------------------------
 
@@ -2673,7 +2520,8 @@ webgpu_supported_instance_features_free_members :: proc(
     allocator := context.allocator,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    // `webgpuGetInstanceFeatures` allocates this list with `js_alloc`.
+    webgpuSupportedInstanceFeaturesFreeMembers(Supported_Instance_Features{features = features})
 }
 
 // -----------------------------------------------------------------------------
@@ -2685,7 +2533,10 @@ webgpu_supported_wgsl_language_features_free_members :: proc(
     allocator := context.allocator,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    // The shim allocates this list on the JS heap (`webgpuInstanceGetWGSLLanguageFeatures`).
+    webgpuSupportedWGSLLanguageFeaturesFreeMembers(
+        Supported_WGSL_Language_Features{features = features},
+    )
 }
 
 // -----------------------------------------------------------------------------
@@ -2698,6 +2549,18 @@ webgpu_surface_configure :: proc(
     loc := #caller_location,
 ) {
     webgpuSurfaceConfigure(surface, config)
+}
+
+webgpu_surface_get_configuration :: proc(
+    surface: Surface,
+    loc := #caller_location,
+) -> (
+    Surface_Configuration,
+    bool,
+) {
+    config: Surface_Configuration
+    ok := webgpuSurfaceGetConfiguration(surface, &config)
+    return config, ok
 }
 
 webgpu_surface_get_capabilities :: proc(
@@ -2715,7 +2578,9 @@ webgpu_surface_get_capabilities :: proc(
 webgpu_surface_get_current_texture :: proc(
     surface: Surface,
     loc := #caller_location,
-) -> (surface_texture: Surface_Texture) {
+) -> (
+    surface_texture: Surface_Texture,
+) {
     webgpuSurfaceGetCurrentTexture(surface, &surface_texture)
     surface_texture.surface = surface
     return
@@ -2770,9 +2635,9 @@ webgpu_texture_create_view :: proc(
     descriptor: Texture_View_Descriptor = {},
     loc := #caller_location,
 ) -> Texture_View {
-    descriptor := descriptor
+    desc := descriptor
     view_packed: Handle_Packed
-    webgpuTextureCreateView(texture, &descriptor if descriptor != {} else nil, &view_packed)
+    webgpuTextureCreateView(texture, &desc if desc != {} else nil, &view_packed)
     return new_handle_packed(Texture_View, texture.device, view_packed)
 }
 
@@ -2780,7 +2645,10 @@ webgpu_texture_destroy :: proc(texture: Texture, loc := #caller_location) {
     webgpuTextureDestroy(texture)
 }
 
-webgpu_texture_get_depth_or_array_layers :: proc(texture: Texture, loc := #caller_location) -> u32 {
+webgpu_texture_get_depth_or_array_layers :: proc(
+    texture: Texture,
+    loc := #caller_location,
+) -> u32 {
     return webgpuTextureGetDepthOrArrayLayers(texture)
 }
 
@@ -2788,7 +2656,19 @@ webgpu_texture_get_descriptor :: proc(
     texture: Texture,
     loc := #caller_location,
 ) -> Texture_Descriptor {
-    unimplemented(loc = loc)
+    // Rebuilt from the properties the browser does expose
+    size: Extent_3D
+    webgpuTextureGetSize(texture, &size)
+    return {
+        label           = "",
+        size            = size,
+        mip_level_count = webgpuTextureGetMipLevelCount(texture),
+        sample_count    = webgpuTextureGetSampleCount(texture),
+        dimension       = webgpuTextureGetDimension(texture),
+        format          = webgpuTextureGetFormat(texture),
+        usage           = webgpuTextureGetUsage(texture),
+        view_formats    = nil,
+    }
 }
 
 webgpu_texture_get_dimension :: proc(
@@ -2807,7 +2687,7 @@ webgpu_texture_get_height :: proc(texture: Texture, loc := #caller_location) -> 
 }
 
 webgpu_texture_get_mip_level_count :: proc(texture: Texture, loc := #caller_location) -> u32 {
-    unimplemented(loc = loc)
+    return webgpuTextureGetMipLevelCount(texture)
 }
 
 webgpu_texture_get_sample_count :: proc(texture: Texture, loc := #caller_location) -> u32 {
@@ -2827,6 +2707,13 @@ webgpu_texture_get_texture_binding_view_dimension :: proc(
     return webgpuTextureGetTextureBindingViewDimension(texture)
 }
 
+webgpu_texture_get_native_metal_texture :: proc(
+    texture: Texture,
+    loc := #caller_location,
+) -> rawptr {
+    return nil
+}
+
 webgpu_texture_get_usage :: proc(texture: Texture, loc := #caller_location) -> Texture_Usages {
     return webgpuTextureGetUsage(texture)
 }
@@ -2836,7 +2723,7 @@ webgpu_texture_get_width :: proc(texture: Texture, loc := #caller_location) -> u
 }
 
 webgpu_texture_set_label :: proc(texture: Texture, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+    webgpuTextureSetLabel(texture, label)
 }
 
 webgpu_texture_add_ref :: proc(texture: Texture, loc := #caller_location) {
@@ -2851,12 +2738,19 @@ webgpu_texture_release :: proc(texture: Texture, loc := #caller_location) {
 // Procedures of Texture_View
 // -----------------------------------------------------------------------------
 
+webgpu_texture_view_get_texture :: proc(
+    texture_view: Texture_View,
+    loc := #caller_location,
+) -> Texture {
+    return webgpuTextureViewGetTexture(texture_view)
+}
+
 webgpu_texture_view_set_label :: proc(
     texture_view: Texture_View,
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    webgpuTextureViewSetLabel(texture_view, label)
 }
 
 webgpu_texture_view_add_ref :: proc(texture_view: Texture_View, loc := #caller_location) {

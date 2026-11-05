@@ -1,6 +1,9 @@
 (function () {
-  const STATUS_SUCCESS = 1;
-  const STATUS_ERROR = 2;
+  const STATUS_SUCCESS = 0;
+  const STATUS_ERROR = 1;
+  const FUTURE_PENDING = 0;
+  const FUTURE_DONE = 1;
+  const FUTURE_FAILED = 2;
 
   const ENUMS = {
     PrimitiveTopology: ['triangle-list', 'point-list', 'line-list', 'line-strip', 'triangle-strip'],
@@ -53,8 +56,8 @@
       'increment-wrap',
       'decrement-wrap',
     ],
-    TextureAspect: ['all', 'stencil-only', 'depth-only', undefined, undefined],
-    TextureViewDimension: ['2d', '1d', '2d-array', 'cube', 'cube-array', '3d'],
+    TextureAspect: ['all', 'stencil-only', 'depth-only', undefined, undefined, undefined],
+    TextureViewDimension: [undefined, '1d', '2d', '2d-array', 'cube', 'cube-array', '3d'],
     AddressMode: ['clamp-to-edge', 'repeat', 'mirror-repeat', 'clamp-to-border'],
     FilterMode: ['nearest', 'linear'],
     MipmapFilterMode: ['nearest', 'linear'],
@@ -161,6 +164,8 @@
       'astc-12x10-unorm-srgb',
       'astc-12x12-unorm',
       'astc-12x12-unorm-srgb',
+      'nv12',
+      'p010',
     ],
     VertexFormat: [
       'uint8',
@@ -227,16 +232,26 @@
       'texture-formats-tier2',
       'primitive-index',
       'texture-component-swizzle',
+      'subgroup-size-control',
+    ],
+    // `gpu.Instance_Feature_Name` has no `Undefined` sentinel, so `Timed_Wait_Any`
+    // is ordinal 0. The shim only advertises the one feature it implements.
+    InstanceFeatureName: [
+      'Timed_Wait_Any',
+      'Shader_Source_SPIRV',
+      'Multiple_Devices_Per_Adapter',
     ],
     BufferBindingType: [null, undefined, 'uniform', 'storage', 'read-only-storage'],
     SamplerBindingType: [null, undefined, 'filtering', 'non-filtering', 'comparison'],
     TextureSampleType: [null, undefined, 'float', 'unfilterable-float', 'depth', 'sint', 'uint'],
-    StorageTextureAccess: [null, undefined, 'write-only', 'read-only', 'read-write'],
-    QueryType: [undefined, 'occlusion', 'timestamp'],
+    StorageTextureAccess: [null, undefined, 'write-only', 'read-only', 'read-write', 'atomic'],
+    QueryType: ['occlusion', 'timestamp', undefined], // Odin adds Pipeline_Statistics (no WebGPU type)
     TextureDimension: [undefined, '1d', '2d', '3d'],
-    ErrorType: [undefined, 'no-error', 'validation', 'out-of-memory', 'internal', 'unknown'],
+    // `gpu.Error_Type` starts at `No_Error` (0), so there is no sentinel here.
+    ErrorType: ['no-error', 'validation', 'out-of-memory', 'internal', 'unknown'],
+    // `gpu.Error_Filter` = { Validation, Out_Of_Memory, Internal }.
+    ErrorFilter: ['validation', 'out-of-memory', 'internal'],
     WGSLLanguageFeatureName: [
-      undefined,
       'readonly_and_readwrite_storage_textures',
       'packed_4x8_integer_dot_product',
       'unrestricted_pointer_parameters',
@@ -246,17 +261,27 @@
       'texture_and_sampler_let',
       'subgroup_uniformity',
       'texture_formats_tier1',
+      'linear_indexing',
+      'immediate_address_space',
+      'buffer_view',
     ],
+    // `gpu.Power_Preference.None` (0) means "no preference", which WebGPU spells
+    // by omitting the field, so the sentinel is intentional.
     PowerPreference: [undefined, 'low-power', 'high-performance'],
     CompositeAlphaMode: ['auto', 'opaque', 'premultiplied', 'unpremultiplied', 'inherit'],
     PresentMode: ['fifo', 'auto-vsync', 'auto-no-vsync', 'fifo-relaxed', 'immediate', 'mailbox'],
-    DeviceLostReason: [undefined, 'unknown', 'destroyed', 'callback-cancelled', 'failed-creation'],
-    BufferMapState: [undefined, 'unmapped', 'pending', 'mapped'],
+    DeviceLostReason: ['unknown', 'destroyed', 'callback-cancelled', 'failed-creation'],
+    // `gpu.Buffer_Map_State` = { Unmapped, Pending, Mapped }: no sentinel, so
+    // 'unmapped' is ordinal 0. `GPUBuffer.mapState` uses these exact strings.
+    BufferMapState: ['unmapped', 'pending', 'mapped'],
     OptionalBool: [false, true, undefined],
     ComponentSwizzle: [undefined, '0', '1', 'r', 'g', 'b', 'a'],
-    PredefinedColorSpace: [undefined, 'srgb', 'display-p3'],
-    ToneMappingMode: [undefined, 'standard', 'extended'],
-    FeatureLevel: [undefined, 'compatibility', 'core'],
+    // `gpu.Predefined_Color_Space` = { SRGB, DisplayP3 } and
+    // `gpu.Tone_Mapping_Mode` = { Standard, Extended }: no sentinels.
+    PredefinedColorSpace: ['srgb', 'display-p3'],
+    ToneMappingMode: ['standard', 'extended'],
+    // `gpu.Feature_Level` = { Core, Compatibility }.
+    FeatureLevel: ['core', 'compatibility'],
     BackendType: [
       undefined,
       null,
@@ -269,19 +294,18 @@
       'OpenGLES',
     ],
     AdapterType: ['Unknown', 'Integrated_Gpu', 'Discrete_Gpu', 'Virtual_Gpu', 'Cpu'],
-    RequestDeviceStatus: [undefined, 'Success', 'CallbackCancelled', 'Error'],
-    MapAsyncStatus: [undefined, 'Success', 'CallbackCancelled', 'Error', 'Aborted'],
+    // The async-status enums all start at `Success` (0): no sentinel.
+    MapAsyncStatus: ['Success', 'CallbackCancelled', 'Error', 'Aborted'],
     CreatePipelineAsyncStatus: [
-      undefined,
       'Success',
       'CallbackCancelled',
       'ValidationError',
       'InternalError',
     ],
-    PopErrorScopeStatus: [undefined, 'Success', 'CallbackCancelled', 'Error'],
-    RequestAdapterStatus: [undefined, 'Success', 'CallbackCancelled', 'Unavailable', 'Error'],
-    QueueWorkDoneStatus: [undefined, 'Success', 'CallbackCancelled', 'Error'],
-    CompilationInfoRequestStatus: [undefined, 'Success', 'CallbackCancelled'],
+    PopErrorScopeStatus: ['Success', 'CallbackCancelled', 'Error'],
+    QueueWorkDoneStatus: ['Success', 'CallbackCancelled', 'Error'],
+    CompilationInfoRequestStatus: ['Success', 'CallbackCancelled'],
+    WaitStatus: ['Success', 'Timed_Out', 'Error'],
     SurfaceGetCurrentTextureStatus: [
       'Unknown',
       'Success',
@@ -293,6 +317,60 @@
       'Validation',
     ],
   };
+
+  /**
+   * `gpu.Limits` field order, in declaration order, as
+   * `[webgpuName, fieldSize]`. Shared by `genericGetLimits` (wasm -> JS) and
+   * `LimitsInline` (JS -> wasm) so the two directions cannot drift apart.
+   * `off(size)` re-aligns to the field size, which is exactly the compiler's
+   * rule for `u32`/`u64`, so the sizes here also define the layout.
+   */
+  const LIMIT_FIELDS = [
+    ['maxTextureDimension1D', 4],
+    ['maxTextureDimension2D', 4],
+    ['maxTextureDimension3D', 4],
+    ['maxTextureArrayLayers', 4],
+    ['maxBindGroups', 4],
+    ['maxBindGroupsPlusVertexBuffers', 4],
+    ['maxBindingsPerBindGroup', 4],
+    ['maxDynamicUniformBuffersPerPipelineLayout', 4],
+    ['maxDynamicStorageBuffersPerPipelineLayout', 4],
+    ['maxSampledTexturesPerShaderStage', 4],
+    ['maxSamplersPerShaderStage', 4],
+    ['maxStorageBuffersPerShaderStage', 4],
+    ['maxStorageTexturesPerShaderStage', 4],
+    ['maxUniformBuffersPerShaderStage', 4],
+    ['maxUniformBufferBindingSize', 8],
+    ['maxStorageBufferBindingSize', 8],
+    ['minUniformBufferOffsetAlignment', 4],
+    ['minStorageBufferOffsetAlignment', 4],
+    ['maxVertexBuffers', 4],
+    ['maxBufferSize', 8],
+    ['maxVertexAttributes', 4],
+    ['maxVertexBufferArrayStride', 4],
+    ['maxInterStageShaderVariables', 4],
+    ['maxColorAttachments', 4],
+    ['maxColorAttachmentBytesPerSample', 4],
+    ['maxComputeWorkgroupStorageSize', 4],
+    ['maxComputeInvocationsPerWorkgroup', 4],
+    ['maxComputeWorkgroupSizeX', 4],
+    ['maxComputeWorkgroupSizeY', 4],
+    ['maxComputeWorkgroupSizeZ', 4],
+    ['maxComputeWorkgroupsPerDimension', 4],
+    ['maxImmediateSize', 4],
+    ['maxNonSamplerBindings', 4],
+    ['maxBindingArrayElementsPerShaderStage', 4],
+    ['maxBindingArraySamplerElementsPerShaderStage', 4],
+    ['maxMultiviewViewCount', 4],
+  ];
+
+  /**
+   * `gpu.Shader_Source` is a union: a 20-byte payload followed by the tag byte
+   * (24 bytes total, 4-byte aligned). Odin tags union variants 1-based in
+   * declaration order, so these follow the order in `gpu/shader_module.odin`.
+   */
+  const SHADER_SOURCE_TAG_OFFSET = 20;
+  const SHADER_SOURCE_WGSL_TAG = 2;
 
   /**
    * Assumptions:
@@ -324,7 +402,7 @@
       /** @type {WebGPUHandleManager<GPUBindGroupLayout>} */
       this.bindGroupLayouts = new WebGPUHandleManager('BindGroupLayout', this.mem);
 
-      /** @type {WebGPUHandleManager<{ buffer: GPUBuffer, mapping: ?{ range: ArrayBuffer, ptr: number, size: number } }>} */
+      /** @type {WebGPUHandleManager<{ buffer: GPUBuffer, mapping: ?{ range: ?ArrayBuffer, ptr: number, size: number, owned: boolean } }>} */
       this.buffers = new WebGPUHandleManager('Buffer', this.mem);
 
       /** @type {WebGPUObjectManager<GPUDevice>} */
@@ -382,6 +460,42 @@
       this.externalTextures = new WebGPUHandleManager('ExternalTexture', this.mem);
 
       this.zeroMessageAddr = 0;
+
+      /**
+       * Pending asynchronous operations, keyed by `gpu.Future` id (1-based;
+       * 0 means "no future"). `instance_wait_any` awaits these.
+       *
+       * @type {Map<number, { status: number, promise: Promise<void> }>}
+       */
+      this.futures = new Map();
+      this.nextFutureId = 1;
+    }
+
+    /**
+     * Tracks `promise` so `webgpuInstanceWaitAny` can await it, and returns the
+     * `gpu.Future` id for it. `status` stays 0 until it settles.
+     *
+     * @param {Promise<unknown>} promise
+     * @returns {bigint}
+     */
+    registerFuture(promise) {
+      const id = this.nextFutureId;
+      this.nextFutureId += 1;
+
+      const entry = { status: FUTURE_PENDING, promise: null };
+      // Both handlers return normally, so `entry.promise` never rejects: the
+      // wait loop races resolved promises only.
+      entry.promise = promise.then(
+        () => {
+          entry.status = FUTURE_DONE;
+        },
+        () => {
+          entry.status = FUTURE_FAILED;
+        },
+      );
+
+      this.futures.set(id, entry);
+      return BigInt(id);
     }
 
     _buildSizes() {
@@ -425,8 +539,12 @@
         RenderPassColorAttachment: [80, 8],
 
         // Other
-        CallbackInfo: [4 + 3 * is, Math.min(4, is)], // TODO
-        ComputeState: [8 + is * 4, is],
+        // `mode` (u32), callback, userdata1, userdata2 (e.g. Buffer_Map_Callback_Info)
+        CallbackInfo: [4 + 3 * is, Math.min(4, is)],
+        // `gpu.Features` = { data: [83]Feature_Name, len: int }
+        Features: [83 * 4 + is, 4],
+        // `gpu.Future_Wait_Info` = { future: u64, completed: bool }
+        FutureWaitInfo: [16, 8],
         CompilationMessage: [is == 8 ? 64 : 48, 8],
       };
     }
@@ -498,6 +616,23 @@
         return undefined;
       }
       return this.unwrapBigInt(src);
+    }
+
+    /**
+     * `GPUBuffer.getMappedRange`, treating Odin's `WHOLE_MAP_SIZE` (`max(uint)`)
+     * as "to the end of the mapping". WebIDL wants the size argument *omitted*
+     * for that, not passed as `undefined`, which Chromium rejects.
+     *
+     * `max(uint)` arrives as `-1`: wasm i32 arguments are signed on the JS side.
+     *
+     * @param {GPUBuffer} buffer
+     * @param {number} offset
+     * @param {number} size
+     * @returns {ArrayBuffer}
+     */
+    mappedRange(buffer, offset, size) {
+      const whole = size === -1 || size === 0xffffffff;
+      return whole ? buffer.getMappedRange(offset) : buffer.getMappedRange(offset, size);
     }
 
     // u32-width sentinel: ARRAY_LAYER_COUNT_UNDEFINED, COPY_STRIDE_UNDEFINED,
@@ -625,14 +760,17 @@
     }
 
     /**
+     * `gpu.Features` = { data: [FEATURE_COUNT]Feature_Name, len: int }.
+     * The entries live inline, so `len` sits right after the last slot.
+     *
      * @param {GPUSupportedFeatures} features
      * @param {number} ptr
      */
     genericGetFeatures(features, ptr) {
       this.assert(ptr != 0);
 
-      const CAPACITY = 72; // FEATURE_COUNT
-      const LEN_OFFSET = CAPACITY * 4;
+      const LEN_OFFSET = this.sizes.Features[0] - this.mem.intSize;
+      const CAPACITY = LEN_OFFSET / 4;
 
       let count = 0;
       ENUMS.FeatureName.forEach((feature, ordinal) => {
@@ -646,46 +784,22 @@
 
     /**
      * @param {GPUSupportedLimits} limits
-     * @param {number} ptr
+     * @param {number} supportedLimitsPtr
      * @returns {number}
      */
     genericGetLimits(limits, supportedLimitsPtr) {
       this.assert(supportedLimitsPtr != 0);
 
       const off = this.struct(supportedLimitsPtr);
-      off(4);
 
-      this.mem.storeU32(off(4), limits.maxTextureDimension1D);
-      this.mem.storeU32(off(4), limits.maxTextureDimension2D);
-      this.mem.storeU32(off(4), limits.maxTextureDimension3D);
-      this.mem.storeU32(off(4), limits.maxTextureArrayLayers);
-      this.mem.storeU32(off(4), limits.maxBindGroups);
-      this.mem.storeU32(off(4), limits.maxBindGroupsPlusVertexBuffers);
-      this.mem.storeU32(off(4), limits.maxBindingsPerBindGroup);
-      this.mem.storeU32(off(4), limits.maxDynamicUniformBuffersPerPipelineLayout);
-      this.mem.storeU32(off(4), limits.maxDynamicStorageBuffersPerPipelineLayout);
-      this.mem.storeU32(off(4), limits.maxSampledTexturesPerShaderStage);
-      this.mem.storeU32(off(4), limits.maxSamplersPerShaderStage);
-      this.mem.storeU32(off(4), limits.maxStorageBuffersPerShaderStage);
-      this.mem.storeU32(off(4), limits.maxStorageTexturesPerShaderStage);
-      this.mem.storeU32(off(4), limits.maxUniformBuffersPerShaderStage);
-      this.mem.storeU64(off(8), limits.maxUniformBufferBindingSize);
-      this.mem.storeU64(off(8), limits.maxStorageBufferBindingSize);
-      this.mem.storeU32(off(4), limits.minUniformBufferOffsetAlignment);
-      this.mem.storeU32(off(4), limits.minStorageBufferOffsetAlignment);
-      this.mem.storeU32(off(4), limits.maxVertexBuffers);
-      this.mem.storeU64(off(8), limits.maxBufferSize);
-      this.mem.storeU32(off(4), limits.maxVertexAttributes);
-      this.mem.storeU32(off(4), limits.maxVertexBufferArrayStride);
-      this.mem.storeU32(off(4), limits.maxInterStageShaderVariables);
-      this.mem.storeU32(off(4), limits.maxColorAttachments);
-      this.mem.storeU32(off(4), limits.maxColorAttachmentBytesPerSample);
-      this.mem.storeU32(off(4), limits.maxComputeWorkgroupStorageSize);
-      this.mem.storeU32(off(4), limits.maxComputeInvocationsPerWorkgroup);
-      this.mem.storeU32(off(4), limits.maxComputeWorkgroupSizeX);
-      this.mem.storeU32(off(4), limits.maxComputeWorkgroupSizeY);
-      this.mem.storeU32(off(4), limits.maxComputeWorkgroupSizeZ);
-      this.mem.storeU32(off(4), limits.maxComputeWorkgroupsPerDimension);
+      for (const [name, size] of LIMIT_FIELDS) {
+        const value = limits[name];
+        if (size === 8) {
+          this.mem.storeU64(off(8), value ?? 0);
+        } else {
+          this.mem.storeU32(off(4), value ?? 0);
+        }
+      }
 
       return STATUS_SUCCESS;
     }
@@ -708,8 +822,13 @@
         this.mem.storeUint(start + this.mem.intSize, len);
       };
 
-      // Name
-      storeString(off(this.sizes.StringView), info.device);
+      // Name. Browsers often leave `device` and `description` empty, so fall
+      // back to the vendor/architecture pair to keep the field useful.
+      const name =
+        info.description ||
+        info.device ||
+        [info.vendor, info.architecture].filter(Boolean).join(' ');
+      storeString(off(this.sizes.StringView), name);
       off(4); // vendor
       off(4); // device
       // Device type
@@ -733,7 +852,15 @@
      * @returns {GPUFeatureName}
      */
     FeatureNamePtr(ptr) {
-      return this.FeatureName(this.mem.loadI32(ptr));
+      const ordinal = this.mem.loadI32(ptr);
+      const name = ENUMS.FeatureName[ordinal];
+      if (name === undefined) {
+        // Native-only feature: WebGPU has no name to request, and dropping it
+        // silently would create a device without a capability the caller asked
+        // for. Fail the request instead.
+        throw new Error(`feature ordinal ${ordinal} has no WebGPU equivalent`);
+      }
+      return name;
     }
 
     /**
@@ -774,44 +901,10 @@
         return Number(this.mem.loadU64(ptr));
       };
 
-      let out = {
-        maxTextureDimension1D: limitU32(off(4)),
-        maxTextureDimension2D: limitU32(off(4)),
-        maxTextureDimension3D: limitU32(off(4)),
-        maxTextureArrayLayers: limitU32(off(4)),
-        maxBindGroups: limitU32(off(4)),
-        maxBindGroupsPlusVertexBuffers: limitU32(off(4)),
-        maxBindingsPerBindGroup: limitU32(off(4)),
-        maxDynamicUniformBuffersPerPipelineLayout: limitU32(off(4)),
-        maxDynamicStorageBuffersPerPipelineLayout: limitU32(off(4)),
-        maxSampledTexturesPerShaderStage: limitU32(off(4)),
-        maxSamplersPerShaderStage: limitU32(off(4)),
-        maxStorageBuffersPerShaderStage: limitU32(off(4)),
-        maxStorageTexturesPerShaderStage: limitU32(off(4)),
-        maxUniformBuffersPerShaderStage: limitU32(off(4)),
-        maxUniformBufferBindingSize: limitU64(off(8)),
-        maxStorageBufferBindingSize: limitU64(off(8)),
-        minUniformBufferOffsetAlignment: limitU32(off(4)),
-        minStorageBufferOffsetAlignment: limitU32(off(4)),
-        maxVertexBuffers: limitU32(off(4)),
-        maxBufferSize: limitU64(off(8)),
-        maxVertexAttributes: limitU32(off(4)),
-        maxVertexBufferArrayStride: limitU32(off(4)),
-        maxInterStageShaderVariables: limitU32(off(4)),
-        maxColorAttachments: limitU32(off(4)),
-        maxColorAttachmentBytesPerSample: limitU32(off(4)),
-        maxComputeWorkgroupStorageSize: limitU32(off(4)),
-        maxComputeInvocationsPerWorkgroup: limitU32(off(4)),
-        maxComputeWorkgroupSizeX: limitU32(off(4)),
-        maxComputeWorkgroupSizeY: limitU32(off(4)),
-        maxComputeWorkgroupSizeZ: limitU32(off(4)),
-        maxComputeWorkgroupsPerDimension: limitU32(off(4)),
-        maxImmediateSize: limitU32(off(4)),
-      };
-      off(4); // maxNonSamplerBindings
-      off(4); // maxBindingArrayElementsPerShaderStage
-      off(4); // maxBindingArraySamplerElementsPerShaderStage
-      off(4); // maxMultiviewViewCount
+      const out = {};
+      for (const [name, size] of LIMIT_FIELDS) {
+        out[name] = size === 8 ? limitU64(off(8)) : limitU32(off(4));
+      }
       return out;
     }
 
@@ -1101,30 +1194,34 @@
     }
 
     /**
+     * `gpu.Compute_Pipeline_Descriptor` (80 bytes, align 8):
+     *   label @0 (string, 8), layout @8 (Handle, 16), module @24 (Handle, 16),
+     *   entry_point @40 (string, 8), compilation_options @48 (12),
+     *   cache @64 (Handle, 16)
+     *
      * @param {number} start
-     * @returns {GPUComputeState}
+     * @returns {GPUComputePipelineDescriptor}
      */
-    ComputeState(start) {
+    ComputePipelineDescriptor(start) {
       const off = this.struct(start);
-      off(4);
 
-      const shaderModule = this.shaderModules.getPacked(this.mem.loadPtr(off(4)));
+      const label = this.StringView(off(this.sizes.StringView));
+
+      const layout = this.handleAt(this.pipelineLayouts, off(16, 8));
+
+      const module = this.handleAt(this.shaderModules, off(16, 8));
+      this.assert(module !== undefined, 'Compute_Pipeline_Descriptor.module is not valid');
+
       const entryPoint = this.StringView(off(this.sizes.StringView));
 
-      const constantsArray = this.array(
-        this.mem.loadUint(off(this.mem.intSize)),
-        this.mem.loadPtr(off(4)),
-        this.ConstantEntry,
-        this.sizes.ConstantEntry[0],
-      );
+      const constants = this.compilationOptions(off);
+
+      off(16, 8); // cache: not exposed by browsers
 
       return {
-        module: shaderModule,
-        entryPoint: entryPoint,
-        constants: constantsArray.reduce((prev, curr) => {
-          prev[curr.key] = curr.value;
-          return prev;
-        }, {}),
+        label,
+        layout: layout !== undefined ? layout : 'auto',
+        compute: { module, entryPoint, constants },
       };
     }
 
@@ -1138,23 +1235,6 @@
       return {
         key: this.mem.loadString(ptr, len),
         value: this.mem.loadF64(off(8)),
-      };
-    }
-
-    /**
-     * @param {number} start
-     * @returns {GPUComputePipelineDescriptor}
-     */
-    ComputePipelineDescriptor(start) {
-      const off = this.struct(start);
-      off(4);
-
-      const label = this.StringView(off(this.sizes.StringView));
-      const layoutIdx = this.mem.loadPtr(off(4));
-      return {
-        label: label,
-        layout: layoutIdx > 0 ? this.pipelineLayouts.getPacked(layoutIdx) : 'auto',
-        compute: this.ComputeState(off(this.sizes.ComputeState)),
       };
     }
 
@@ -1494,10 +1574,13 @@
     }
 
     /**
-     * `gpu.Texture_View_Descriptor` (48 bytes, align 8):
-     *   label @0 (string, 8), format @8, dimension @12, usage @16 (bitset, 8),
+     * `gpu.Texture_View_Descriptor` (64 bytes, align 8):
+     *   label @0 (string, 8), format @8, dimension @12, usage @16 (bit_set, 8),
      *   aspect @24, base_mip_level @28, mip_level_count @32,
-     *   base_array_layer @36, array_layer_count @40
+     *   base_array_layer @36, array_layer_count @40, swizzle @44 (16)
+     *
+     * The shim stops after `array_layer_count`; `swizzle` has no browser
+     * equivalent.
      *
      * @param {number} ptr
      * @returns {?GPUTextureViewDescriptor}
@@ -1593,8 +1676,24 @@
       return CallbackInfo(start);
     }
 
+    /**
+     * `gpu.*_Callback_Info` used by the async entry points (16 bytes on wasm32):
+     *   mode @0 (`Callback_Mode`), callback @4, userdata1 @8, userdata2 @12.
+     *
+     * @param {number} start
+     */
     CallbackInfo(start) {
       const off = this.struct(start);
+      off(4); // mode: "when the callback may fire" has no browser equivalent
+      return this.callbackInfoFields(off);
+    }
+
+    /**
+     * The three fields every `*_Callback_Info` ends with.
+     *
+     * @param {function(number, number=): number} off
+     */
+    callbackInfoFields(off) {
       return {
         callback: this.mem.exports.__indirect_function_table.get(this.mem.loadPtr(off(4))),
         userdata1: this.mem.loadPtr(off(4)),
@@ -1602,16 +1701,31 @@
       };
     }
 
+    /**
+     * `gpu.Device_Lost_Callback_Info` (12 bytes, no `mode` field). Used inline
+     * in `Device_Descriptor`, not as an async callback argument.
+     *
+     * @param {number} start
+     */
+    DeviceLostCallbackInfo(start) {
+      return this.callbackInfoFields(this.struct(start));
+    }
+
+    /**
+     * `gpu.Uncaptured_Error_Callback_Info` (12 bytes, no `mode` field).
+     *
+     * @param {number} start
+     */
     UncapturedErrorCallbackInfo(start) {
-      const off = this.struct(start);
-      return {
-        callback: this.mem.exports.__indirect_function_table.get(this.mem.loadPtr(off(4))),
-        userdata1: this.mem.loadPtr(off(4)),
-        userdata2: this.mem.loadPtr(off(4)),
-      };
+      return this.callbackInfoFields(this.struct(start));
     }
 
     callCallback(callback, args) {
+      // A null callback is valid (the C API allows it): the caller only wants
+      // the future, not the callback.
+      if (callback == null || typeof callback.callback !== 'function') {
+        return;
+      }
       args.push(callback.userdata1);
       args.push(callback.userdata2);
       callback.callback(...args);
@@ -1654,6 +1768,70 @@
       };
     }
 
+    /**
+     * Reads an Odin `string` that was passed as a parameter. Strings are
+     * aggregates, so the ABI hands over a pointer to the `{ptr, len}` value
+     * rather than two scalars.
+     *
+     * @param {number} stringPtr
+     * @returns {string}
+     */
+    loadStringParam(stringPtr) {
+      const { ptr, len } = this.loadSlice(stringPtr);
+      return this.mem.loadString(ptr, len);
+    }
+
+    /**
+     * Stores `label` on a WebGPU object and keeps a `js_alloc`-backed copy the
+     * Odin side can read back, replacing any previous copy.
+     *
+     * @param {T} object
+     * @param {string} label
+     */
+    setObjectLabel(object, label) {
+      object.label = label;
+
+      if (object.__labelPtr) {
+        this.mem.exports.js_free(object.__labelPtr);
+        object.__labelPtr = 0;
+        object.__labelLen = 0;
+      }
+
+      const len = new TextEncoder().encode(label).length;
+      if (len === 0) return;
+
+      const ptr = this.mem.exports.js_alloc(len);
+      this.mem.storeString(ptr, label);
+      object.__labelPtr = ptr;
+      object.__labelLen = len;
+    }
+
+    /**
+     * Writes an object's label as an Odin `string` `{ptr, len}`. The pointer is
+     * owned by the object and released with it.
+     *
+     * @param {T} object
+     * @param {number} stringPtr
+     */
+    writeObjectLabel(object, stringPtr) {
+      const off = this.struct(stringPtr);
+      this.mem.storeI32(off(4), object?.__labelPtr ?? 0);
+      this.mem.storeUint(off(this.mem.intSize), object?.__labelLen ?? 0);
+    }
+
+    /**
+     * Frees the Odin-readable label copy owned by `object`, if any.
+     *
+     * @param {T} object
+     */
+    freeObjectLabel(object) {
+      if (object?.__labelPtr) {
+        this.mem.exports.js_free(object.__labelPtr);
+        object.__labelPtr = 0;
+        object.__labelLen = 0;
+      }
+    }
+
     getInterface() {
       return {
         /**
@@ -1669,26 +1847,42 @@
         },
 
         /**
+         * Fills a `gpu.Supported_Instance_Features { features: []Instance_Feature_Name }`.
+         *
+         * `Timed_Wait_Any` is what the shim actually implements (see
+         * `webgpuInstanceWaitAny`); the other two need native backends.
+         *
          * @param {number} featuresPtr
          */
         webgpuGetInstanceFeatures: (featuresPtr) => {
-          // TODO: implement (futures).
+          this.assert(featuresPtr != 0);
+
+          const count = 1;
+          const ptr = this.mem.exports.js_alloc(count * 4);
+          this.mem.storeI32(
+            ptr,
+            this.odinEnumValue('InstanceFeatureName', 'Timed_Wait_Any'),
+          );
+          this.mem.storeU32(featuresPtr, ptr);
+          this.mem.storeUint(featuresPtr + this.mem.intSize, count);
         },
 
         /**
          * @param {number} limitsPtr
          */
         webgpuGetInstanceLimits: (limitsPtr) => {
-          // TODO: implement (futures).
+          this.assert(limitsPtr != 0);
+          // `gpu.Instance_Limits { timed_wait_any_max_count: uint }`. The shim
+          // waits on every future it is handed, so the count is unbounded.
+          this.mem.storeUint(limitsPtr, 0xffffffff);
         },
 
         /**
-         * @param {number} feature
+         * @param {number} feature  A `gpu.Instance_Feature_Name` ordinal.
          * @returns {boolean}
          */
         webgpuHasInstanceFeature: (feature) => {
-          // TODO: implement (futures).
-          return false;
+          return feature === this.odinEnumValue('InstanceFeatureName', 'Timed_Wait_Any');
         },
 
         /**
@@ -1697,7 +1891,10 @@
          * @returns {number}
          */
         webgpuGetProcAddress: (procNamePtr, procNameLen) => {
-          console.error(`unimplemented: wgpuGetProcAddress`);
+          // `gpu.Proc` is typed as `proc "c" ()`, so handing out an arbitrary
+          // table index and calling it would be unsound (the shim's imports are
+          // not table entries). `nil` means "unsupported", which is the honest
+          // answer here, and callers already treat it that way.
           return 0;
         },
 
@@ -1719,7 +1916,7 @@
          */
         webgpuAdapterGetInfo: (adapterIdx, infoPtr) => {
           const adapter = this.adapters.get(adapterIdx);
-          if (!adapter) return 0;
+          if (!adapter) return STATUS_ERROR;
           return this.genericGetAdapterInfo(infoPtr, adapter.info);
         },
 
@@ -1741,6 +1938,30 @@
         webgpuAdapterHasFeature: (adapterIdx, featureInt) => {
           const adapter = this.adapters.get(adapterIdx);
           return adapter.features.has(ENUMS.FeatureName[featureInt]);
+        },
+
+        /**
+         * Stores the label on the adapter and keeps an Odin-readable copy for
+         * `webgpuAdapterGetLabel`.
+         *
+         * @param {number} adapterIdx
+         * @param {number} labelSlicePtr
+         */
+        webgpuAdapterSetLabel: (adapterIdx, labelSlicePtr) => {
+          const adapter = this.adapters.get(adapterIdx);
+          if (adapter === undefined) return;
+          this.setObjectLabel(adapter, this.loadStringParam(labelSlicePtr));
+        },
+
+        /**
+         * Writes the adapter's label as an Odin `string` `{ptr, len}`. The
+         * pointer is owned by the adapter and released with it.
+         *
+         * @param {number} adapterIdx
+         * @param {number} stringPtr
+         */
+        webgpuAdapterGetLabel: (adapterIdx, stringPtr) => {
+          this.writeObjectLabel(this.adapters.get(adapterIdx), stringPtr);
         },
 
         /**
@@ -1784,7 +2005,9 @@
               defaultQueue,
             };
 
-            const deviceLostCallbackInfo = this.CallbackInfo(off(this.sizes.CallbackInfo));
+            const deviceLostCallbackInfo = this.DeviceLostCallbackInfo(
+              off(this.sizes.DeviceLostCallbackInfo),
+            );
             const uncapturedErrorCallbackInfo = this.UncapturedErrorCallbackInfo(
               off(this.sizes.UncapturedErrorCallbackInfo),
             );
@@ -1792,6 +2015,11 @@
             /** @type {GPUDevice} */
             const device = await adapter.requestDevice(descriptor);
             const deviceIdx = this.devices.create(device);
+            // Browsers expose `device.adapterInfo` but not the adapter (or the
+            // instance) behind it, so remember them for the `device_get_*`
+            // accessors.
+            device.__adapterIdx = adapterIdx;
+            device.__instanceIdx = adapter.__instanceIdx ?? 0;
 
             if (deviceLostCallbackInfo.callback !== null) {
               device.lost.then((info) => {
@@ -1865,13 +2093,43 @@
 
         /* ---------------------- BindGroupLayout ---------------------- */
 
-        ...this.bindGroupLayouts.interface(true),
+        /**
+         * Stores the label and keeps an Odin-readable copy for
+         * `webgpuBindGroupLayoutGetLabel`.
+         *
+         * @param {number} ptr Pointer to the `gpu.Bind_Group_Layout` handle.
+         * @param {number} labelSlicePtr
+         */
+        webgpuBindGroupLayoutSetLabel: (ptr, labelSlicePtr) => {
+          const layout = this.bindGroupLayouts.getPacked(ptr);
+          if (layout === undefined) return;
+          this.setObjectLabel(layout, this.loadStringParam(labelSlicePtr));
+        },
+
+        /**
+         * Writes the layout's label as an Odin `string` `{ptr, len}`.
+         *
+         * @param {number} ptr Pointer to the `gpu.Bind_Group_Layout` handle.
+         * @param {number} stringPtr
+         */
+        webgpuBindGroupLayoutGetLabel: (ptr, stringPtr) => {
+          this.writeObjectLabel(this.bindGroupLayouts.getPacked(ptr), stringPtr);
+        },
+
+        ...this.bindGroupLayouts.interface(),
 
         /* ---------------------- Buffer ---------------------- */
 
         /** @param {number} bufferIdx */
         webgpuBufferDestroy: (bufferIdx) => {
           const buffer = this.buffers.getPacked(bufferIdx);
+          // A handed-out mapping owns a `js_alloc` copy; free it before the
+          // `GPUBuffer` goes away. A pending mapping, or a read/write that used
+          // the caller's memory, has nothing to free.
+          if (buffer.mapping?.owned) {
+            this.mem.exports.js_free(buffer.mapping.ptr);
+          }
+          buffer.mapping = null;
           buffer.buffer.destroy();
         },
 
@@ -1890,14 +2148,16 @@
 
           this.assert(!buffer.mapping, 'buffer already mapped');
 
-          const range = buffer.buffer.getMappedRange(offset, size);
+          // `WHOLE_MAP_SIZE` (max uint) is the Odin sentinel for "to the end of
+          // the mapping"; the browser spells that as an omitted size.
+          const range = this.mappedRange(buffer.buffer, offset, size);
 
           const ptr = this.mem.exports.js_alloc(range.byteLength);
 
-          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, size);
+          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, range.byteLength);
           mapping.set(new Uint8Array(range));
 
-          buffer.mapping = { range: range, ptr: ptr, size: range.byteLength };
+          buffer.mapping = { range: range, ptr: ptr, size: range.byteLength, owned: true };
           return ptr;
         },
 
@@ -1907,7 +2167,10 @@
          */
         webgpuBufferGetMapState: (bufferIdx) => {
           const buffer = this.buffers.getPacked(bufferIdx);
-          return this.odinEnumValue('BufferMapState', buffer.mapState);
+          // `GPUBuffer.mapState` is authoritative and is what the browser
+          // updates around `mapAsync`/`unmap`, so no separate tracking is
+          // needed. It still reports a state after the buffer is destroyed.
+          return this.odinEnumValue('BufferMapState', buffer.buffer.mapState);
         },
 
         /**
@@ -1923,14 +2186,15 @@
 
           this.assert(!buffer.mapping, 'buffer already mapped');
 
-          const range = buffer.buffer.getMappedRange(offset, size);
+          // See `webgpuBufferGetConstMappedRange`.
+          const range = this.mappedRange(buffer.buffer, offset, size);
 
           const ptr = this.mem.exports.js_alloc(range.byteLength);
 
-          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, size);
+          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, range.byteLength);
           mapping.set(new Uint8Array(range));
 
-          buffer.mapping = { range: range, ptr: ptr, size: range.byteLength };
+          buffer.mapping = { range: range, ptr: ptr, size: range.byteLength, owned: true };
           return ptr;
         },
 
@@ -1965,27 +2229,52 @@
           mode = this.unwrapBigInt(mode);
           offset = this.unwrapBigInt(offset);
           size = this.unwrapBigInt(size);
+          // `WHOLE_MAP_SIZE` (max uint) is Odin's "to the end". `mapAsync`'s
+          // size is an explicit byte count -- Chromium maps 0 bytes for size 0 --
+          // so resolve the sentinel against the buffer. It reaches JS as -1
+          // because wasm i32 arguments are signed.
+          if (size === -1 || size === 0xffffffff) size = buffer.buffer.size - offset;
 
           const callbackInfo = this.CallbackInfo(callbackInfoPtr);
-          buffer.buffer
-            .mapAsync(mode, offset, size)
-            .catch((e) => {
+
+          let promise;
+          try {
+            promise = buffer.buffer.mapAsync(mode, offset, size);
+          } catch (e) {
+            // The browser rejects some calls synchronously (for example an
+            // unaligned offset). Report it through the callback and complete
+            // immediately, like a refused `buffer_map_async` on a native
+            // backend, rather than letting the throw cross the wasm boundary.
+            const messageAddr = this.makeMessageArg(e.message);
+            this.callCallback(callbackInfo, [
+              this.odinEnumValue('MapAsyncStatus', 'Error'),
+              messageAddr,
+            ]);
+            this.mem.exports.js_free(messageAddr);
+            return BigInt(0);
+          }
+
+          promise.then(
+            () => {
+              this.callCallback(callbackInfo, [
+                this.odinEnumValue('MapAsyncStatus', 'Success'),
+                this.zeroMessageArg(),
+              ]);
+            },
+            (e) => {
               const messageAddr = this.makeMessageArg(e.message);
               this.callCallback(callbackInfo, [
                 this.odinEnumValue('MapAsyncStatus', 'Error'),
                 messageAddr,
               ]);
               this.mem.exports.js_free(messageAddr);
-            })
-            .then(() => {
-              this.callCallback(callbackInfo, [
-                this.odinEnumValue('MapAsyncStatus', 'Success'),
-                this.zeroMessageArg(),
-              ]);
-            });
+            },
+          );
 
-          // TODO: returning a future? WARN that requires refactor removing await
-          return BigInt(0);
+          // The future resolved even though the mapping failed; the callback
+          // carries the status, matching `instance_wait_any`, which only needs
+          // the operation to have finished.
+          return this.registerFuture(promise);
         },
 
         /**
@@ -2002,24 +2291,25 @@
 
           this.assert(!buffer.mapping, 'buffer already mapped');
 
-          const range = buffer.buffer.getMappedRange(offset, size);
+          const range = this.mappedRange(buffer.buffer, offset, size);
 
-          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, size);
+          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, range.byteLength);
           mapping.set(new Uint8Array(range));
 
-          buffer.mapping = { range: range, ptr: ptr, size: range.byteLength };
+          // The destination is the caller's memory, so there is nothing to copy
+          // back on unmap, and `ptr` is not shim-owned.
+          buffer.mapping = { range: null, ptr: ptr, size: range.byteLength, owned: false };
 
           return STATUS_SUCCESS;
         },
 
         /**
          * @param {number} bufferIdx
-         * @param {number} labelPtr
-         * @param {number} labelLen
+         * @param {number} labelSlicePtr Pointer to the Odin `string` value.
          */
-        webgpuBufferSetLabel: (bufferIdx, labelPtr, labelLen) => {
+        webgpuBufferSetLabel: (bufferIdx, labelSlicePtr) => {
           const buffer = this.buffers.getPacked(bufferIdx);
-          buffer.buffer.label = this.mem.loadString(labelPtr, labelLen);
+          buffer.buffer.label = this.loadStringParam(labelSlicePtr);
         },
 
         /**
@@ -2027,19 +2317,27 @@
          */
         webgpuBufferUnmap: (bufferIdx) => {
           const buffer = this.buffers.getPacked(bufferIdx);
-          this.assert(buffer.mapping, 'buffer not mapped');
 
-          const mapping = new Uint8Array(
-            this.mem.memory.buffer,
-            buffer.mapping.ptr,
-            buffer.mapping.size,
-          );
-          new Uint8Array(buffer.mapping.range).set(mapping);
+          // `range` is null when a previous read/write already moved the data
+          // into the caller's memory, and then `ptr` belongs to the caller.
+          if (buffer.mapping) {
+            if (buffer.mapping.range !== null) {
+              const mapping = new Uint8Array(
+                this.mem.memory.buffer,
+                buffer.mapping.ptr,
+                buffer.mapping.size,
+              );
+              new Uint8Array(buffer.mapping.range).set(mapping);
+            }
+            if (buffer.mapping.owned) {
+              this.mem.exports.js_free(buffer.mapping.ptr);
+            }
+            buffer.mapping = null;
+          }
 
+          // `GPUBuffer.unmap()` is a no-op when already unmapped and aborts a
+          // pending mapping, which is exactly the contract of `buffer_unmap`.
           buffer.buffer.unmap();
-
-          this.mem.exports.js_free(buffer.mapping.ptr);
-          buffer.mapping = null;
         },
 
         /**
@@ -2056,12 +2354,14 @@
 
           this.assert(!buffer.mapping, 'buffer already mapped');
 
-          const range = buffer.buffer.getMappedRange(offset, size);
+          const range = this.mappedRange(buffer.buffer, offset, size);
 
-          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, size);
+          const mapping = new Uint8Array(this.mem.memory.buffer, ptr, range.byteLength);
           new Uint8Array(range).set(mapping);
 
-          buffer.mapping = { range: range, ptr: ptr, size: range.byteLength };
+          // The source is the caller's memory, so there is nothing to copy back
+          // on unmap, and `ptr` is not shim-owned.
+          buffer.mapping = { range: null, ptr: ptr, size: range.byteLength, owned: false };
 
           return STATUS_SUCCESS;
         },
@@ -2079,14 +2379,16 @@
          * @param {0|number} descriptorPtr
          * @return {number} The compute pass encoder
          */
-        webgpuCommandEncoderBeginComputePass: (commandEncoderIdx, descriptorPtr) => {
+        webgpuCommandEncoderBeginComputePass: (commandEncoderIdx, descriptorPtr, outPtr) => {
           const commandEncoder = this.commandEncoders.getPacked(commandEncoderIdx);
+          this.assert(outPtr != 0);
 
           /** @type {?GPUComputePassDescriptor} */
           let descriptor;
           if (descriptorPtr != 0) {
+            /** `gpu.Compute_Pass_Descriptor` (12 bytes, align 4):
+             *   label @0 (string, 8), timestamp_writes @8 (ptr) */
             const off = this.struct(descriptorPtr);
-            off(4);
             descriptor = {
               label: this.StringView(off(this.sizes.StringView)),
               timestampWrites: this.PassTimestampWritesPtr(off(4)),
@@ -2094,7 +2396,7 @@
           }
 
           const computePassEncoder = commandEncoder.beginComputePass(descriptor);
-          return this.computePassEncoders.create(computePassEncoder);
+          this.computePassEncoders.storePacked(outPtr, this.computePassEncoders.create(computePassEncoder));
         },
 
         /**
@@ -2121,7 +2423,8 @@
           const { ptr: caPtr, len: caLen } = this.readSlice(off); // 8: color_attachments
           const dsPtr = this.mem.loadPtr(off(4)); // 16: depth_stencil_attachment
           const tsPtr = this.mem.loadPtr(off(4)); // 20: timestamp_writes
-          const occlusionQuerySet = this.objectAt(this.querySets, off(4)); // 24
+          // 24: occlusion_query_set (`gpu.Query_Set` is a 16-byte Handle)
+          const occlusionQuerySet = this.handleAt(this.querySets, off(16, 8));
           off(4); // 40: multiview_mask (unused)
 
           /** @type {GPURenderPassEncoderDescriptor} */
@@ -2274,16 +2577,11 @@
 
         /**
          * @param {number} commandEncoderIdx
-         * @param {number} markerLabelPtr
-         * @param {number} markerLabelLen
+         * @param {number} markerLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuCommandEncoderInsertDebugMarker: (
-          commandEncoderIdx,
-          markerLabelPtr,
-          markerLabelLen,
-        ) => {
+        webgpuCommandEncoderInsertDebugMarker: (commandEncoderIdx, markerLabelPtr) => {
           const commandEncoder = this.commandEncoders.getPacked(commandEncoderIdx);
-          commandEncoder.insertDebugMarker(this.mem.loadString(markerLabelPtr, markerLabelLen));
+          commandEncoder.insertDebugMarker(this.loadStringParam(markerLabelPtr));
         },
 
         /**
@@ -2296,12 +2594,11 @@
 
         /**
          * @param {number} commandEncoderIdx
-         * @param {number} groupLabelPtr
-         * @param {number} groupLabelLen
+         * @param {number} groupLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuCommandEncoderPushDebugGroup: (commandEncoderIdx, groupLabelPtr, groupLabelLen) => {
+        webgpuCommandEncoderPushDebugGroup: (commandEncoderIdx, groupLabelPtr) => {
           const commandEncoder = this.commandEncoders.getPacked(commandEncoderIdx);
-          commandEncoder.pushDebugGroup(this.mem.loadString(groupLabelPtr, groupLabelLen));
+          commandEncoder.pushDebugGroup(this.loadStringParam(groupLabelPtr));
         },
 
         /**
@@ -2321,7 +2618,7 @@
           destinationOffset,
         ) => {
           const commandEncoder = this.commandEncoders.getPacked(commandEncoderIdx);
-          const querySet = this.querySets.get(querySetIdx);
+          const querySet = this.querySets.getPacked(querySetIdx);
           const destination = this.buffers.getPacked(destinationIdx);
           destinationOffset = this.unwrapBigInt(destinationOffset);
           commandEncoder.resolveQuerySet(
@@ -2340,7 +2637,7 @@
          */
         webgpuCommandEncoderWriteTimestamp: (commandEncoderIdx, querySetIdx, queryIndex) => {
           const commandEncoder = this.commandEncoders.getPacked(commandEncoderIdx);
-          const querySet = this.querySets.get(querySetIdx);
+          const querySet = this.querySets.getPacked(querySetIdx);
           commandEncoder.writeTimestamp(querySet, queryIndex);
         },
 
@@ -2360,7 +2657,7 @@
           workgroupCountY,
           workgroupCountZ,
         ) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
           computePassEncoder.dispatchWorkgroups(workgroupCountX, workgroupCountY, workgroupCountZ);
         },
 
@@ -2374,7 +2671,7 @@
           indirectBufferIdx,
           indirectOffset,
         ) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
           const indirectBuffer = this.buffers.getPacked(indirectBufferIdx);
           indirectOffset = this.unwrapBigInt(indirectOffset);
           computePassEncoder.dispatchWorkgroupsIndirect(indirectBuffer.buffer, indirectOffset);
@@ -2384,44 +2681,34 @@
          * @param {number} computePassEncoderIdx
          */
         webgpuComputePassEncoderEnd: (computePassEncoderIdx) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
           computePassEncoder.end();
         },
 
         /**
          * @param {number} computePassEncoderIdx
-         * @param {number} markerLabelPtr
-         * @param {number} markerLabelLen
+         * @param {number} markerLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuComputePassEncoderInsertDebugMarker: (
-          computePassEncoderIdx,
-          markerLabelPtr,
-          markerLabelLen,
-        ) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
-          computePassEncoder.insertDebugMarker(this.mem.loadString(markerLabelPtr, markerLabelLen));
+        webgpuComputePassEncoderInsertDebugMarker: (computePassEncoderIdx, markerLabelPtr) => {
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
+          computePassEncoder.insertDebugMarker(this.loadStringParam(markerLabelPtr));
         },
 
         /**
          * @param {number} computePassEncoderIdx
          */
         webgpuComputePassEncoderPopDebugGroup: (computePassEncoderIdx) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
           computePassEncoder.popDebugGroup();
         },
 
         /**
          * @param {number} computePassEncoderIdx
-         * @param {number} groupLabelPtr
-         * @param {number} groupLabelLen
+         * @param {number} groupLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuComputePassEncoderPushDebugGroup: (
-          computePassEncoderIdx,
-          groupLabelPtr,
-          groupLabelLen,
-        ) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
-          computePassEncoder.pushDebugGroup(this.mem.loadString(groupLabelPtr, groupLabelLen));
+        webgpuComputePassEncoderPushDebugGroup: (computePassEncoderIdx, groupLabelPtr) => {
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
+          computePassEncoder.pushDebugGroup(this.loadStringParam(groupLabelPtr));
         },
 
         /**
@@ -2438,7 +2725,7 @@
           dynamicOffsetCount,
           dynamicOffsetsPtr,
         ) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
           dynamicOffsetCount = this.unwrapBigInt(dynamicOffsetCount);
 
           let bindGroup;
@@ -2464,8 +2751,8 @@
          * @param {number} pipelineIdx
          */
         webgpuComputePassEncoderSetPipeline: (computePassEncoderIdx, pipelineIdx) => {
-          const computePassEncoder = this.computePassEncoders.get(computePassEncoderIdx);
-          const pipeline = this.computePipelines.get(pipelineIdx);
+          const computePassEncoder = this.computePassEncoders.getPacked(computePassEncoderIdx);
+          const pipeline = this.computePipelines.getPacked(pipelineIdx);
           computePassEncoder.setPipeline(pipeline);
         },
 
@@ -2478,10 +2765,10 @@
          * @param {number} groupIndex
          * @returns {number}
          */
-        webgpuComputePipelineGetBindGroupLayout: (computePipelineIdx, groupIndex) => {
-          const computePipeline = this.computePipelines.get(computePipelineIdx);
+        webgpuComputePipelineGetBindGroupLayout: (computePipelineIdx, groupIndex, outPtr) => {
+          const computePipeline = this.computePipelines.getPacked(computePipelineIdx);
           const bindGroupLayout = computePipeline.getBindGroupLayout(groupIndex);
-          return this.bindGroupLayouts.create(bindGroupLayout);
+          this.bindGroupLayouts.storePacked(outPtr, this.bindGroupLayouts.create(bindGroupLayout));
         },
 
         ...this.computePipelines.interface(true),
@@ -2584,13 +2871,14 @@
          * @param {number} descriptorPtr
          * @returns {number} The compute pipeline.
          */
-        webgpuDeviceCreateComputePipeline: (deviceIdx, descriptorPtr) => {
+        webgpuDeviceCreateComputePipeline: (deviceIdx, descriptorPtr, outPtr) => {
           const device = this.devices.get(deviceIdx);
           this.assert(descriptorPtr != 0);
+          this.assert(outPtr != 0);
           const computePipeline = device.createComputePipeline(
             this.ComputePipelineDescriptor(descriptorPtr),
           );
-          return this.computePipelines.create(computePipeline);
+          this.computePipelines.storePacked(outPtr, this.computePipelines.create(computePipeline));
         },
 
         /**
@@ -2604,9 +2892,20 @@
           this.assert(descriptorPtr != 0);
 
           const callbackInfo = this.CallbackInfo(callbackInfoPtr);
-          device
-            .createComputePipelineAsync(this.ComputePipelineDescriptor(descriptorPtr))
-            .catch((e) => {
+          const promise = device.createComputePipelineAsync(
+            this.ComputePipelineDescriptor(descriptorPtr),
+          );
+
+          promise.then(
+            (computePipeline) => {
+              const pipelineIdx = this.computePipelines.create(computePipeline);
+              this.callCallback(callbackInfo, [
+                this.odinEnumValue('CreatePipelineAsyncStatus', 'Success'),
+                pipelineIdx,
+                this.zeroMessageArg(),
+              ]);
+            },
+            (e) => {
               const messageAddr = this.makeMessageArg(e.message);
               this.callCallback(callbackInfo, [
                 this.odinEnumValue('CreatePipelineAsyncStatus', 'ValidationError'),
@@ -2614,18 +2913,10 @@
                 messageAddr,
               ]);
               this.mem.exports.js_free(messageAddr);
-            })
-            .then((computePipeline) => {
-              const pipelineIdx = this.computePipelines.create(computePipeline);
-              this.callCallback(callbackInfo, [
-                this.odinEnumValue('CreatePipelineAsyncStatus', 'Success'),
-                pipelineIdx,
-                this.zeroMessageArg(),
-              ]);
-            });
+            },
+          );
 
-          // TODO: returning futures?
-          return BigInt(0);
+          return this.registerFuture(promise);
         },
 
         /**
@@ -2666,12 +2957,15 @@
          * @param {number} descriptorPtr
          * @returns {number} The query set.
          */
-        webgpuDeviceCreateQuerySet: (deviceIdx, descriptorPtr) => {
+        webgpuDeviceCreateQuerySet: (deviceIdx, descriptorPtr, outPtr) => {
           const device = this.devices.get(deviceIdx);
           this.assert(descriptorPtr != 0);
+          this.assert(outPtr != 0);
 
+          /** `gpu.Query_Set_Descriptor` (24 bytes, align 4):
+           *   label @0 (string, 8), type @8 (enum), count @12 (u32),
+           *   pipeline_statistics @16 (slice, 8) */
           const off = this.struct(descriptorPtr);
-          off(4);
 
           /** @type {GPUQuerySetDescriptor} */
           const descriptor = {
@@ -2681,7 +2975,7 @@
           };
 
           const querySet = device.createQuerySet(descriptor);
-          return this.querySets.create(querySet);
+          this.querySets.storePacked(outPtr, this.querySets.create(querySet));
         },
 
         /**
@@ -2689,31 +2983,48 @@
          * @param {number} descriptorPtr
          * @returns {number} The query set.
          */
-        webgpuDeviceCreateRenderBundleEncoder: (deviceIdx, descriptorPtr) => {
+        webgpuDeviceCreateRenderBundleEncoder: (deviceIdx, descriptorPtr, outPtr) => {
           const device = this.devices.get(deviceIdx);
           this.assert(descriptorPtr != 0);
+          this.assert(outPtr != 0);
 
+          /** `gpu.Render_Bundle_Encoder_Descriptor` (28 bytes, align 4):
+           *   label @0 (string, 8), color_formats @8 (slice, 8),
+           *   depth_stencil @16 (ptr), sample_count @20 (u32), multiview @24 (u32) */
           const off = this.struct(descriptorPtr);
-          off(4);
 
-          const colorFormatsDataOff = off(4);
-          const colorFormatsData = this.mem.loadPtr(colorFormatsDataOff);
-
-          const colorFormatsLenOff = off(this.mem.intSize);
-          const colorFormatsLen = this.mem.loadUint(colorFormatsLenOff);
+          const label = this.StringView(off(this.sizes.StringView));
+          const { ptr: colorFormatsPtr, len: colorFormatsLen } = this.readSlice(off);
+          const depthStencilPtr = this.mem.loadPtr(off(4));
+          const sampleCount = this.mem.loadU32(off(4));
+          off(4); // multiview: no browser equivalent
 
           /** @type {GPURenderBundleEncoderDescriptor} */
           const descriptor = {
-            label: this.StringView(off(this.sizes.StringView)),
-            colorFormats: this.array(colorFormatsLen, colorFormatsData, this.TextureFormat, 4),
-            depthStencilFormat: this.odinEnum('TextureFormat', off(4)),
-            sampleCount: this.mem.loadU32(off(4)),
-            depthReadOnly: this.mem.loadB32(off(4)),
-            stencilReadOnly: this.mem.loadB32(off(4)),
+            label,
+            colorFormats: this.array(
+              colorFormatsLen,
+              colorFormatsPtr,
+              (ptr) => this.odinEnum('TextureFormat', ptr),
+              4,
+            ),
+            sampleCount,
           };
 
+          if (depthStencilPtr != 0) {
+            // `gpu.Render_Bundle_Depth_Stencil` (8 bytes, align 4):
+            //   depth_stencil_format @0, depth_read_only @4, stencil_read_only @5
+            const ds = this.struct(depthStencilPtr);
+            descriptor.depthStencilFormat = this.odinEnum('TextureFormat', ds(4));
+            descriptor.depthReadOnly = this.mem.loadU8(ds(1)) !== 0;
+            descriptor.stencilReadOnly = this.mem.loadU8(ds(1)) !== 0;
+          }
+
           const renderBundleEncoder = device.createRenderBundleEncoder(descriptor);
-          return this.renderBundleEncoders.create(renderBundleEncoder);
+          this.renderBundleEncoders.storePacked(
+            outPtr,
+            this.renderBundleEncoders.create(renderBundleEncoder),
+          );
         },
 
         /**
@@ -2742,28 +3053,31 @@
           this.assert(descriptorPtr != 0);
 
           const callbackInfo = this.CallbackInfo(callbackInfoPtr);
-          device
-            .createRenderPipelineAsync(this.RenderPipelineDescriptor(descriptorPtr))
-            .catch((e) => {
-              const messageAddr = this.makeMessageArg(e.message);
-              this.callCallback(callbackInfo, [
-                this.odinEnumValue('CreatePipelineAsyncStatus', 'Unknown'),
-                0,
-                messageAddr,
-              ]);
-              this.mem.exports.js_free(messageAddr);
-            })
-            .then((renderPipeline) => {
+          const promise = device.createRenderPipelineAsync(
+            this.RenderPipelineDescriptor(descriptorPtr),
+          );
+
+          promise.then(
+            (renderPipeline) => {
               const renderPipelineIdx = this.renderPipelines.create(renderPipeline);
               this.callCallback(callbackInfo, [
                 this.odinEnumValue('CreatePipelineAsyncStatus', 'Success'),
                 renderPipelineIdx,
                 this.zeroMessageArg(),
               ]);
-            });
+            },
+            (e) => {
+              const messageAddr = this.makeMessageArg(e.message);
+              this.callCallback(callbackInfo, [
+                this.odinEnumValue('CreatePipelineAsyncStatus', 'ValidationError'),
+                0,
+                messageAddr,
+              ]);
+              this.mem.exports.js_free(messageAddr);
+            },
+          );
 
-          // TODO: returning futures?
-          return BigInt(0);
+          return this.registerFuture(promise);
         },
 
         /**
@@ -2807,12 +3121,28 @@
           const device = this.devices.get(deviceIdx);
           this.assert(descriptorPtr != 0);
 
+          /** `gpu.Shader_Module_Descriptor` (32 bytes, align 4):
+           *   label @0 (string, 8), source @8 (`gpu.Shader_Source`, 24) */
           const off = this.struct(descriptorPtr);
+
+          const label = this.StringView(off(this.sizes.StringView));
+
+          // The WGSL variant is `{ code: string }`, which starts at the union's
+          // payload; the tag sits after the payload.
+          const sourceStart = off(0, 1);
+          const sourceTag = this.mem.loadU8(sourceStart + SHADER_SOURCE_TAG_OFFSET);
+          const code = this.StringView(sourceStart);
+
+          if (sourceTag !== SHADER_SOURCE_WGSL_TAG) {
+            console.error(
+              `device_create_shader_module: only WGSL sources are supported on the web (got Shader_Source tag ${sourceTag})`,
+            );
+          }
 
           /** @type {GPUShaderModuleDescriptor} */
           const descriptor = {
-            label: this.StringView(off(this.sizes.StringView)),
-            code: this.StringView(off(this.sizes.StringView)),
+            label,
+            code,
           };
 
           const shaderModule = device.createShaderModule(descriptor);
@@ -2843,13 +3173,36 @@
 
         /**
          * @param {number} deviceIdx
+         * @returns {number} The adapter that created this device, or 0.
+         */
+        webgpuDeviceGetAdapter: (deviceIdx) => {
+          const device = this.devices.get(deviceIdx);
+          return device === undefined ? 0 : (device.__adapterIdx ?? 0);
+        },
+
+        /**
+         * @param {number} deviceIdx
+         * @returns {number} The instance that created this device, or 0.
+         */
+        webgpuDeviceGetInstance: (deviceIdx) => {
+          const device = this.devices.get(deviceIdx);
+          return device === undefined ? 0 : (device.__instanceIdx ?? 0);
+        },
+
+        /**
+         * @param {number} deviceIdx
          * @param {number} infoPtr
          * @returns {number}
          */
         webgpuDeviceGetAdapterInfo: (deviceIdx, infoPtr) => {
           const device = this.devices.get(deviceIdx);
           if (!device) return STATUS_ERROR;
-          return this.genericGetAdapterInfo(infoPtr, device.adapterInfo);
+          // `GPUDevice.adapterInfo` is fairly new; fall back to the adapter
+          // that created the device when it is missing.
+          const info =
+            device.adapterInfo ?? this.adapters.get(device.__adapterIdx)?.info;
+          if (!info) return STATUS_ERROR;
+          return this.genericGetAdapterInfo(infoPtr, info);
         },
 
         /**
@@ -2876,8 +3229,10 @@
          * @returns {number}
          */
         webgpuDeviceGetLostFuture: (deviceIdx) => {
-          // TODO: futures?
-          return BigInt(0);
+          const device = this.devices.get(deviceIdx);
+          if (!device) return 0n;
+          // Resolves when the device is lost.
+          return this.registerFuture(device.lost);
         },
 
         /**
@@ -2908,18 +3263,10 @@
           const device = this.devices.get(deviceIdx);
 
           const callbackInfo = this.CallbackInfo(callbackInfoPtr);
-          device
-            .popErrorScope()
-            .catch((e) => {
-              const messageAddr = this.makeMessageArg(e.message);
-              this.callCallback(callbackInfo, [
-                this.odinEnumValue('PopErrorScopeStatus', 'Error'),
-                this.odinEnumValue('ErrorType', 'unknown'),
-                messageAddr,
-              ]);
-              this.mem.exports.js_free(messageAddr);
-            })
-            .then((error) => {
+          const promise = device.popErrorScope();
+
+          promise.then(
+            (error) => {
               if (!error) {
                 this.callCallback(callbackInfo, [
                   this.odinEnumValue('PopErrorScopeStatus', 'Success'),
@@ -2940,17 +3287,28 @@
                 status = this.odinEnumValue('ErrorType', 'unknown');
               }
 
-              const messageAddr = error.message;
+              // `error.message` is a JS string, not an address; `callCallback`
+              // hands it to wasm as a pointer, so it has to be materialized.
+              const messageAddr = this.makeMessageArg(error.message);
               this.callCallback(callbackInfo, [
                 this.odinEnumValue('PopErrorScopeStatus', 'Success'),
                 status,
                 messageAddr,
               ]);
               this.mem.exports.js_free(messageAddr);
-            });
+            },
+            (e) => {
+              const messageAddr = this.makeMessageArg(e.message);
+              this.callCallback(callbackInfo, [
+                this.odinEnumValue('PopErrorScopeStatus', 'Error'),
+                this.odinEnumValue('ErrorType', 'unknown'),
+                messageAddr,
+              ]);
+              this.mem.exports.js_free(messageAddr);
+            },
+          );
 
-          // TODO: futures?
-          return BigInt(0);
+          return this.registerFuture(promise);
         },
 
         /**
@@ -3037,7 +3395,8 @@
          * @param {number} instanceIdx
          */
         webgpuInstanceProcessEvents: (instanceIdx) => {
-          console.warn('unimplemented: wgpuInstanceProcessEvents');
+          // Callbacks on the web fire from promise microtasks, so there is
+          // nothing to pump here.
         },
 
         /**
@@ -3061,15 +3420,76 @@
 
             const adapter = await navigator.gpu.requestAdapter(options);
             if (!adapter) return 0;
+            adapter.__instanceIdx = instanceIdx;
             return this.adapters.create(adapter);
           }.bind(this),
         ),
 
-        webgpuInstanceWaitAny: (instanceIdx, futureCount, futuresPtr, timeoutNS) => {
-          // TODO: futures?
-          console.warn('unimplemented: wgpuInstanceProcessEvents');
-          return BigInt(0);
-        },
+        /**
+         * Suspends the wasm stack until one of `futures` completes, or until the
+         * timeout elapses, then sets each `Future_Wait_Info.completed`.
+         *
+         * This relies on `WebAssembly.Suspending`, so it only works when the call
+         * is inside a `WebAssembly.promising` entry point — odin.js wraps
+         * `_start` / `step` / `_end`, so normal app code qualifies. Calling it
+         * from a JS-invoked callback (which entered wasm through the function
+         * table) cannot suspend.
+         *
+         * @param {number} instanceIdx
+         * @param {number|BigInt} futureCount
+         * @param {number} futuresPtr Array of `gpu.Future_Wait_Info`
+         * @param {BigInt} timeoutNS `max(u64)` waits forever
+         * @returns {Promise<number>} a `gpu.Wait_Status` ordinal
+         */
+        webgpuInstanceWaitAny: new WebAssembly.Suspending(
+          async function (instanceIdx, futureCount, futuresPtr, timeoutNS) {
+            const count = this.unwrapBigInt(futureCount);
+            const completedOffset = this.sizes.FutureWaitInfo[1];
+
+            const entries = [];
+            for (let i = 0; i < count; i += 1) {
+              // `futures` is `[^]^Future_Wait_Info`: an array of 4-byte pointers,
+              // each pointing at a `Future_Wait_Info`.
+              const infoPtr = this.mem.loadPtr(futuresPtr + i * 4);
+              const id = Number(this.mem.loadU64(infoPtr));
+              entries.push({ infoPtr, entry: this.futures.get(id) });
+            }
+
+            // Match the native backends: id 0 ("no operation") and ids the shim
+            // does not know are already complete. This is what a synchronously
+            // refused `buffer_map_async` returns.
+            const isDone = (info) =>
+              info.entry === undefined || info.entry.status !== FUTURE_PENDING;
+
+            const anySettled = entries.some(isDone);
+            const pending = entries
+              .filter((info) => info.entry !== undefined && info.entry.status === FUTURE_PENDING)
+              .map((info) => info.entry.promise);
+
+            // Only wait when nothing has settled yet, matching the C semantics:
+            // at least one future must complete, not all of them.
+            if (!anySettled && pending.length > 0) {
+              const waiters = [Promise.race(pending)];
+              const timeoutNSValue = BigInt.asUintN(64, BigInt(timeoutNS));
+              if (timeoutNSValue !== 0xffffffffffffffffn) {
+                const timeoutMs = Number(timeoutNSValue / 1000000n);
+                waiters.push(new Promise((resolve) => setTimeout(resolve, Math.max(0, timeoutMs))));
+              }
+              await Promise.race(waiters);
+            }
+
+            let anyCompleted = false;
+            for (const info of entries) {
+              const done = isDone(info);
+              this.mem.storeU8(info.infoPtr + completedOffset, done ? 1 : 0);
+              if (done) anyCompleted = true;
+            }
+
+            return anyCompleted
+              ? this.odinEnumValue('WaitStatus', 'Success')
+              : this.odinEnumValue('WaitStatus', 'Timed_Out');
+          }.bind(this),
+        ),
 
         ...this.instances.interface(false),
 
@@ -3083,7 +3503,7 @@
          * @param {number} querySetIdx
          */
         webgpuQuerySetDestroy: (querySetIdx) => {
-          const querySet = this.querySets.get(querySetIdx);
+          const querySet = this.querySets.getPacked(querySetIdx);
           querySet.destroy();
         },
 
@@ -3092,7 +3512,7 @@
          * @returns {number}
          */
         webgpuQuerySetGetCount: (querySetIdx) => {
-          const querySet = this.querySets.get(querySetIdx);
+          const querySet = this.querySets.getPacked(querySetIdx);
           return querySet.count;
         },
 
@@ -3101,7 +3521,7 @@
          * @returns {number}
          */
         webgpuQuerySetGetType: (querySetIdx) => {
-          const querySet = this.querySets.get(querySetIdx);
+          const querySet = this.querySets.getPacked(querySetIdx);
           return this.odinEnumValue('QueryType', querySet.type);
         },
 
@@ -3117,9 +3537,16 @@
           const queue = this.queues.getPacked(queueIdx);
 
           const callbackInfo = this.CallbackInfo(callbackInfoPtr);
-          queue
-            .onSubmittedWorkDone()
-            .catch((e) => {
+          const promise = queue.onSubmittedWorkDone();
+
+          promise.then(
+            () => {
+              this.callCallback(callbackInfo, [
+                this.odinEnumValue('QueueWorkDoneStatus', 'Success'),
+                this.zeroMessageArg(),
+              ]);
+            },
+            (e) => {
               console.warn(e);
               const messageAddr = this.makeMessageArg(e.message);
               this.callCallback(callbackInfo, [
@@ -3127,16 +3554,10 @@
                 messageAddr,
               ]);
               this.mem.exports.js_free(messageAddr);
-            })
-            .then(() => {
-              this.callCallback(callbackInfo, [
-                this.odinEnumValue('QueueWorkDoneStatus', 'Success'),
-                this.zeroMessageArg(),
-              ]);
-            });
+            },
+          );
 
-          // TODO: futures?
-          return BigInt(0);
+          return this.registerFuture(promise);
         },
 
         /**
@@ -3229,7 +3650,7 @@
           firstVertex,
           firstInstance,
         ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
           renderBundleEncoder.draw(vertexCount, instanceCount, firstVertex, firstInstance);
         },
 
@@ -3249,7 +3670,7 @@
           baseVertex,
           firstInstance,
         ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
           renderBundleEncoder.drawIndexed(
             indexCount,
             instanceCount,
@@ -3269,7 +3690,7 @@
           indirectBufferIdx,
           indirectOffset,
         ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
           indirectOffset = this.unwrapBigInt(indirectOffset);
           const buffer = this.buffers.getPacked(indirectBufferIdx);
           renderBundleEncoder.drawIndexedIndirect(buffer.buffer, indirectOffset);
@@ -3285,7 +3706,7 @@
           indirectBufferIdx,
           indirectOffset,
         ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
           indirectOffset = this.unwrapBigInt(indirectOffset);
           const buffer = this.buffers.getPacked(indirectBufferIdx);
           renderBundleEncoder.drawIndirect(buffer.buffer, indirectOffset);
@@ -3294,61 +3715,49 @@
         /**
          * @param {number} renderBundleEncoderIdx
          * @param {0|number} descriptorPtr
-         * @returns {number}
+         * @param {number} outPtr `gpu.Handle_Packed` the new bundle is written to.
          */
-        webgpuRenderBundleEncoderFinish: (renderBundleEncoderIdx, descriptorPtr) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+        webgpuRenderBundleEncoderFinish: (renderBundleEncoderIdx, descriptorPtr, outPtr) => {
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
+          this.assert(outPtr != 0);
 
           /** @type {?GPURenderBundleDescriptor} */
           let descriptor;
           if (descriptorPtr != 0) {
             descriptor = {
-              label: this.StringView(descriptorPtr + 4),
+              // `gpu.Render_Bundle_Descriptor` (8 bytes): label @0 (string)
+              label: this.StringView(descriptorPtr),
             };
           }
 
           const renderBundle = renderBundleEncoder.finish(descriptor);
-          return this.renderBundles.create(renderBundle);
+          this.renderBundles.storePacked(outPtr, this.renderBundles.create(renderBundle));
         },
 
         /**
          * @param {number} renderBundleEncoderIdx
-         * @param {number} markerLabelPtr
-         * @param {number} markerLabelLen
+         * @param {number} markerLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuRenderBundleEncoderInsertDebugMarker: (
-          renderBundleEncoderIdx,
-          markerLabelPtr,
-          markerLabelLen,
-        ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
-          this.assert(markerLabelPtr != 0);
-          const markerLabel = this.mem.loadString(markerLabelPtr, markerLabelLen);
-          renderBundleEncoder.insertDebugMarker(markerLabel);
+        webgpuRenderBundleEncoderInsertDebugMarker: (renderBundleEncoderIdx, markerLabelPtr) => {
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
+          renderBundleEncoder.insertDebugMarker(this.loadStringParam(markerLabelPtr));
         },
 
         /**
          * @param {number} renderBundleEncoderIdx
          */
         webgpuRenderBundleEncoderPopDebugGroup: (renderBundleEncoderIdx) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
           renderBundleEncoder.popDebugGroup();
         },
 
         /**
          * @param {number} renderBundleEncoderIdx
-         * @param {number} groupLabelPtr
-         * @param {number} grouplabelLen
+         * @param {number} groupLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuRenderBundleEncoderPushDebugGroup: (
-          renderBundleEncoderIdx,
-          groupLabelPtr,
-          grouplabelLen,
-        ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
-          this.assert(groupLabelPtr != 0);
-          const groupLabel = this.mem.loadString(groupLabelPtr, groupLabelLen);
-          renderBundleEncoder.pushDebugGroup(groupLabel);
+        webgpuRenderBundleEncoderPushDebugGroup: (renderBundleEncoderIdx, groupLabelPtr) => {
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
+          renderBundleEncoder.pushDebugGroup(this.loadStringParam(groupLabelPtr));
         },
 
         /**
@@ -3365,7 +3774,7 @@
           dynamicOffsetCount,
           dynamicOffsetsPtr,
         ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
 
           let group;
           if (groupIdx > 0) {
@@ -3401,7 +3810,7 @@
           offset,
           size,
         ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
           const buffer = this.buffers.getPacked(bufferIdx);
           const format = this.odinEnumValue('IndexFormat', formatInt);
           offset = this.unwrapBigInt(offset);
@@ -3414,7 +3823,7 @@
          * @param {number} pipelineIdx
          */
         webgpuRenderBundleEncoderSetPipeline: (renderBundleEncoderIdx, pipelineIdx) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
           const pipeline = this.renderPipelines.getPacked(pipelineIdx);
           renderBundleEncoder.setPipeline(pipeline);
         },
@@ -3433,7 +3842,7 @@
           offset,
           size,
         ) => {
-          const renderBundleEncoder = this.renderBundleEncoders.get(renderBundleEncoderIdx);
+          const renderBundleEncoder = this.renderBundleEncoders.getPacked(renderBundleEncoderIdx);
 
           let buffer;
           if (bufferIdx > 0) {
@@ -3563,25 +3972,20 @@
           const bundles = this.array(
             bundleCount,
             bundlesPtr,
-            (ptr) => this.renderBundles.get(this.mem.loadPtr(ptr)),
-            4,
+            // `[]Render_Bundle` is an array of 16-byte `gpu.Handle`s
+            (ptr) => this.renderBundles.getPacked(ptr),
+            16,
           );
           renderPassEncoder.executeBundles(bundles);
         },
 
         /**
          * @param {number} renderPassEncoderIdx
-         * @param {number} markerLabelPtr
-         * @param {number} markerLabelLen
+         * @param {number} markerLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuRenderPassEncoderInsertDebugMarker: (
-          renderPassEncoderIdx,
-          markerLabelPtr,
-          markerLabelLen,
-        ) => {
+        webgpuRenderPassEncoderInsertDebugMarker: (renderPassEncoderIdx, markerLabelPtr) => {
           const renderPassEncoder = this.renderPassEncoders.getPacked(renderPassEncoderIdx);
-          const markerLabel = this.mem.loadString(markerLabelPtr, markerLabelLen);
-          renderPassEncoder.insertDebugMarker(markerLabel);
+          renderPassEncoder.insertDebugMarker(this.loadStringParam(markerLabelPtr));
         },
 
         /**
@@ -3594,17 +3998,11 @@
 
         /**
          * @param {number} renderPassEncoderIdx
-         * @param {number} groupLabelPtr
-         * @param {number} groupLabelLen
+         * @param {number} groupLabelPtr Pointer to the Odin `string` value.
          */
-        webgpuRenderPassEncoderPushDebugGroup: (
-          renderPassEncoderIdx,
-          groupLabelPtr,
-          groupLabelLen,
-        ) => {
+        webgpuRenderPassEncoderPushDebugGroup: (renderPassEncoderIdx, groupLabelPtr) => {
           const renderPassEncoder = this.renderPassEncoders.getPacked(renderPassEncoderIdx);
-          const groupLabel = this.mem.loadString(groupLabelPtr, groupLabelLen);
-          renderPassEncoder.pushDebugGroup(groupLabel);
+          renderPassEncoder.pushDebugGroup(this.loadStringParam(groupLabelPtr));
         },
 
         /**
@@ -3618,15 +4016,19 @@
           passPtr,
           groupIndex,
           groupPtr,
-          dynamicOffsetsPtr,
-          dynamicOffsetCount,
+          dynamicOffsetsSlicePtr,
         ) => {
           const pass = this.renderPassEncoders.getPacked(passPtr);
           const group = this.bindGroups.getPacked(groupPtr);
 
+          // `dynamic_offsets: []u32` arrives as a pointer to the slice value
+          // ({ptr, len}), the same convention `webgpuQueueSubmit` relies on for
+          // `commands: []Command_Buffer` — Odin passes aggregates indirectly.
+          const { ptr, len } = this.loadSlice(dynamicOffsetsSlicePtr);
+
           const offsets = [];
-          for (let i = 0; i < dynamicOffsetCount; i++) {
-            offsets.push(this.mem.loadU32(dynamicOffsetsPtr + i * 4));
+          for (let i = 0; i < len; i++) {
+            offsets.push(this.mem.loadU32(ptr + i * 4));
           }
 
           pass.setBindGroup(groupIndex, group ?? null, offsets);
@@ -3756,10 +4158,10 @@
          * @param {number} groupIndex
          * @returns {number}
          */
-        webgpuRenderPipelineGetBindGroupLayout: (renderPipelineIdx, groupIndex) => {
+        webgpuRenderPipelineGetBindGroupLayout: (renderPipelineIdx, groupIndex, outPtr) => {
           const renderPipeline = this.renderPipelines.getPacked(renderPipelineIdx);
           const bindGroupLayout = renderPipeline.getBindGroupLayout(groupIndex);
-          return this.bindGroupLayouts.create(bindGroupLayout);
+          this.bindGroupLayouts.storePacked(outPtr, this.bindGroupLayouts.create(bindGroupLayout));
         },
 
         ...this.renderPipelines.interface(true),
@@ -3778,16 +4180,10 @@
           const shaderModule = this.shaderModules.getPacked(shaderModuleIdx);
 
           const callbackInfo = this.CallbackInfo(callbackInfoPtr);
-          shaderModule
-            .getCompilationInfo()
-            .catch((e) => {
-              console.warn(e);
-              this.callCallback(callbackInfo, [
-                this.odinEnumValue('CompilationInfoRequestStatus', 'CallbackCancelled'),
-                null,
-              ]);
-            })
-            .then((compilationInfo) => {
+          const promise = shaderModule.getCompilationInfo();
+
+          promise.then(
+            (compilationInfo) => {
               const ptrsToFree = [];
 
               const compilationMessageSize = this.sizes.CompilationMessage[0];
@@ -3804,8 +4200,10 @@
                 this.mem.storeString(messageAddr, message.message);
 
                 const off = this.struct(addr + i * compilationMessageSize);
-                off(4);
 
+                // `gpu.Compilation_Message` (48 bytes, align 8):
+                //   message @0 (string, 8), message_type @8, line_num @16,
+                //   line_pos @24, offset @32, length @40
                 const messageStart = off(this.sizes.StringView);
                 this.mem.storeI32(messageStart, messageAddr);
                 this.mem.storeUint(messageStart + this.mem.intSize, messageLength);
@@ -3821,10 +4219,11 @@
                 this.mem.storeU64(off(8), message.length);
               });
 
-              const retAddr = this.mem.exports.js_alloc(3 * this.mem.intSize);
+              // `gpu.Compilation_Info` = { messages: []Compilation_Message }
+              const retAddr = this.mem.exports.js_alloc(2 * this.mem.intSize);
               ptrsToFree.push(retAddr);
+              this.mem.storeI32(retAddr, addr);
               this.mem.storeUint(retAddr + this.mem.intSize, compilationInfo.messages.length);
-              this.mem.storeI32(retAddr + this.mem.intSize * 2, addr);
 
               this.callCallback(callbackInfo, [
                 this.odinEnumValue('CompilationInfoRequestStatus', 'Success'),
@@ -3832,34 +4231,37 @@
               ]);
 
               ptrsToFree.forEach((ptr) => this.mem.exports.js_free(ptr));
-            });
+            },
+            (e) => {
+              console.warn(e);
+              this.callCallback(callbackInfo, [
+                this.odinEnumValue('CompilationInfoRequestStatus', 'CallbackCancelled'),
+                null,
+              ]);
+            },
+          );
 
-          // TODO: futures?
-          return BigInt(0);
+          return this.registerFuture(promise);
         },
 
         ...this.shaderModules.interface(true),
 
-        /* ---------------------- SupportedFeatures ---------------------- */
-
-        webgpuSupportedFeaturesFreeMembers: (supportedFeaturesCount, supportedFeaturesPtr) => {
-          this.mem.exports.js_free(supportedFeaturesPtr);
-        },
-
         /* ---------------------- SupportedInstanceFeatures ---------------------- */
 
-        webgpuSupportedInstanceFeaturesFreeMembers: (
-          supportedFeaturesCount,
-          supportedFeaturesPtr,
-        ) => {},
+        webgpuSupportedInstanceFeaturesFreeMembers: (supportedFeaturesPtr) => {
+          // `gpu.Supported_Instance_Features { features: []Instance_Feature_Name }`:
+          // `webgpuGetInstanceFeatures` allocated the array on the JS heap.
+          const ptr = this.mem.loadPtr(supportedFeaturesPtr);
+          if (ptr !== 0) this.mem.exports.js_free(ptr);
+          this.mem.storeU32(supportedFeaturesPtr, 0);
+          this.mem.storeUint(supportedFeaturesPtr + this.mem.intSize, 0);
+        },
 
         /* ---------------------- SupportedWGSLLanguageFeatures ---------------------- */
 
-        webgpuSupportedWGSLLanguageFeaturesFreeMembers: (
-          supportedFeaturesCount,
-          supportedFeaturesPtr,
-        ) => {
-          this.mem.exports.js_free(supportedFeaturesPtr);
+        webgpuSupportedWGSLLanguageFeaturesFreeMembers: (supportedFeaturesPtr) => {
+          const { ptr } = this.loadSlice(supportedFeaturesPtr);
+          if (ptr !== 0) this.mem.exports.js_free(ptr);
         },
 
         /* ---------------------- Surface ---------------------- */
@@ -3878,13 +4280,15 @@
 
           const deviceIdx = this.mem.loadPtr(off(4));
           const device = this.devices.get(deviceIdx);
-          const usage = this.mem.loadU32(off(8));
+          // `gpu.Surface_Configuration`: device @0, usage @8 (u64 bit_set), ...
+          const usage = Number(this.mem.loadU64(off(8)));
           const format = this.odinEnum('TextureFormat', off(4));
+          const formatValue = this.odinEnumValue('TextureFormat', format);
           const colorSpaceValue = this.mem.loadU32(off(4));
           const width = this.mem.loadU32(off(4));
           const height = this.mem.loadU32(off(4));
-          off(4); // present_mode (unused in browsers)
-          off(4); // desired_maximum_frame_latency (unused)
+          const presentModeValue = this.mem.loadU32(off(4));
+          const latency = this.mem.loadU32(off(4));
           const alphaModeValue = this.odinEnum('CompositeAlphaMode', off(4));
 
           const viewFormatsPtr = this.mem.loadPtr(off(4));
@@ -3941,6 +4345,38 @@
           context.configure(config);
 
           surface.deviceIdx = deviceIdx;
+          surface.__config = {
+            devicePacked: deviceIdx,
+            usage,
+            format: formatValue,
+            colorSpace: colorSpaceValue,
+            width,
+            height,
+            presentMode: presentModeValue,
+            latency,
+            alphaMode: alphaModeValue,
+          };
+        },
+
+        webgpuSurfaceGetConfiguration: (surfaceIdx, configPtr) => {
+          const surface = this.surfaces.get(surfaceIdx);
+          const config = surface.__config;
+          if (!config) {
+            return 0;
+          }
+          const off = this.struct(configPtr);
+          this.mem.storePtr(off(4), config.devicePacked);
+          this.mem.storeU64(off(8), config.usage);
+          this.mem.storeU32(off(4), config.format);
+          this.mem.storeU32(off(4), config.colorSpace);
+          this.mem.storeU32(off(4), config.width);
+          this.mem.storeU32(off(4), config.height);
+          this.mem.storeU32(off(4), config.presentMode);
+          this.mem.storeU32(off(4), config.latency);
+          this.mem.storeU32(off(4), config.alphaMode);
+          this.mem.storePtr(off(4), 0);
+          this.mem.storeI32(off(4), 0);
+          return 1;
         },
 
         /**
@@ -3987,8 +4423,8 @@
           );
           writeSlice(alphaModesAddr, 2);
 
-          // usages: Texture_Usages (bit_set, 4 bytes). Canvas textures support these.
-          // Bit positions = ordinals of YOUR Odin Texture_Usage enum. Adjust if the order differs.
+          // usages: Texture_Usages (u64 bit_set). Canvas textures support these.
+          // Bit positions = ordinals of the Odin Texture_Usage enum.
           const USAGE = {
             Copy_Src: 0,
             Copy_Dst: 1,
@@ -4001,7 +4437,7 @@
             (1 << USAGE.Copy_Dst) |
             (1 << USAGE.Texture_Binding) |
             (1 << USAGE.Render_Attachment);
-          this.mem.storeU32(off(4), usages);
+          this.mem.storeU64(off(8), BigInt(usages));
 
           return STATUS_SUCCESS;
         },
@@ -4098,6 +4534,7 @@
           const descriptor = this.TextureViewDescriptor(descriptorPtr);
           const textureView = texture.createView(descriptor);
           textureView.__format = descriptor?.format ?? texture.format;
+          textureView.__texturePacked = texturePtr;
           this.textureViews.storePacked(outPtr, this.textureViews.create(textureView));
         },
 
@@ -4163,7 +4600,6 @@
           return texture.sampleCount;
         },
 
-
         /**
          * @param {number} textureIdx
          */
@@ -4206,6 +4642,11 @@
         ...this.textures.interface(true),
 
         /* ---------------------- TextureView ---------------------- */
+
+        webgpuTextureViewGetTexture: (textureViewIdx) => {
+          const textureView = this.textureViews.getPacked(textureViewIdx);
+          return textureView?.__texturePacked ?? 0;
+        },
 
         ...this.textureViews.interface(true),
       };
@@ -4268,8 +4709,13 @@
         return;
       }
 
-      this.objects[idx - 1].references -= 1;
-      if (this.objects[idx - 1].references == 0) {
+      const entry = this.objects[idx - 1];
+      entry.references -= 1;
+      if (entry.references == 0) {
+        // Adapters keep an Odin-readable label copy allocated with `js_alloc`.
+        if (entry.object?.__labelPtr) {
+          this.mem.exports.js_free(entry.object.__labelPtr);
+        }
         delete this.objects[idx - 1];
       }
     }
@@ -4288,9 +4734,13 @@
       inter[`webgpu${this.name}AddRef`] = this.reference.bind(this);
       inter[`webgpu${this.name}Release`] = this.release.bind(this);
       if (withLabelSetter) {
-        inter[`webgpu${this.name}SetLabel`] = (idx, labelPtr, labelLen) => {
+        // `label: string` is an aggregate: the ABI passes a pointer to it.
+        inter[`webgpu${this.name}SetLabel`] = (idx, labelSlicePtr) => {
           const obj = this.get(idx);
-          obj.label = this.mem.loadString(labelPtr, labelLen);
+          if (obj === undefined) return;
+          const strPtr = this.mem.loadPtr(labelSlicePtr);
+          const len = this.mem.loadUint(labelSlicePtr + this.mem.intSize);
+          obj.label = this.mem.loadString(strPtr, len);
         };
       }
       return inter;
@@ -4380,6 +4830,9 @@
       if (!slot) return;
       slot.references -= 1;
       if (slot.references === 0) {
+        if (slot.object?.__labelPtr) {
+          this.mem.exports.js_free(slot.object.__labelPtr);
+        }
         slot.object = null; // generation stays, so old handles stop resolving
         this.free.push(Number(BigInt.asUintN(64, BigInt(packed)) & 0xffffffffn));
       }
@@ -4406,9 +4859,13 @@
       inter[`webgpu${this.name}AddRef`] = (ptr) => this.reference(this.packedAt(ptr));
       inter[`webgpu${this.name}Release`] = (ptr) => this.release(this.packedAt(ptr));
       if (withLabelSetter) {
-        inter[`webgpu${this.name}SetLabel`] = (ptr, labelPtr, labelLen) => {
+        // `label: string` is an aggregate: the ABI passes a pointer to it.
+        inter[`webgpu${this.name}SetLabel`] = (ptr, labelSlicePtr) => {
           const obj = this.getPacked(ptr);
-          if (obj !== undefined) obj.label = this.mem.loadString(labelPtr, labelLen);
+          if (obj === undefined) return;
+          const strPtr = this.mem.loadPtr(labelSlicePtr);
+          const len = this.mem.loadUint(labelSlicePtr + this.mem.intSize);
+          obj.label = this.mem.loadString(strPtr, len);
         };
       }
       return inter;

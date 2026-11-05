@@ -21,12 +21,13 @@ Staging_Buffer :: struct {
     ptr:    rawptr,
 }
 
-staging_buffer_init :: proc(
+@(require_results)
+staging_buffer_init_or_error :: proc(
     self: ^Staging_Buffer,
     device: Device,
     size: u64,
     loc := #caller_location,
-) {
+) -> bool {
     assert(self != nil, "[Staging_Buffer]: [out]object is invalid", loc)
     assert(self.buffer == {} && self.device == nil && self.ptr == nil,
         "[Staging_Buffer]: already initialized", loc)
@@ -40,15 +41,31 @@ staging_buffer_init :: proc(
     }
 
     buffer := device_create_buffer(device, stage_desc, loc)
-    assert(buffer != {}, "[Staging_Buffer]: failed to create buffer", loc)
+    if buffer == {} {
+        return false
+    }
 
     ptr := buffer_map_sync(buffer, .Write, 0, WHOLE_MAP_SIZE, loc)
-    assert(ptr != nil, "[Staging_Buffer]: invalid mapped pointer")
+    if ptr == nil {
+        buffer_destroy(buffer, loc)
+        return false
+    }
 
     self.buffer = buffer
     self.device = device
     self.size   = size
     self.ptr    = ptr
+    return true
+}
+
+staging_buffer_init :: proc(
+    self: ^Staging_Buffer,
+    device: Device,
+    size: u64,
+    loc := #caller_location,
+) {
+    ok := staging_buffer_init_or_error(self, device, size, loc)
+    assert(ok, "[Staging_Buffer]: failed to initialize", loc)
 }
 
 staging_buffer_uninit :: proc(self: ^Staging_Buffer, loc := #caller_location) {

@@ -2,6 +2,7 @@ package gpu
 
 // Core
 import "base:runtime"
+import "core:sync"
 
 // Open connection to a graphics and/or compute device.
 //
@@ -9,10 +10,6 @@ import "base:runtime"
 // These are then used in commands, which are submitted to a `Queue`.
 //
 // A device may be requested from an adapter with `adapter_create_device()`.
-//
-// Threading: a device, its queue and any surface created from its instance are
-// driven by one thread at a time. Resources keep their atomic refcounts, and the
-// handle tables stay internally synchronized, but tracker state is not.
 //
 // Corresponds to [WebGPU `GPUDevice`](https://gpuweb.github.io/gpuweb/#gpu-device).
 Device :: distinct rawptr
@@ -276,12 +273,18 @@ _Device_Impl :: struct {
     features:                  Features,
     dl_features:               Downlevel_Features,
     trackers:                  Device_Tracker,
+    // Guards `trackers` and the backend's destroyed-resource tombstones.
+    // Lock order: surface -> submitter/deferred -> trackers; this lock is a leaf.
+    trackers_mtx:              sync.RW_Mutex,
     tracker_indices:           Tracker_Index_Allocators,
     alignments:                Alignments,
     backend:                   Backend_Type,
     is_embedded:               bool,
     allocator:                 runtime.Allocator,
     ref:                       Ref_Count_Type,
+    // Guards the error callback and backend-owned device metadata (label,
+    // lost callback). Taken shared on the error path, exclusive on setters.
+    state_mtx:                 sync.RW_Mutex,
     uncaptured_error_callback: Uncaptured_Error_Callback_Info,
 }
 

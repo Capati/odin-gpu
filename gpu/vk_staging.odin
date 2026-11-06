@@ -3,6 +3,7 @@ package gpu
 
 // Core
 import "core:mem"
+import "core:sync"
 
 VK_STAGING_RING_SIZE      :: u64(4 * 1024 * 1024)
 VK_STAGING_RING_ALIGNMENT :: u64(64 * 1024)
@@ -93,31 +94,36 @@ vk_staging_reserve :: proc(
 
     target: ^VK_Staging_Ring
     offset: u64
+    sync.lock(&device_impl.staging_mtx)
     for ring in device_impl.staging_rings {
         if vk_staging_ring_reserve(ring, size, align, &offset) {
             target = ring
             break
         }
     }
-
-    if target == nil {
-        capacity := VK_STAGING_RING_SIZE
-        if size > capacity {
-            capacity = align_size(size, VK_STAGING_RING_ALIGNMENT)
-        }
-        target = vk_staging_create_ring(device_impl, capacity, loc)
-        append(&device_impl.staging_rings, target)
-        reserved := vk_staging_ring_reserve(target, size, align, &offset)
-        ensure(reserved, "a fresh staging ring cannot fit its first reservation", loc)
+    if target != nil {
+        abs_end := target.last_offset
+        sync.unlock(&device_impl.staging_mtx)
+        return {ring = target, offset = offset, size = size, abs_end = abs_end}, true
     }
+    sync.unlock(&device_impl.staging_mtx)
 
-    append(&device_impl.staging_reclaims, VK_Staging_Reclaim {
-        value   = device_impl.submitter.next_submission_value + 1,
-        ring    = target,
-        abs_end = target.last_offset,
-    })
+    // No ring fits. Create one without the lock: `device_create_buffer` can take
+    // the deferred-writes and tracker locks.
+    capacity := VK_STAGING_RING_SIZE
+    if size > capacity {
+        capacity = align_size(size, VK_STAGING_RING_ALIGNMENT)
+    }
+    target = vk_staging_create_ring(device_impl, capacity, loc)
 
-    return {ring = target, offset = offset, size = size}, true
+    sync.lock(&device_impl.staging_mtx)
+    append(&device_impl.staging_rings, target)
+    reserved := vk_staging_ring_reserve(target, size, align, &offset)
+    ensure(reserved, "a fresh staging ring cannot fit its first reservation", loc)
+    abs_end := target.last_offset
+    sync.unlock(&device_impl.staging_mtx)
+
+    return {ring = target, offset = offset, size = size, abs_end = abs_end}, true
 }
 
 vk_staging_write :: proc(
@@ -148,6 +154,8 @@ vk_staging_flush :: proc(reservation: VK_Staging_Reservation, loc := #caller_loc
 }
 
 vk_staging_reap :: proc(device_impl: ^VK_Device_Impl, completed: u64) {
+    sync.guard(&device_impl.staging_mtx)
+
     first := 0
     for first < len(device_impl.staging_reclaims) {
         reclaim := device_impl.staging_reclaims[first]
@@ -181,6 +189,11 @@ vk_staging_reap :: proc(device_impl: ^VK_Device_Impl, completed: u64) {
 }
 
 vk_staging_uninit :: proc(device_impl: ^VK_Device_Impl, loc := #caller_location) {
+    // Teardown requires quiescence, but take the lock so a stray reap cannot
+    // observe a half-cleared list.
+    sync.lock(&device_impl.staging_mtx)
+    defer sync.unlock(&device_impl.staging_mtx)
+
     for ring in device_impl.staging_rings {
         buffer_unmap(ring.buffer, loc)
         buffer_destroy(ring.buffer, loc)

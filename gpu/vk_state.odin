@@ -1,6 +1,9 @@
 #+build !js
 package gpu
 
+// Core
+import intr "base:intrinsics"
+
 // Vendor
 import vk "vendor:vulkan"
 
@@ -206,7 +209,7 @@ vk_texture_transition_layout :: proc(
         subresourceRange    = subresource_range,
     }
 
-    device.barrier_calls += 1
+    intr.atomic_add(&device.barrier_calls, 1)
     device.fp.CmdPipelineBarrier(
         commandBuffer = vk_command_buffer,
         srcStageMask = src_stage,
@@ -257,7 +260,7 @@ vk_texture_barrier :: proc "contextless" (
         subresourceRange    = subresource_range,
     }
 
-    device.barrier_calls += 1
+    intr.atomic_add(&device.barrier_calls, 1)
     vk.CmdPipelineBarrier(
         commandBuffer = vk_command_buffer,
         srcStageMask = stage_access.stage,
@@ -399,7 +402,7 @@ vk_encode_barriers :: proc(
         dst_stage = {.BOTTOM_OF_PIPE}
     }
 
-    device_impl.barrier_calls += 1
+    intr.atomic_add(&device_impl.barrier_calls, 1)
     device_impl.fp.CmdPipelineBarrier(
         commandBuffer = cmdbuf.current_cmdbuf,
         srcStageMask = src_stage,
@@ -447,7 +450,7 @@ vk_command_buffer_barrier :: proc "contextless" (
         size                = size,
     }
 
-    device.barrier_calls += 1
+    intr.atomic_add(&device.barrier_calls, 1)
     device.fp.CmdPipelineBarrier(
         commandBuffer = command_buffer,
         srcStageMask = src_stage,

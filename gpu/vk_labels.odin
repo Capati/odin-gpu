@@ -5,6 +5,7 @@ package gpu
 import "base:runtime"
 import hm "core:container/handle_map"
 import "core:strings"
+import "core:sync"
 
 // Label storage for handle-only resources.
 //
@@ -51,6 +52,10 @@ VK_Label_Entry :: struct {
 VK_Label_Store :: struct {
     entries:   map[VK_Label_Key]VK_Label_Entry,
     allocator: runtime.Allocator,
+    // Guards the map. `vk_label_get` returns a borrowed string: the map cannot
+    // be corrupted by a concurrent set, but replacing the label of the same
+    // resource while another thread reads it would free the text it points at.
+    mtx:       sync.RW_Mutex,
 }
 
 @(private)
@@ -61,6 +66,7 @@ vk_label_store_init :: proc(store: ^VK_Label_Store, allocator: runtime.Allocator
 
 @(private)
 vk_label_store_destroy :: proc(store: ^VK_Label_Store) {
+    sync.guard(&store.mtx)
     for _, entry in store.entries {
         if entry.label != "" {
             delete(entry.label, store.allocator)
@@ -85,6 +91,7 @@ vk_label_set :: proc(
     if packed.gen == 0 {
         return
     }
+    sync.guard(&store.mtx)
     key := VK_Label_Key {
         kind = kind,
         slot = packed.idx,
@@ -127,6 +134,7 @@ vk_label_remove :: proc(store: ^VK_Label_Store, kind: VK_Label_Kind, handle: Han
     if packed.gen == 0 {
         return
     }
+    sync.guard(&store.mtx)
     key := VK_Label_Key {
         kind = kind,
         slot = packed.idx,
@@ -148,6 +156,7 @@ vk_label_get :: proc(
     if packed.gen == 0 {
         return ""
     }
+    sync.shared_guard(&store.mtx)
     key := VK_Label_Key {
         kind = kind,
         slot = packed.idx,

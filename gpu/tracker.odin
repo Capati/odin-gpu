@@ -4797,6 +4797,11 @@ tracker_buffer_transitions :: proc(t: ^Tracker) -> ^[dynamic]Buffer_State_Transi
 // A submission is applied by bringing the device state to each command buffer's
 // `start` state — recording those transitions — and then advancing it to that
 // buffer's `end` state.
+//
+// Every access must hold `VK_Device_Impl.trackers_mtx`. The `prepare` helpers
+// grow and rewrite the arrays, so recording takes the exclusive lock even though
+// it only reads the state; submit takes it under the submitter lock so the
+// advanced state matches submission order.
 Device_Tracker :: struct {
     allocator:       runtime.Allocator,
     buffers:         Device_Buffer_Tracker,

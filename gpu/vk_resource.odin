@@ -149,9 +149,9 @@ vk_release_kind_for :: proc(resource: VK_Deferred_Resource) -> VK_Release_Kind {
 // were last used in has completed.
 //
 // One queue per release kind, drained in kind order; each queue preserves record
-// order within a kind. The Vulkan backend is single-threaded by contract, so
-// `mtx` is structural protection for re-entrant drains, not a cross-thread
-// guarantee.
+// order within a kind. `mtx` guards every enqueue and drain. Destruction runs
+// under it and may take the descriptor, sampler, tracker and tracker-index locks,
+// so those rank below the deletor; nothing takes the deletor while holding them.
 VK_Deferred_Deletor :: struct {
     device:        Device,
     queues:        [VK_RELEASE_KIND_COUNT][dynamic]VK_Deferred_Deletion,
@@ -194,7 +194,32 @@ vk_deferred_add_resource :: proc(
 ) {
     sync.lock(&self.mtx)
     wait_on := vk_submit_context_get_next_submit_handle(submitter)
+    vk_deferred_add_resource_locked(self, resource, wait_on, loc)
+}
 
+// Releases a resource that was used by the submission named by `wait_on`. The
+// next-submit heuristic above would pin a slot that may not have been submitted
+// yet; the caller here knows the exact submission.
+@(private)
+vk_deferred_add_resource_after :: proc(
+    self: ^VK_Deferred_Deletor,
+    resource: VK_Deferred_Resource,
+    wait_on: VK_Submit_Handle,
+    loc := #caller_location,
+) {
+    ensure(wait_on != {}, "an explicit wait-on submission is required", loc)
+    sync.lock(&self.mtx)
+    vk_deferred_add_resource_locked(self, resource, wait_on, loc)
+}
+
+// Exclusive-lock body of both entry points.
+@(private = "file")
+vk_deferred_add_resource_locked :: proc(
+    self: ^VK_Deferred_Deletor,
+    resource: VK_Deferred_Resource,
+    wait_on: VK_Submit_Handle,
+    loc := #caller_location,
+) {
     // Nothing has ever been submitted, so no queue work can reference the
     // resource: destroy it now instead of queueing a wait that can never run.
     if wait_on == {} {
@@ -226,7 +251,10 @@ vk_deferred_destroy_buffer :: proc(
 
     buffer_init_tracker_free(&res.init)
 
-    device_buffer_tracker_forget(&device_impl.trackers.buffers, res.tracker_index)
+    {
+        sync.guard(&device_impl.trackers_mtx)
+        device_buffer_tracker_forget(&device_impl.trackers.buffers, res.tracker_index)
+    }
     shared_tracker_index_allocator_free(&device_impl.tracker_indices.buffers, res.tracker_index)
 
     when USE_VMA {
@@ -250,7 +278,10 @@ vk_deferred_destroy_image :: proc(
 
     texture_init_tracker_free(&res.init)
 
-    device_texture_tracker_forget(&device_impl.trackers.textures, res.tracker_index)
+    {
+        sync.guard(&device_impl.trackers_mtx)
+        device_texture_tracker_forget(&device_impl.trackers.textures, res.tracker_index)
+    }
     shared_tracker_index_allocator_free(&device_impl.tracker_indices.textures, res.tracker_index)
 
     when USE_VMA {

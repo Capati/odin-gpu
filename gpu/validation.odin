@@ -2,6 +2,7 @@ package gpu
 
 // Core
 import "core:log"
+import "core:sync"
 
 // Reports an error the way the rest of this port does: through the device's
 // error-scope stack first, then its uncaptured-error callback, else the log.
@@ -18,14 +19,19 @@ gpu_report_error :: proc(
            _device_capture_error_scope(device, error_type, message, loc) {
             return
         }
-        if impl.uncaptured_error_callback.callback != nil {
+        callback_info: Uncaptured_Error_Callback_Info
+        {
+            sync.shared_guard(&impl.state_mtx)
+            callback_info = impl.uncaptured_error_callback
+        }
+        if callback_info.callback != nil {
             device_ptr := device
-            impl.uncaptured_error_callback.callback(
+            callback_info.callback(
                 &device_ptr,
                 error_type,
                 message,
-                impl.uncaptured_error_callback.userdata1,
-                impl.uncaptured_error_callback.userdata2,
+                callback_info.userdata1,
+                callback_info.userdata2,
             )
             return
         }

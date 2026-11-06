@@ -23,9 +23,12 @@ VK_Staging_Reclaim :: struct {
 }
 
 VK_Staging_Reservation :: struct {
-    ring:   ^VK_Staging_Ring,
-    offset: u64,
-    size:   u64,
+    ring:    ^VK_Staging_Ring,
+    offset:  u64,
+    size:    u64,
+    // Absolute ring cursor at the end of the reservation. The flush promotes it
+    // to a reclaim once the submission that copies from it has a value.
+    abs_end: u64,
 }
 
 vk_staging_create_ring :: proc(

@@ -201,9 +201,8 @@ queue_release: proc(queue: Queue, loc := #caller_location)
 // -----------------------------------------------------------------------------
 
 _Queue_Impl :: struct {
-    device:          Device,
-    deferred_writes: Deferred_Writes,
-    ref:             Ref_Count_Type,
+    device: Device,
+    ref:    Ref_Count_Type,
 }
 
 // Returns the concrete implementation behind a `Queue` handle.

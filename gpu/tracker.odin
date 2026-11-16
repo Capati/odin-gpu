@@ -1195,14 +1195,21 @@ stateless_tracker_len :: #force_inline proc "contextless" (t: ^$S/Stateless_Trac
 // Record `resource` and hand it back, so a caller can keep using one handle.
 //
 // Idempotent: the tracker is a set of live resources, not a command log, so a
-// rebind records (and ref-counts) the handle once. See `Stateless_Tracker`.
-stateless_tracker_insert_single :: proc(t: ^$S/Stateless_Tracker($T), resource: T) -> T {
+// rebinding does not record the handle twice. `inserted` says whether this call
+// was the one that added it, which is what a caller needs to take a single
+// reference per resource without hashing the handle a second time itself. See
+// `Stateless_Tracker`.
+stateless_tracker_insert_single :: proc(
+    t: ^$S/Stateless_Tracker($T),
+    resource: T,
+) -> (T, bool) {
     key := stateless_tracker_key(resource)
-    if key not_in t.index {
-        t.index[key] = true
-        append(&t.resources, resource)
+    if key in t.index {
+        return resource, false
     }
-    return resource
+    t.index[key] = true
+    append(&t.resources, resource)
+    return resource, true
 }
 
 // True when `resource` was recorded.

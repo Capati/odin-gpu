@@ -1139,22 +1139,53 @@ texture_descriptor_image_uses :: proc(
 // pipeline actually uses it, so the encoder records the handles it was handed and
 // nothing else.
 
+// A set of resources a recording referenced.
+//
+// Two structures, on purpose:
+//
+// - `resources` is the ordered insertion list. Everything that *consumes* the
+//   references (draining them into a reclaim batch, iterating them to validate a
+//   submission) needs a slice, and the order is the recording order.
+// - `index` is the membership hash set that makes `contains` O(1). The same
+//   handle may be bound many times in one recording — a compute pass rebinds its
+//   group per dispatch, a render pass rebinds a group per draw — so insertion has
+//   to dedup, and a linear scan over the list made every bind proportional to the
+//   number of resources already recorded.
+//
+// Every stateless resource type above is a `distinct Handle`, so one key serves
+// them all.
 Stateless_Tracker :: struct($T: typeid) {
     resources: [dynamic]T,
+    index:     map[Handle]bool,
+}
+
+@(private = "file")
+stateless_tracker_key :: #force_inline proc "contextless" (
+    resource: $T,
+) -> Handle where T == Texture_View ||
+    T == Bind_Group ||
+    T == Compute_Pipeline ||
+    T == Render_Pipeline ||
+    T == Render_Bundle ||
+    T == Tlas {
+    return transmute(Handle)resource
 }
 
 stateless_tracker_init :: proc(t: ^$S/Stateless_Tracker($T), allocator: runtime.Allocator) {
     t.resources = nil
     t.resources.allocator = allocator
+    t.index = make(map[Handle]bool, 0, allocator)
 }
 
 stateless_tracker_free :: proc(t: ^$S/Stateless_Tracker($T)) {
     delete(t.resources)
-    t.resources = nil
+    delete(t.index)
+    t^ = {}
 }
 
 stateless_tracker_clear :: proc(t: ^$S/Stateless_Tracker($T)) {
     clear(&t.resources)
+    clear(&t.index)
 }
 
 stateless_tracker_len :: #force_inline proc "contextless" (t: ^$S/Stateless_Tracker($T)) -> int {
@@ -1162,28 +1193,34 @@ stateless_tracker_len :: #force_inline proc "contextless" (t: ^$S/Stateless_Trac
 }
 
 // Record `resource` and hand it back, so a caller can keep using one handle.
+//
+// Idempotent: the tracker is a set of live resources, not a command log, so a
+// rebind records (and ref-counts) the handle once. See `Stateless_Tracker`.
 stateless_tracker_insert_single :: proc(t: ^$S/Stateless_Tracker($T), resource: T) -> T {
-    append(&t.resources, resource)
+    key := stateless_tracker_key(resource)
+    if key not_in t.index {
+        t.index[key] = true
+        append(&t.resources, resource)
+    }
     return resource
 }
 
 // True when `resource` was recorded.
-stateless_tracker_contains :: proc(t: ^$S/Stateless_Tracker($T), resource: T) -> bool {
-    for entry in t.resources {
-        if entry == resource {
-            return true
-        }
-    }
-    return false
+stateless_tracker_contains :: #force_inline proc "contextless" (
+    t: ^$S/Stateless_Tracker($T),
+    resource: T,
+) -> bool {
+    return stateless_tracker_key(resource) in t.index
 }
 
-// Transfers ownership of the reference list out, leaving an empty list with the
+// Transfers ownership of the reference list out, leaving an empty set with the
 // same allocator behind. The caller releases the returned references under
 // whatever lock discipline applies to its tracker.
 stateless_tracker_take :: proc(t: ^$S/Stateless_Tracker($T)) -> [dynamic]T {
     refs := t.resources
     t.resources = nil
     t.resources.allocator = refs.allocator
+    clear(&t.index)
     return refs
 }
 
@@ -4496,23 +4533,23 @@ bind_group_states_optimize :: proc(s: ^Bind_Group_States) {
 
 // What a render bundle contributes: the merged uses of its passes, plus the bind
 // groups and render pipelines it was recorded with (they must outlive it).
+//
+// `usage` is embedded so a bundle scope is usable wherever a plain `Usage_Scope`
+// is, while still being a distinct type for `usage_scope_merge_render_bundle`.
 Render_Bundle_Scope :: struct {
-    buffers:          Buffer_Usage_Scope,
-    textures:         Texture_Usage_Scope,
+    using usage:      Usage_Scope,
     bind_groups:      Stateless_Tracker(Bind_Group),
     render_pipelines: Stateless_Tracker(Render_Pipeline),
 }
 
 render_bundle_scope_init :: proc(s: ^Render_Bundle_Scope, allocator: runtime.Allocator) {
-    buffer_usage_scope_init(&s.buffers, allocator)
-    texture_usage_scope_init(&s.textures, allocator)
+    usage_scope_init(&s.usage, allocator)
     stateless_tracker_init(&s.bind_groups, allocator)
     stateless_tracker_init(&s.render_pipelines, allocator)
 }
 
 render_bundle_scope_free :: proc(s: ^Render_Bundle_Scope) {
-    buffer_usage_scope_free(&s.buffers)
-    texture_usage_scope_free(&s.textures)
+    usage_scope_free(&s.usage)
     stateless_tracker_free(&s.bind_groups)
     stateless_tracker_free(&s.render_pipelines)
 }

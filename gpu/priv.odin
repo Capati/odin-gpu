@@ -261,19 +261,20 @@ map_texture_usage_for_texture :: proc(
     format_features: Texture_Format_Features,
     loc := #caller_location,
 ) -> (uses: Texture_Uses) {
-    // Enforce having Copy_Dst/Depth_Stencil_Write/Color_Target otherwise we
-    // wouldn't be able to initialize the texture.
-    uses = map_texture_usage(
-        desc.usage, texture_format_aspects_from(desc.format), format_features.flags, loc)
+    // The image's use set is derived by the tracker, which owns the two guarantees
+    // an image needs to exist at all: it always carries `Copy_Dst` so the range can
+    // be defined, and it always carries a view-capable use so `createView` is legal.
+    //
+    // Deriving it here from `map_texture_usage` would instead hand `Color_Target` to
+    // any 2D texture whose *format* supports render attachments, whether or not the
+    // application asked for `Render_Attachment`.
+    uses = texture_descriptor_image_uses(desc, format_features)
 
-    if texture_format_is_depth_stencil_format(desc.format, loc) {
-        uses |= {.Depth_Write, .Stencil_Write}
-    } else if .Copy_Dst in desc.usage {
-        uses |= {.Copy_Dst}
-    } else if .Render_Attachment in format_features.allowed_usages && desc.dimension == .D2 {
-        uses |= {.Color_Target}
-    } else {
-        uses |= {.Copy_Dst}
+    // `Transient` is not a tracked use — the tracker's state sets never carry it —
+    // but the Vulkan image must be created with `TRANSIENT_ATTACHMENT`, so it is
+    // added here, after the derivation.
+    if .Transient_Attachment in desc.usage {
+        uses += {.Transient}
     }
     return
 }

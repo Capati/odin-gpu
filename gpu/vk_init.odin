@@ -4,15 +4,11 @@ package gpu
 // Vendor
 import vk "vendor:vulkan"
 
+// The public selector naming the same subresources as a tracker range.
 vk_init_texture_selector :: #force_inline proc "contextless" (
     range: Texture_Init_Range,
 ) -> Texture_Selector {
-    return {
-        mip_start   = range.mip_start,
-        mip_count   = range.mip_end - range.mip_start,
-        layer_start = range.layer_start,
-        layer_count = range.layer_end - range.layer_start,
-    }
+    return texture_init_range_to_selector(range)
 }
 
 vk_init_subresource_range :: proc(
@@ -189,9 +185,25 @@ vk_apply_pending_init_actions_at_submit :: proc(
         return {}
     }
 
-    clear_buffer := vk_command_buffer_allocate_recording(device_impl, cmdbuf, loc)
+    // Only the `Needs_Initialized_Memory` arm records commands. The other two are
+    // bookkeeping on the resource, so a recording made purely of those — which is
+    // what a render pass produces now — must not pay for a command buffer it will
+    // leave empty. It is allocated on the first clear that actually needs one.
+    clear_buffer: vk.CommandBuffer
     saved_cmdbuf := cmdbuf.current_cmdbuf
-    cmdbuf.current_cmdbuf = clear_buffer
+
+    begin_clear_recording :: proc(
+        device_impl: ^VK_Device_Impl,
+        cmdbuf: ^VK_Command_Buffer_Impl,
+        clear_buffer: ^vk.CommandBuffer,
+        loc := #caller_location,
+    ) {
+        if clear_buffer^ != {} {
+            return
+        }
+        clear_buffer^ = vk_command_buffer_allocate_recording(device_impl, cmdbuf, loc)
+        cmdbuf.current_cmdbuf = clear_buffer^
+    }
 
     for action in cmdbuf.tracker.init_actions {
         texture_impl := vk_texture_get_impl(action.texture, loc)
@@ -236,6 +248,9 @@ vk_apply_pending_init_actions_at_submit :: proc(
                             to       = TEXTURE_USES_COPY_DST,
                         },
                     }
+                    // The transition has to land in the clear buffer, so it exists
+                    // before the barrier is encoded.
+                    begin_clear_recording(device_impl, cmdbuf, &clear_buffer, loc)
                     vk_encode_barriers(device_impl, cmdbuf, before[:], nil, loc)
 
                     vk_init_clear_texture_range(
@@ -286,6 +301,7 @@ vk_apply_pending_init_actions_at_submit :: proc(
                     to     = BUFFER_USES_COPY_DST,
                 },
             }
+            begin_clear_recording(device_impl, cmdbuf, &clear_buffer, loc)
             vk_encode_barriers(device_impl, cmdbuf, nil, before[:], loc)
 
             for hole in cmdbuf.init_buffer_ranges {
@@ -309,8 +325,10 @@ vk_apply_pending_init_actions_at_submit :: proc(
         }
     }
 
-    vk_check(device_impl.fp.EndCommandBuffer(clear_buffer), loc = loc)
-    cmdbuf.current_cmdbuf = saved_cmdbuf
+    if clear_buffer != {} {
+        vk_check(device_impl.fp.EndCommandBuffer(clear_buffer), loc = loc)
+        cmdbuf.current_cmdbuf = saved_cmdbuf
+    }
 
     clear(&cmdbuf.tracker.init_actions)
     clear(&cmdbuf.tracker.buffer_init_actions)

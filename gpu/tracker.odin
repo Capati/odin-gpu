@@ -273,10 +273,12 @@ resource_metadata_lookup :: #force_inline proc "contextless" (
     md: ^$R/Resource_Metadata($T),
     index: Tracker_Index,
 ) -> (bool, ^T) {
-    if u32(index) >= u32(len(md.resources)) {
+    // Same two-table bound as `resource_metadata_contains`: the payload table being
+    // long enough does not mean the membership table is.
+    word := u32(index) / METADATA_WORD_BITS
+    if u32(index) >= u32(len(md.resources)) || word >= u32(len(md.owned)) {
         return false, nil
     }
-    word := u32(index) / METADATA_WORD_BITS
     if (md.owned[word] & metadata_bit(index)) == 0 {
         return false, nil
     }
@@ -301,10 +303,14 @@ resource_metadata_contains :: #force_inline proc "contextless" (
     md: ^$R/Resource_Metadata($T),
     index: Tracker_Index,
 ) -> bool {
-    if u32(index) >= u32(len(md.resources)) {
+    // Both tables must cover the index: `owned` is the membership bits and
+    // `resources` the payload slots, and a table that was cleared or never grown to
+    // this index has neither. Checking only one of them reads past the other.
+    word := u32(index) / METADATA_WORD_BITS
+    if u32(index) >= u32(len(md.resources)) || word >= u32(len(md.owned)) {
         return false
     }
-    return (md.owned[u32(index) / METADATA_WORD_BITS] & metadata_bit(index)) != 0
+    return (md.owned[word] & metadata_bit(index)) != 0
 }
 
 // Insert `resource` at `index`, or overwrite the member already there. Growing is
@@ -957,9 +963,13 @@ buffer_uses_is_subset :: #force_inline proc "contextless" (u, superset: Buffer_U
     return u != {} && (u & superset) == u
 }
 
-// True when moving from `u` to `to` needs no barrier.
-buffer_uses_skip_transition :: #force_inline proc "contextless" (u, to: Buffer_Uses) -> bool {
-    return u == to && (buffer_uses_bits(u) & ~buffer_uses_bits(BUFFER_USES_ORDERED)) == 0
+// True when moving from `u` to `to` needs no barrier: the state is unchanged and
+// consists only of uses the device orders by itself. `ordered` is the device's
+// policy, so a tracker and a usage scope agree on what may be skipped.
+buffer_uses_skip_transition :: #force_inline proc "contextless" (
+    u, to, ordered: Buffer_Uses,
+) -> bool {
+    return u == to && (buffer_uses_bits(u) & ~buffer_uses_bits(ordered)) == 0
 }
 
 // True when the set violates the usage-scope rule: an exclusive use may not be
@@ -1873,11 +1883,12 @@ buffer_tracker_insert_or_barrier_update :: proc(
     // defers `forget` while a release is parked, so the state the old resource left
     // must not be inherited by the new one. The generation in the handle tells them
     // apart.
-    if resource_metadata_contains(&t.metadata, index) &&
-       resource_metadata_get(&t.metadata, index) != buffer_metadata_provider_get(resource, index) {
+    known, existing := resource_metadata_lookup(&t.metadata, index)
+    if known && existing^ != buffer_metadata_provider_get(resource, index) {
         resource_metadata_remove(&t.metadata, index)
+        known = false
     }
-    if !resource_metadata_contains(&t.metadata, index) {
+    if !known {
         buffer_insert(
             t.start[:],
             t.end[:],
@@ -2047,8 +2058,8 @@ device_buffer_tracker_state_at :: proc(
 ) -> Buffer_Uses {
     // The slot may have been recycled: the metadata entry is what says which
     // resource the state belongs to.
-    if !resource_metadata_contains(&t.metadata, index) ||
-       resource_metadata_get(&t.metadata, index) != buffer {
+    known, existing := resource_metadata_lookup(&t.metadata, index)
+    if !known || existing^ != buffer {
         return BUFFER_USES_UNINITIALIZED
     }
     return t.current[u32(index)]
@@ -2089,7 +2100,7 @@ buffer_barrier :: proc(
 ) {
     current := states[u32(index)]
     target := buffer_state_provider_get(to, index)
-    if current == target && (buffer_uses_bits(current) & ~buffer_uses_bits(ordered)) == 0 {
+    if buffer_uses_skip_transition(current, target, ordered) {
         return
     }
     append(out, Buffer_State_Transition{buffer = buffer, from = current, to = target})
@@ -4740,6 +4751,10 @@ tracker_init :: proc(
     t.buffer_init_actions.allocator = allocator
     t.query_set_writes.allocator = allocator
     t.scratch_indices.allocator = allocator
+    // A render pass records one action per attachment, so size the list for a
+    // full pass up front: growth then happens once, not per pass for the first
+    // frames, which is what keeps this site out of the per-frame alloc count.
+    reserve(&t.init_actions, MAX_ATTACHMENT_COUNT)
 }
 
 tracker_free :: proc(t: ^Tracker) {

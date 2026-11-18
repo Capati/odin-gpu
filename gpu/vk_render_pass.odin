@@ -174,6 +174,16 @@ VK_Render_Pass_Impl :: struct {
     used_query_count:     u32,
     present_textures:     [MAX_ATTACHMENT_COUNT]Texture,
     present_count:        u32,
+    // What each color attachment's load/store ops were, kept so `render_pass_end`
+    // can record the memory-initialisation actions the pass implies: a store
+    // defines the range, a discard makes it undefined again.
+    color_attachments:    [MAX_ATTACHMENT_COUNT]Render_Pass_Color_Attachment,
+    color_count:          u32,
+    // The store op of each writable depth/stencil aspect, resolved at begin time.
+    // `.Undefined` means the aspect is not written by this pass (it is absent, or
+    // read-only), so it records no init action.
+    depth_store_op:       Store_Op,
+    stencil_store_op:     Store_Op,
     width:                u32,
     height:               u32,
     debug_group_depth:    u32,

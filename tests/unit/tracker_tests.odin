@@ -1631,3 +1631,160 @@ test_tracker_records_query_writes :: proc(t: ^testing.T) {
     testing.expect(t, !gpu.tracker_query_written(&tracker, first, 0))
     testing.expect_value(t, len(tracker.query_set_writes), 0)
 }
+
+// A copy that fills only part of a subresource leaves the rest undefined, so the
+// destination must be cleared rather than assumed written. This is the difference
+// between `Implicitly_Initialized` and `Needs_Initialized_Memory`, and getting it
+// wrong makes a later read of the untouched area return garbage the tracker
+// believes is defined.
+@(test)
+test_copy_destination_init_kind :: proc(t: ^testing.T) {
+    desc := gpu.Texture_Descriptor {
+        size            = {width = 256, height = 256, depth_or_array_layers = 1},
+        mip_level_count = 3,
+        sample_count    = 1,
+        dimension       = .D2,
+        format          = .RGBA8_Unorm,
+    }
+    copy: gpu.Texel_Copy_Texture_Info
+    copy.texture = test_texture_handle(0)
+    copy.mip_level = 0
+    copy.aspect = .All
+
+    // A full-mip copy defines the subresource outright.
+    full := gpu.Extent_3D{width = 256, height = 256, depth_or_array_layers = 1}
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&desc, &copy, full),
+        gpu.Memory_Init_Kind.Implicitly_Initialized,
+    )
+
+    // Narrower than the mip: the uncovered columns stay undefined.
+    narrow := gpu.Extent_3D{width = 128, height = 256, depth_or_array_layers = 1}
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&desc, &copy, narrow),
+        gpu.Memory_Init_Kind.Needs_Initialized_Memory,
+    )
+
+    // Shorter than the mip: same story vertically.
+    short := gpu.Extent_3D{width = 256, height = 64, depth_or_array_layers = 1}
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&desc, &copy, short),
+        gpu.Memory_Init_Kind.Needs_Initialized_Memory,
+    )
+
+    // The mip's own extent, which is half of level 0's.
+    copy.mip_level = 1
+    mip1 := gpu.Extent_3D{width = 128, height = 128, depth_or_array_layers = 1}
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&desc, &copy, mip1),
+        gpu.Memory_Init_Kind.Implicitly_Initialized,
+    )
+    // Level 0's extent is larger than level 1's, so it cannot be "whole" there.
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&desc, &copy, full),
+        gpu.Memory_Init_Kind.Needs_Initialized_Memory,
+    )
+
+    // A copy naming only one aspect of a combined depth-stencil image does not
+    // cover the whole subresource.
+    ds_desc := gpu.Texture_Descriptor {
+        size            = {width = 64, height = 64, depth_or_array_layers = 1},
+        mip_level_count = 1,
+        sample_count    = 1,
+        dimension       = .D2,
+        format          = .Depth24Plus_Stencil8,
+    }
+    ds_copy: gpu.Texel_Copy_Texture_Info
+    ds_copy.texture = test_texture_handle(1)
+    ds_copy.aspect = .Depth_Only
+    ds_size := gpu.Extent_3D{width = 64, height = 64, depth_or_array_layers = 1}
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&ds_desc, &ds_copy, ds_size),
+        gpu.Memory_Init_Kind.Needs_Initialized_Memory,
+    )
+    // `All` covers both aspects at once.
+    ds_copy.aspect = .All
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&ds_desc, &ds_copy, ds_size),
+        gpu.Memory_Init_Kind.Implicitly_Initialized,
+    )
+}
+
+// A multi-planar copy is measured against its own plane, so a partial plane-0 copy
+// of an NV12 texture is a full plane and defines it.
+@(test)
+test_copy_destination_init_kind_multi_planar :: proc(t: ^testing.T) {
+    desc := gpu.Texture_Descriptor {
+        size            = {width = 64, height = 64, depth_or_array_layers = 1},
+        mip_level_count = 1,
+        sample_count    = 1,
+        dimension       = .D2,
+        format          = .NV12,
+    }
+    copy: gpu.Texel_Copy_Texture_Info
+    copy.texture = test_texture_handle(0)
+    copy.aspect = .Plane0
+
+    plane0 := gpu.Extent_3D{width = 64, height = 64, depth_or_array_layers = 1}
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&desc, &copy, plane0),
+        gpu.Memory_Init_Kind.Implicitly_Initialized,
+    )
+
+    // Plane 1 is subsampled, so the luma extent does not cover it.
+    copy.aspect = .Plane1
+    testing.expect_value(
+        t,
+        gpu.copy_destination_init_kind(&desc, &copy, plane0),
+        gpu.Memory_Init_Kind.Needs_Initialized_Memory,
+    )
+}
+
+// `tracker_was_discarded` is what a pass about to load an attachment asks to decide
+// whether it has to clear first. Until a discarded store was recorded nothing ever
+// produced the state it looks for, so the predicate could only answer false.
+@(test)
+test_tracker_was_discarded_sees_a_recorded_discard :: proc(t: ^testing.T) {
+    tracker: gpu.Tracker
+    gpu.tracker_init(&tracker, context.allocator, gpu.BUFFER_USES_ORDERED, gpu.TEXTURE_USES_ORDERED)
+    defer gpu.tracker_free(&tracker)
+
+    texture := test_texture_handle(0)
+    range := init_range(0, 1, 0, 2)
+
+    testing.expect(t, !gpu.tracker_was_discarded(&tracker, texture, range))
+
+    gpu.tracker_record_init(&tracker, texture, range, .Discarded, .All)
+    testing.expect(t, gpu.tracker_was_discarded(&tracker, texture, range))
+
+    // The predicate reports the *latest* action for the range: a store after a
+    // discard means the contents are defined again.
+    gpu.tracker_record_init(&tracker, texture, range, .Implicitly_Initialized, .All)
+    testing.expect(t, !gpu.tracker_was_discarded(&tracker, texture, range))
+
+    // A different range, and a different texture, are unrelated.
+    gpu.tracker_record_init(&tracker, texture, init_range(1, 1, 0, 2), .Discarded, .All)
+    testing.expect(t, !gpu.tracker_was_discarded(&tracker, texture, range))
+    testing.expect(t, gpu.tracker_was_discarded(&tracker, texture, init_range(1, 1, 0, 2)))
+    testing.expect(t, !gpu.tracker_was_discarded(&tracker, test_texture_handle(1), range))
+}
+
+// A render pass records one init action per attachment, so the tracker sizes the
+// list for a full pass up front. This is what keeps the site out of the per-frame
+// allocation count.
+@(test)
+test_tracker_reserves_init_actions :: proc(t: ^testing.T) {
+    tracker: gpu.Tracker
+    gpu.tracker_init(&tracker, context.allocator, gpu.BUFFER_USES_ORDERED, gpu.TEXTURE_USES_ORDERED)
+    defer gpu.tracker_free(&tracker)
+
+    testing.expect(t, cap(tracker.init_actions) >= int(gpu.MAX_ATTACHMENT_COUNT))
+}

@@ -877,11 +877,32 @@ vk_command_encoder_begin_render_pass :: proc(
     }
     rpass_impl.present_textures = begin_state.present_textures
     rpass_impl.present_count = begin_state.present_count
+
+    // Keep the color attachments so `render_pass_end` can record what the pass
+    // defined or discarded.
+    rpass_impl.color_count = min(u32(len(desc.color_attachments)), u32(MAX_ATTACHMENT_COUNT))
+    for &color, i in desc.color_attachments {
+        if u32(i) >= rpass_impl.color_count {
+            break
+        }
+        rpass_impl.color_attachments[i] = color
+    }
     if ds, ds_ok := desc.depth_stencil_attachment.?; ds_ok {
         ds_view_impl := vk_texture_view_get_impl(ds.view, loc)
         rpass_impl.depth_texture = ds_view_impl.texture
         rpass_impl.depth_selector = ds_view_impl.selector
         rpass_impl.depth_uses = desc.ds_uses
+
+        // The store op of each writable aspect, using the same normalization the
+        // begin-time render pass key does: a read-only aspect is never written, so
+        // it records nothing; a writable one records whatever the caller chose.
+        ds_texture_impl := vk_texture_get_impl(ds_view_impl.texture, loc)
+        if texture_format_has_depth_aspect(ds_texture_impl.format) && !ds.depth_read_only {
+            rpass_impl.depth_store_op = ds.depth_ops.store
+        }
+        if texture_format_has_stencil_aspect(ds_texture_impl.format) && !ds.stencil_read_only {
+            rpass_impl.stencil_store_op = ds.stencil_ops.store
+        }
     }
     rpass_impl.width = desc.width
     rpass_impl.height = desc.height
@@ -1628,19 +1649,36 @@ vk_command_encoder_copy_buffer_to_texture :: proc(
 
     dst_layers := u32(1) if is_3d else size.depth_or_array_layers
     dst_base_layer := u32(0) if is_3d else dst.origin.z
-    vk_init_clear_texture_undefined_per_slot(
-        impl_device,
-        impl.cmdbuf,
-        dst_impl,
-        Texture_Init_Range {
-            mip_start   = dst.mip_level,
-            mip_end     = dst.mip_level + 1,
-            layer_start = dst_base_layer,
-            layer_end   = dst_base_layer + dst_layers,
-        },
-        dst.aspect,
-        loc,
-    )
+    dst_init_range := Texture_Init_Range {
+        mip_start   = dst.mip_level,
+        mip_end     = dst.mip_level + 1,
+        layer_start = dst_base_layer,
+        layer_end   = dst_base_layer + dst_layers,
+    }
+    // A copy that fills the whole subresource defines it outright. One that covers
+    // only part of it leaves the rest undefined, so the range has to be cleared
+    // first — otherwise a later read of the untouched area returns garbage that the
+    // tracker believes is defined.
+    switch copy_destination_init_kind(&dst_impl.desc, &dst, size) {
+    case .Implicitly_Initialized:
+        aspects := init_tracked_aspects(dst_impl.format, dst.aspect)
+        for i in 0 ..< aspects.count {
+            texture_init_tracker_mark_initialized(&dst_impl.init, dst_init_range, aspects.slots[i])
+        }
+    case .Needs_Initialized_Memory:
+        // The drain marks what it hands back as defined once it is cleared, so the
+        // whole range ends up defined either way.
+        vk_init_clear_texture_undefined_per_slot(
+            impl_device,
+            impl.cmdbuf,
+            dst_impl,
+            dst_init_range,
+            dst.aspect,
+            loc,
+        )
+    case .Discarded:
+        unreachable()
+    }
     vk_init_transfer_write_barrier(impl_device, impl.cmdbuf.current_cmdbuf)
 
     block_width, block_height := texture_format_block_dimensions(dst_impl.format)
@@ -2052,19 +2090,33 @@ vk_command_encoder_copy_texture_to_texture :: proc(
     )
 
     dst_base_layer := u32(0) if is_3d else destination.origin.z
-    vk_init_clear_texture_undefined_per_slot(
-        impl_device,
-        impl.cmdbuf,
-        dst_impl,
-        Texture_Init_Range {
-            mip_start   = destination.mip_level,
-            mip_end     = destination.mip_level + 1,
-            layer_start = dst_base_layer,
-            layer_end   = dst_base_layer + dst_layers,
-        },
-        destination.aspect,
-        loc,
-    )
+    dst_init_range := Texture_Init_Range {
+        mip_start   = destination.mip_level,
+        mip_end     = destination.mip_level + 1,
+        layer_start = dst_base_layer,
+        layer_end   = dst_base_layer + dst_layers,
+    }
+    // Same rule as the buffer copy: a partial destination leaves the rest of the
+    // subresource undefined, so it has to be cleared rather than assumed written.
+    dst_copy_info := destination
+    switch copy_destination_init_kind(&dst_impl.desc, &dst_copy_info, copy_size) {
+    case .Implicitly_Initialized:
+        aspects := init_tracked_aspects(dst_impl.format, destination.aspect)
+        for i in 0 ..< aspects.count {
+            texture_init_tracker_mark_initialized(&dst_impl.init, dst_init_range, aspects.slots[i])
+        }
+    case .Needs_Initialized_Memory:
+        vk_init_clear_texture_undefined_per_slot(
+            impl_device,
+            impl.cmdbuf,
+            dst_impl,
+            dst_init_range,
+            destination.aspect,
+            loc,
+        )
+    case .Discarded:
+        unreachable()
+    }
     vk_init_transfer_write_barrier(impl_device, impl.cmdbuf.current_cmdbuf)
 
     copy_region := vk.ImageCopy {

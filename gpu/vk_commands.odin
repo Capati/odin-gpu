@@ -644,15 +644,6 @@ vk_record_commands_run :: proc(
                 },
             }
 
-            device_impl.fp.CmdCopyBufferToImage(
-                cmdbuf.current_cmdbuf,
-                src_impl.vk_buffer,
-                dst_impl.vk_image,
-                .TRANSFER_DST_OPTIMAL,
-                1,
-                &copy_region,
-            )
-
             dst_layers := u32(1) if is_3d else cmd.size.depth_or_array_layers
             dst_base_layer := u32(0) if is_3d else cmd.dst.origin.z
             init_range := Texture_Init_Range {
@@ -661,10 +652,42 @@ vk_record_commands_run :: proc(
                 layer_start = dst_base_layer,
                 layer_end   = dst_base_layer + dst_layers,
             }
-            aspects := init_tracked_aspects(dst_impl.format, cmd.dst.aspect)
-            for i in 0 ..< aspects.count {
-                texture_init_tracker_mark_initialized(&dst_impl.init, init_range, aspects.slots[i])
+
+            // Whatever init the destination needs must run before the copy fills it,
+            // otherwise the clear would wipe what the copy just wrote.
+            // A partial copy leaves the rest of the subresource undefined, so it
+            // asks for a clear instead of claiming the whole range is defined.
+            switch copy_destination_init_kind(&dst_impl.desc, &cmd.dst, cmd.size) {
+            case .Implicitly_Initialized:
+                aspects := init_tracked_aspects(dst_impl.format, cmd.dst.aspect)
+                for i in 0 ..< aspects.count {
+                    texture_init_tracker_mark_initialized(
+                        &dst_impl.init,
+                        init_range,
+                        aspects.slots[i],
+                    )
+                }
+            case .Needs_Initialized_Memory:
+                vk_init_clear_texture_undefined_per_slot(
+                    device_impl,
+                    cmdbuf,
+                    dst_impl,
+                    init_range,
+                    cmd.dst.aspect,
+                    loc,
+                )
+            case .Discarded:
+                unreachable()
             }
+
+            device_impl.fp.CmdCopyBufferToImage(
+                cmdbuf.current_cmdbuf,
+                src_impl.vk_buffer,
+                dst_impl.vk_image,
+                .TRANSFER_DST_OPTIMAL,
+                1,
+                &copy_region,
+            )
 
         case Copy_Texture_To_Buffer_Cmd:
             src_impl := vk_texture_get_impl(cmd.src.texture, cmd.loc)

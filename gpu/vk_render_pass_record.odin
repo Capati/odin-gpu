@@ -2003,6 +2003,92 @@ vk_render_pass_execute_bundles :: proc(
     }
 }
 
+// The init action one attachment's store op implies: a store leaves the range
+// holding defined bytes, a discard leaves it undefined, and a clear on load is a
+// write in its own right so the pass still ends with defined contents.
+@(private = "file")
+vk_attachment_init_kind :: #force_inline proc "contextless" (
+    load: Load_Op,
+    store: Store_Op,
+) -> (
+    kind: Memory_Init_Kind,
+    record: bool,
+) {
+    #partial switch store {
+    case .Store:
+        return .Implicitly_Initialized, true
+    case .Discard:
+        // A clear already defined the range before the pass ran, so discarding
+        // the shading result still leaves defined (zeroed) bytes behind.
+        if load == .Clear {
+            return .Implicitly_Initialized, true
+        }
+        return .Discarded, true
+    }
+    return {}, false
+}
+
+// Record the memory-initialisation actions a render pass implies for its
+// attachments. Applied at submit, so a discarded encoder leaves no mark.
+//
+// Swapchain images are skipped: the presentation engine owns their contents, and
+// every other init path special-cases `is_swapchain` the same way.
+@(private)
+vk_render_pass_record_init_actions :: proc(
+    impl: ^VK_Render_Pass_Impl,
+    cmdbuf: ^VK_Command_Buffer_Impl,
+    loc := #caller_location,
+) {
+    tracker := &cmdbuf.tracker
+
+    for i in 0 ..< impl.color_count {
+        color := &impl.color_attachments[i]
+        if color.view == {} {
+            continue
+        }
+        color_view_impl := vk_texture_view_get_impl(color.view, loc)
+        color_texture_impl := vk_texture_get_impl(color_view_impl.texture, loc)
+        if color_texture_impl.is_swapchain {
+            continue
+        }
+
+        if kind, record := vk_attachment_init_kind(color.ops.load, color.ops.store); record {
+            tracker_record_init(
+                tracker,
+                color_view_impl.texture,
+                texture_init_range_from_selector(color_view_impl.selector),
+                kind,
+                color_view_impl.aspect,
+            )
+        }
+
+        // A resolve target is always written, whatever the attachment's ops say.
+        if color.resolve_target != {} {
+            resolve_view_impl := vk_texture_view_get_impl(color.resolve_target, loc)
+            resolve_texture_impl := vk_texture_get_impl(resolve_view_impl.texture, loc)
+            if !resolve_texture_impl.is_swapchain {
+                tracker_record_init(
+                    tracker,
+                    resolve_view_impl.texture,
+                    texture_init_range_from_selector(resolve_view_impl.selector),
+                    .Implicitly_Initialized,
+                    resolve_view_impl.aspect,
+                )
+            }
+        }
+    }
+
+    if impl.depth_texture == {} {
+        return
+    }
+    if kind, record := vk_attachment_init_kind(.Load, impl.depth_store_op); record {
+        tracker_record_init(tracker, impl.depth_texture, texture_init_range_from_selector(impl.depth_selector), kind, .Depth_Only)
+    }
+    if kind, record := vk_attachment_init_kind(.Load, impl.stencil_store_op); record {
+        tracker_record_init(tracker, impl.depth_texture, texture_init_range_from_selector(impl.depth_selector), kind, .Stencil_Only)
+    }
+}
+
 vk_render_pass_end :: proc(render_pass: Render_Pass, loc := #caller_location) {
     if render_pass == {} {
         return
@@ -2044,6 +2130,12 @@ vk_render_pass_end :: proc(render_pass: Render_Pass, loc := #caller_location) {
     }
 
     device_impl.fp.CmdEndRenderPass(cmdbuf.current_cmdbuf)
+
+    // Record what the pass did to its attachments' contents, for submit to apply.
+    // A store (or a clear on load) leaves defined bytes; a discard makes the range
+    // undefined again. Without this the init tracker never learns a render target
+    // holds anything, so the next read of it gets cleared first.
+    vk_render_pass_record_init_actions(impl, cmdbuf, loc)
 
     if impl.debug_group_depth != 0 {
         gpu_report_validation_error(

@@ -211,7 +211,6 @@ render_bundle_encoder_release: proc(
 _Render_Bundle_Encoder_Impl :: struct {
     device:            Device,
     ref:               Ref_Count_Type,
-    commands:          Command_Allocator,
     immediate_data:    [dynamic]u8,
     is_encoding:       bool,
     failed:            bool,

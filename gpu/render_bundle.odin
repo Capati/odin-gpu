@@ -57,7 +57,6 @@ render_bundle_release: proc(render_bundle: Render_Bundle, loc := #caller_locatio
 _Render_Bundle_Impl :: struct {
     device:            Device,
     ref:               Ref_Count_Type,
-    commands:          Command_Allocator,
     immediate_data:    [dynamic]u8,
     color_formats:     [MAX_COLOR_ATTACHMENTS]Texture_Format,
     color_count:       u32,

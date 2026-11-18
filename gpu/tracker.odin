@@ -4,6 +4,7 @@ package gpu
 import intr "base:intrinsics"
 import "base:runtime"
 import "core:sync"
+import hm "core:container/handle_map"
 
 // Resource-state tracker.
 //
@@ -230,11 +231,17 @@ resource_metadata_grow_to :: proc(md: ^$R/Resource_Metadata($T), index: Tracker_
         if new_size < 4 {
             new_size = 4
         }
-        // Grow in one allocation.
-        new_owned := make([dynamic]u64, new_size, md.owned.allocator)
-        copy(new_owned[:], md.owned[:])
-        delete(md.owned)
-        md.owned = new_owned
+        // Reuse capacity when the backing storage is already large enough (the
+        // truncating `clear` paths leave `len` at zero with `cap` intact);
+        // otherwise grow in one allocation.
+        if u32(cap(md.owned)) >= new_size {
+            resize(&md.owned, int(new_size))
+        } else {
+            new_owned := make([dynamic]u64, new_size, md.owned.allocator)
+            copy(new_owned[:], md.owned[:])
+            delete(md.owned)
+            md.owned = new_owned
+        }
     }
     if u32(len(md.resources)) <= i {
         new_size := i + 1
@@ -244,10 +251,14 @@ resource_metadata_grow_to :: proc(md: ^$R/Resource_Metadata($T), index: Tracker_
         if new_size < 8 {
             new_size = 8
         }
-        new_resources := make([dynamic]T, new_size, md.resources.allocator)
-        copy(new_resources[:], md.resources[:])
-        delete(md.resources)
-        md.resources = new_resources
+        if u32(cap(md.resources)) >= new_size {
+            resize(&md.resources, int(new_size))
+        } else {
+            new_resources := make([dynamic]T, new_size, md.resources.allocator)
+            copy(new_resources[:], md.resources[:])
+            delete(md.resources)
+            md.resources = new_resources
+        }
     }
 }
 
@@ -1156,7 +1167,15 @@ texture_descriptor_image_uses :: proc(
 // them all.
 Stateless_Tracker :: struct($T: typeid) {
     resources: [dynamic]T,
-    index:     map[Handle]bool,
+    // One bit per resource *slot*. `Handle64.idx` is a dense per-resource-type
+    // slot id, so membership is a bit test instead of a hash of the whole
+    // handle; the generation does not have to be part of the key because the
+    // tracker holds a reference on everything it records, so a recorded slot
+    // cannot be recycled while its bit is set. Replacing the previous
+    // `map[Handle]bool` removed ~12% of the manual recording path's in-exe time,
+    // which was dominated by `map_get`/`map_set` alone.
+    index:     [dynamic]u64,
+    allocator: runtime.Allocator,
 }
 
 @(private = "file")
@@ -1171,10 +1190,61 @@ stateless_tracker_key :: #force_inline proc "contextless" (
     return transmute(Handle)resource
 }
 
+@(private = "file")
+stateless_tracker_slot :: #force_inline proc "contextless" (
+    resource: $T,
+) -> u32 where T == Texture_View ||
+    T == Bind_Group ||
+    T == Compute_Pipeline ||
+    T == Render_Pipeline ||
+    T == Render_Bundle ||
+    T == Tlas {
+    return unpack_handle(hm.Handle64, resource.handle).idx
+}
+
+@(private = "file")
+stateless_tracker_bit :: #force_inline proc "contextless" (slot: u32) -> (word: u32, mask: u64) {
+    return slot / METADATA_WORD_BITS, u64(1) << (slot % METADATA_WORD_BITS)
+}
+
+// True when `slot` is a member. A slot past the table is not a member.
+@(private = "file")
+stateless_tracker_test :: #force_inline proc "contextless" (
+    t: ^$S/Stateless_Tracker($T),
+    slot: u32,
+) -> bool {
+    word, mask := stateless_tracker_bit(slot)
+    if word >= u32(len(t.index)) {
+        return false
+    }
+    return (t.index[word] & mask) != 0
+}
+
+@(private = "file")
+stateless_tracker_set :: proc(t: ^$S/Stateless_Tracker($T), slot: u32) {
+    word, mask := stateless_tracker_bit(slot)
+    if word >= u32(len(t.index)) {
+        // Grow to at least twice the current size so a burst of new resources
+        // does not reallocate per insert.
+        new_size := int(word) + 1
+        if new_size < len(t.index) * 2 {
+            new_size = len(t.index) * 2
+        }
+        old := len(t.index)
+        resize(&t.index, new_size)
+        for i in old ..< new_size {
+            t.index[i] = 0
+        }
+    }
+    t.index[word] |= mask
+}
+
 stateless_tracker_init :: proc(t: ^$S/Stateless_Tracker($T), allocator: runtime.Allocator) {
     t.resources = nil
     t.resources.allocator = allocator
-    t.index = make(map[Handle]bool, 0, allocator)
+    t.index = nil
+    t.index.allocator = allocator
+    t.allocator = allocator
 }
 
 stateless_tracker_free :: proc(t: ^$S/Stateless_Tracker($T)) {
@@ -1185,7 +1255,9 @@ stateless_tracker_free :: proc(t: ^$S/Stateless_Tracker($T)) {
 
 stateless_tracker_clear :: proc(t: ^$S/Stateless_Tracker($T)) {
     clear(&t.resources)
-    clear(&t.index)
+    for &word in t.index {
+        word = 0
+    }
 }
 
 stateless_tracker_len :: #force_inline proc "contextless" (t: ^$S/Stateless_Tracker($T)) -> int {
@@ -1203,11 +1275,11 @@ stateless_tracker_insert_single :: proc(
     t: ^$S/Stateless_Tracker($T),
     resource: T,
 ) -> (T, bool) {
-    key := stateless_tracker_key(resource)
-    if key in t.index {
+    slot := stateless_tracker_slot(resource)
+    if stateless_tracker_test(t, slot) {
         return resource, false
     }
-    t.index[key] = true
+    stateless_tracker_set(t, slot)
     append(&t.resources, resource)
     return resource, true
 }
@@ -1217,7 +1289,7 @@ stateless_tracker_contains :: #force_inline proc "contextless" (
     t: ^$S/Stateless_Tracker($T),
     resource: T,
 ) -> bool {
-    return stateless_tracker_key(resource) in t.index
+    return stateless_tracker_test(t, stateless_tracker_slot(resource))
 }
 
 // Transfers ownership of the reference list out, leaving an empty set with the
@@ -1227,7 +1299,9 @@ stateless_tracker_take :: proc(t: ^$S/Stateless_Tracker($T)) -> [dynamic]T {
     refs := t.resources
     t.resources = nil
     t.resources.allocator = refs.allocator
-    clear(&t.index)
+    for &word in t.index {
+        word = 0
+    }
     return refs
 }
 
@@ -1437,8 +1511,17 @@ buffer_usage_scope_free :: proc(s: ^Buffer_Usage_Scope) {
 }
 
 // Drop every member, keeping the backing storage for reuse.
+//
+// `state` is deliberately not truncated. Its length is the high-water mark the
+// scope grew to, and a slot is only ever read while its metadata bit is set
+// (`buffer_insert` overwrites it on first contact), so clearing the membership
+// bits is enough. Truncating here made the *next* merge re-append every slot
+// through `set_size`, which is the dominant cost when a scope is cleared and
+// refilled in a loop: 2000 host writes or 1000 dispatches in one frame each
+// clear and re-grow the same scope. Measured on the headless harness
+// (`tests/bench`, `dynamic_uniforms write_buffer`), keeping the length is worth
+// ~53% of that workload's frame time.
 buffer_usage_scope_clear :: proc(s: ^Buffer_Usage_Scope) {
-    clear(&s.state)
     resource_metadata_clear(&s.metadata)
 }
 

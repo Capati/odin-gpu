@@ -31,8 +31,14 @@ build.bat|sh <name> run
 - [Out-of-bounds Viewport](#out-of-bounds-viewport)
 - [Stencil Triangles](#stencil-triangles)
 - [Pristine Grid](#pristine-grid)
+- [Compute Shader](#compute-shader)
+- [Game of Life](#game-of-life)
+- [Timestamp Query](#timestamp-query)
+- [Occlusion Query](#occlusion-query)
+- [Render Bundles](#render-bundles)
 - [MicroUI](#microui)
 - [ImGui Example](#imgui-example)
+- [Threaded Upload](#threaded-upload)
 - [glTF Cube](#gltf-cube)
 - [OBJ Model](#obj-model)
 - [glTF Viewer](#gltf-viewer)
@@ -177,6 +183,60 @@ this wonderful little blog post:
 
 https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8
 
+### Compute Shader
+
+A compute pass integrates a particle field in an in-place read/write storage
+buffer, then a render pass draws that buffer as instanced quads in the same
+frame. Exercises compute pipeline creation, `compute_pass_dispatch_workgroups`,
+and the compute-to-vertex barrier between the two passes.
+
+Uses the `.comp.slang` naming, which `build_shader.bat|sh` compiles as a compute
+stage.
+
+### Game of Life
+
+Conway's Game of Life simulated on the GPU: a compute pass reads the previous
+generation and writes the next into a second storage buffer, ping-ponging between
+two grids several times per frame, then a render pass draws the current
+generation as instanced quads.
+
+A MicroUI overlay exposes the simulation speed, the seed density, and a
+Randomize button.
+
+### Timestamp Query
+
+Measures GPU frame time with timestamp queries: the render pass stamps its start
+and end, the encoder resolves the pair into a buffer, and the CPU reads back the
+elapsed milliseconds. The first example to use `Query_Set`. Requires the
+`Timestamp_Query` feature; the UI reports when the device lacks it.
+
+### Occlusion Query
+
+Six cubes orbit a common centre, each drawn inside its own occlusion query. The
+resolved fragment counts are read back to report which cubes are actually
+visible — an occluded cube reports 0 even though it was submitted. Scopes a query
+inside a render pass, around a draw, unlike the timestamp example.
+
+### Render Bundles
+
+A ring of asteroids around a planet, drawn one call at a time — deliberately
+wasteful, since instancing would collapse it. The same scene-recording body feeds
+either a `Render_Bundle` (executed with `render_pass_execute_bundles`) or the pass
+directly, and a UI toggle switches between them, with the CPU recording time
+measured for whichever path is active. The first example to actually execute a
+render bundle; the CTS tests only validate bundle descriptors.
+
+Two backend findings came out of it. First, the
+`VK_RECLAIM_BATCH_CAP` assertion in `vk_submit_context_drain_refs` encoded an
+invariant that is false for any scene binding many distinct resources, and the
+example tripped it at 5000 asteroids — the bound has been removed. Second,
+`execute_bundles` replayed through the fully validating public setters, so a
+bundle paid validation twice and cost about twice what manual recording did. It now
+merges the bundle's record-time usage tally into the pass once and replays without
+re-checking bindings while still validating draws against the pipeline. Bundles
+went from 2x slower to ~1.2-1.4x faster, measured as a rolling average rather than
+per frame.
+
 ### MicroUI
 
 Renders a MicroUI user interface using the utils/microui renderer.
@@ -184,6 +244,13 @@ Renders a MicroUI user interface using the utils/microui renderer.
 ### ImGui Example
 
 This example demonstrates how to use Dear ImGui to create graphical user interfaces.
+
+### Threaded Upload
+
+Worker threads create buffers and textures and upload through the queue while the
+main thread renders. It doubles as a live stress test for the backend's thread
+safety: validation errors are counted and trap at shutdown. Native only (uses
+`core:thread`).
 
 ### glTF Cube
 

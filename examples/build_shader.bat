@@ -74,9 +74,11 @@ if not "!SHADER_DIR:~-1!"=="\" set "SHADER_DIR=!SHADER_DIR!\"
 :: The file name decides the stage:
 ::   name.vert.slang -> vertex only
 ::   name.frag.slang -> fragment only
+::   name.comp.slang -> compute only
 ::   anything else   -> both
 set "DO_VERT=true"
 set "DO_FRAG=true"
+set "DO_COMP=false"
 
 set "NAME_TAIL=!SHADER_NAME:~-5!"
 
@@ -85,6 +87,13 @@ if /i "!NAME_TAIL!"==".vert" set "SHADER_NAME=!SHADER_NAME:~0,-5!"
 
 if /i "!NAME_TAIL!"==".frag" set "DO_VERT=false"
 if /i "!NAME_TAIL!"==".frag" set "SHADER_NAME=!SHADER_NAME:~0,-5!"
+
+if /i "!NAME_TAIL!"==".comp" (
+	set "DO_VERT=false"
+	set "DO_FRAG=false"
+	set "DO_COMP=true"
+	set "SHADER_NAME=!SHADER_NAME:~0,-5!"
+)
 
 :: ── Resolve target selection ────────────────────────────────────────────────
 
@@ -149,6 +158,20 @@ if "!DO_DXIL!"=="true" (
 			set "SHADER_ERROR=true"
 		)
 	)
+	if "!DO_COMP!"=="true" (
+		call "!SLANGC!" "!SHADER_FILE!" ^
+			-entry cs_main ^
+			-matrix-layout-column-major ^
+			-stage compute ^
+			-target dxil ^
+			-profile sm_6_0 ^
+			-D __DXIL__ ^
+			-o "!SHADER_DIR!DXIL\!SHADER_NAME!.comp.dxil"
+		if errorlevel 1 (
+			echo Failed to compile compute shader to DXIL
+			set "SHADER_ERROR=true"
+		)
+	)
 )
 
 :: ── DXBC ────────────────────────────────────────────────────────────────────
@@ -175,6 +198,18 @@ if "!DO_DXBC!"=="true" (
 			-o "!SHADER_DIR!DXBC\!SHADER_NAME!.frag.dxbc"
 		if errorlevel 1 (
 			echo Failed to compile pixel shader to DXBC
+			set "SHADER_ERROR=true"
+		)
+	)
+	if "!DO_COMP!"=="true" (
+		call "!SLANGC!" "!SHADER_FILE!" ^
+			-entry cs_main ^
+			-matrix-layout-column-major ^
+			-target dxbc ^
+			-profile cs_5_1 ^
+			-o "!SHADER_DIR!DXBC\!SHADER_NAME!.comp.dxbc"
+		if errorlevel 1 (
+			echo Failed to compile compute shader to DXBC
 			set "SHADER_ERROR=true"
 		)
 	)
@@ -211,6 +246,20 @@ if "!DO_GLSL!"=="true" (
 			set "SHADER_ERROR=true"
 		)
 	)
+	if "!DO_COMP!"=="true" (
+		call "!SLANGC!" "!SHADER_FILE!" ^
+			-entry cs_main ^
+			-stage compute ^
+			-target glsl ^
+			-profile glsl_450 ^
+			-D USE_COMBINED_SAMPLER ^
+			-D __GLSL__ ^
+			-o "!SHADER_DIR!GLSL\Desktop\!SHADER_NAME!.comp.glsl"
+		if errorlevel 1 (
+			echo Failed to compile compute shader to GLSL
+			set "SHADER_ERROR=true"
+		)
+	)
 )
 
 :: ── SPIR-V ──────────────────────────────────────────────────────────────────
@@ -243,6 +292,21 @@ if "!DO_SPIRV!"=="true" (
 			-o "!SHADER_DIR!SPIRV\!SHADER_NAME!.frag.spv"
 		if errorlevel 1 (
 			echo Failed to compile fragment shader to SPIR-V
+			set "SHADER_ERROR=true"
+		)
+	)
+	if "!DO_COMP!"=="true" (
+		call "!SLANGC!" "!SHADER_FILE!" ^
+			-entry cs_main ^
+			-fvk-use-entrypoint-name ^
+			-matrix-layout-column-major ^
+			-stage compute ^
+			-target spirv ^
+			-profile spirv_1_5 ^
+			-D __SPIRV__ ^
+			-o "!SHADER_DIR!SPIRV\!SHADER_NAME!.comp.spv"
+		if errorlevel 1 (
+			echo Failed to compile compute shader to SPIR-V
 			set "SHADER_ERROR=true"
 		)
 	)
@@ -305,6 +369,19 @@ if "!DO_WGSL!"=="true" (
 			set "SHADER_ERROR=true"
 		)
 	)
+	if "!DO_COMP!"=="true" (
+		call "!SLANGC!" "!SHADER_FILE!" ^
+			-entry cs_main ^
+			-matrix-layout-column-major ^
+			-stage compute ^
+			-target wgsl ^
+			-D __WGSL__ ^
+			-o "!SHADER_DIR!WGSL\!SHADER_NAME!.comp.wgsl"
+		if errorlevel 1 (
+			echo Failed to compile compute shader to WGSL
+			set "SHADER_ERROR=true"
+		)
+	)
 )
 
 if "!SHADER_ERROR!"=="true" (
@@ -321,12 +398,14 @@ echo.
 echo   The stage is taken from the file name:
 echo     name.vert.slang  -^> vertex only
 echo     name.frag.slang  -^> fragment only
+echo     name.comp.slang  -^> compute only
 echo     name.slang       -^> both vertex and fragment
 echo.
 echo Examples:
 echo   %~nx0 shaders\textured.frag.slang
 echo   %~nx0 shaders\textured.frag.slang out -t spirv
 echo   %~nx0 shaders\fixed_size_points.vert.slang out -t spirv,wgsl
+echo   %~nx0 shaders\particles.comp.slang out -t spirv,wgsl
 endlocal & exit /b 1
 
 :skip_shaders

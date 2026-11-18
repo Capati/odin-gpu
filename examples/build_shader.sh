@@ -8,7 +8,8 @@
 #
 #   - name.vert.slang -> vertex only
 #   - name.frag.slang -> fragment only
-#   - anything else   -> both
+#   - name.comp.slang -> compute only
+#   - anything else   -> both vertex and fragment
 
 # Check if slangc is available
 if ! command -v slangc &> /dev/null; then
@@ -32,6 +33,7 @@ if [ -z "$1" ]; then
     echo "  The stage is taken from the file name:"
     echo "    name.vert.slang  -> vertex only"
     echo "    name.frag.slang  -> fragment only"
+    echo "    name.comp.slang  -> compute only"
     echo "    name.slang       -> both vertex and fragment"
     exit 1
 fi
@@ -52,6 +54,7 @@ SHADER_DIR="${SHADER_DIR%/}"
 # The file name decides the stage (case-insensitive, like build_shader.bat).
 DO_VERT=true
 DO_FRAG=true
+DO_COMP=false
 NAME_TAIL="${SHADER_NAME: -5}"
 NAME_TAIL_LOWER="$(echo "$NAME_TAIL" | tr '[:upper:]' '[:lower:]')"
 if [ "$NAME_TAIL_LOWER" = ".vert" ]; then
@@ -60,6 +63,12 @@ if [ "$NAME_TAIL_LOWER" = ".vert" ]; then
 fi
 if [ "$NAME_TAIL_LOWER" = ".frag" ]; then
     DO_VERT=false
+    SHADER_NAME="${SHADER_NAME%.*}"
+fi
+if [ "$NAME_TAIL_LOWER" = ".comp" ]; then
+    DO_VERT=false
+    DO_FRAG=false
+    DO_COMP=true
     SHADER_NAME="${SHADER_NAME%.*}"
 fi
 
@@ -107,6 +116,18 @@ if [ "$DO_FRAG" = true ]; then
         -o "${SHADER_DIR}/DXIL/${SHADER_NAME}.frag.dxil"
 fi
 
+if [ "$DO_COMP" = true ]; then
+    compile_or_fail "Failed to compile compute shader to DXIL" \
+        "$SLANGC" "$SHADER_FILE" \
+        -entry cs_main \
+        -matrix-layout-column-major \
+        -stage compute \
+        -target dxil \
+        -profile sm_6_0 \
+        -D __DXIL__ \
+        -o "${SHADER_DIR}/DXIL/${SHADER_NAME}.comp.dxil"
+fi
+
 # ── DXBC ─────────────────────────────────────────────────────────────────────
 
 if [ "$DO_VERT" = true ]; then
@@ -127,6 +148,16 @@ if [ "$DO_FRAG" = true ]; then
         -target dxbc \
         -profile ps_5_1 \
         -o "${SHADER_DIR}/DXBC/${SHADER_NAME}.frag.dxbc"
+fi
+
+if [ "$DO_COMP" = true ]; then
+    compile_or_fail "Failed to compile compute shader to DXBC" \
+        "$SLANGC" "$SHADER_FILE" \
+        -entry cs_main \
+        -matrix-layout-column-major \
+        -target dxbc \
+        -profile cs_5_1 \
+        -o "${SHADER_DIR}/DXBC/${SHADER_NAME}.comp.dxbc"
 fi
 
 # ── GLSL Desktop (direct from Slang) ─────────────────────────────────────────
@@ -155,6 +186,18 @@ if [ "$DO_FRAG" = true ]; then
         -o "${SHADER_DIR}/GLSL/Desktop/${SHADER_NAME}.frag.glsl"
 fi
 
+if [ "$DO_COMP" = true ]; then
+    compile_or_fail "Failed to compile compute shader to GLSL" \
+        "$SLANGC" "$SHADER_FILE" \
+        -entry cs_main \
+        -stage compute \
+        -target glsl \
+        -profile glsl_450 \
+        -D USE_COMBINED_SAMPLER \
+        -D __GLSL__ \
+        -o "${SHADER_DIR}/GLSL/Desktop/${SHADER_NAME}.comp.glsl"
+fi
+
 # ── SPIR-V ───────────────────────────────────────────────────────────────────
 
 if [ "$DO_VERT" = true ]; then
@@ -181,6 +224,19 @@ if [ "$DO_FRAG" = true ]; then
         -profile spirv_1_5 \
         -D __SPIRV__ \
         -o "${SHADER_DIR}/SPIRV/${SHADER_NAME}.frag.spv"
+fi
+
+if [ "$DO_COMP" = true ]; then
+    compile_or_fail "Failed to compile compute shader to SPIR-V" \
+        "$SLANGC" "$SHADER_FILE" \
+        -entry cs_main \
+        -fvk-use-entrypoint-name \
+        -matrix-layout-column-major \
+        -stage compute \
+        -target spirv \
+        -profile spirv_1_5 \
+        -D __SPIRV__ \
+        -o "${SHADER_DIR}/SPIRV/${SHADER_NAME}.comp.spv"
 fi
 
 # ── GLSL ES (via spirv-cross) ────────────────────────────────────────────────
@@ -236,6 +292,17 @@ if [ "$DO_FRAG" = true ]; then
         -target wgsl \
         -D __WGSL__ \
         -o "${SHADER_DIR}/WGSL/${SHADER_NAME}.frag.wgsl"
+fi
+
+if [ "$DO_COMP" = true ]; then
+    compile_or_fail "Failed to compile compute shader to WGSL" \
+        "$SLANGC" "$SHADER_FILE" \
+        -entry cs_main \
+        -matrix-layout-column-major \
+        -stage compute \
+        -target wgsl \
+        -D __WGSL__ \
+        -o "${SHADER_DIR}/WGSL/${SHADER_NAME}.comp.wgsl"
 fi
 
 if [ "$SHADER_ERROR" = true ]; then

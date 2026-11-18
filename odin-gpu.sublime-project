@@ -1352,6 +1352,288 @@
                     "osx": {
                         "cmd": ["./build.sh", "fractal_cube", "run"]
                     }
+                },
+
+                {
+                    "name": "Build Compute Shader",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "compute_shader"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "compute_shader"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "compute_shader"]
+                    }
+                },
+                {
+                    "name": "Build Compute Shader [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "compute_shader", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "compute_shader", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "compute_shader", "release"]
+                    }
+                },
+                {
+                    "name": "Build Compute Shader (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "compute_shader", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "compute_shader", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "compute_shader", "web"]
+                    }
+                },
+                {
+                    "name": "Run Compute Shader",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "compute_shader", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "compute_shader", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "compute_shader", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Game of Life",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "game_of_life"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "game_of_life"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "game_of_life"]
+                    }
+                },
+                {
+                    "name": "Build Game of Life [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "game_of_life", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "game_of_life", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "game_of_life", "release"]
+                    }
+                },
+                {
+                    "name": "Build Game of Life (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "game_of_life", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "game_of_life", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "game_of_life", "web"]
+                    }
+                },
+                {
+                    "name": "Run Game of Life",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "game_of_life", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "game_of_life", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "game_of_life", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Timestamp Query",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "timestamp_query"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "timestamp_query"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "timestamp_query"]
+                    }
+                },
+                {
+                    "name": "Build Timestamp Query [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "timestamp_query", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "timestamp_query", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "timestamp_query", "release"]
+                    }
+                },
+                {
+                    "name": "Build Timestamp Query (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "timestamp_query", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "timestamp_query", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "timestamp_query", "web"]
+                    }
+                },
+                {
+                    "name": "Run Timestamp Query",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "timestamp_query", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "timestamp_query", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "timestamp_query", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Occlusion Query",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "occlusion_query"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "occlusion_query"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "occlusion_query"]
+                    }
+                },
+                {
+                    "name": "Build Occlusion Query [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "occlusion_query", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "occlusion_query", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "occlusion_query", "release"]
+                    }
+                },
+                {
+                    "name": "Build Occlusion Query (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "occlusion_query", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "occlusion_query", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "occlusion_query", "web"]
+                    }
+                },
+                {
+                    "name": "Run Occlusion Query",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "occlusion_query", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "occlusion_query", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "occlusion_query", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Render Bundles",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "render_bundles"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "render_bundles"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "render_bundles"]
+                    }
+                },
+                {
+                    "name": "Build Render Bundles [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "render_bundles", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "render_bundles", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "render_bundles", "release"]
+                    }
+                },
+                {
+                    "name": "Build Render Bundles (Web)",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "render_bundles", "web"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "render_bundles", "web"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "render_bundles", "web"]
+                    }
+                },
+                {
+                    "name": "Run Render Bundles",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "render_bundles", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "render_bundles", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "render_bundles", "run"]
+                    }
+                },
+
+                {
+                    "name": "Build Threaded Upload",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "threaded_upload"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "threaded_upload"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "threaded_upload"]
+                    }
+                },
+                {
+                    "name": "Build Threaded Upload [release]",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "threaded_upload", "release"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "threaded_upload", "release"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "threaded_upload", "release"]
+                    }
+                },
+                {
+                    "name": "Run Threaded Upload",
+                    "windows": {
+                        "cmd": ["cmd", "/c", "build.bat", "threaded_upload", "run"]
+                    },
+                    "linux": {
+                        "cmd": ["./build.sh", "threaded_upload", "run"]
+                    },
+                    "osx": {
+                        "cmd": ["./build.sh", "threaded_upload", "run"]
+                    }
                 }
             ]
         }

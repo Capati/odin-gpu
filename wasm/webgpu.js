@@ -2422,7 +2422,11 @@
 
           const { ptr: caPtr, len: caLen } = this.readSlice(off); // 8: color_attachments
           const dsPtr = this.mem.loadPtr(off(4)); // 16: depth_stencil_attachment
-          const tsPtr = this.mem.loadPtr(off(4)); // 20: timestamp_writes
+          // 20: timestamp_writes. Pass the field's *address*: `PassTimestampWritesPtr`
+          // dereferences it itself, the same convention `webgpuCommandEncoderBeginComputePass`
+          // uses. Passing the loaded pointer made it read the struct's first word
+          // (`query_set.device`) as a handle address, so the query set never resolved.
+          const tsOff = off(4);
           // 24: occlusion_query_set (`gpu.Query_Set` is a 16-byte Handle)
           const occlusionQuerySet = this.handleAt(this.querySets, off(16, 8));
           off(4); // 40: multiview_mask (unused)
@@ -2437,7 +2441,7 @@
               this.sizes.RenderPassColorAttachment[0],
             ),
             occlusionQuerySet: occlusionQuerySet,
-            timestampWrites: this.PassTimestampWritesPtr(tsPtr),
+            timestampWrites: this.PassTimestampWritesPtr(tsOff),
           };
           const depthStencil = this.RenderPassDepthStencilAttachmentPtr(dsPtr);
           if (depthStencil) descriptor.depthStencilAttachment = depthStencil;
@@ -3814,7 +3818,9 @@
           const buffer = this.buffers.getPacked(bufferIdx);
           const format = this.odinEnumValue('IndexFormat', formatInt);
           offset = this.unwrapBigInt(offset);
-          size = this.unwrapBigInt(size);
+          // `size` carries the WHOLE_SIZE sentinel, so it needs the optional
+          // conversion; `unwrapBigInt` rejects the u64 sentinel outright.
+          size = this.toOptionalSize64(size);
           renderBundleEncoder.setIndexBuffer(buffer.buffer, format, offset, size);
         },
 
@@ -3850,7 +3856,9 @@
           }
 
           offset = this.unwrapBigInt(offset);
-          size = this.unwrapBigInt(size);
+          // See `webgpuRenderBundleEncoderSetIndexBuffer`: WHOLE_SIZE is a
+          // sentinel, not a number.
+          size = this.toOptionalSize64(size);
           renderBundleEncoder.setVertexBuffer(slot, buffer, offset, size);
         },
 

@@ -695,7 +695,7 @@ webgpu_set_log_callback :: proc(
     userdata: rawptr,
     loc := #caller_location,
 ) {
-    // wgpu-native's logging has no web equivalent: the runtime forwards `print`
+    // Native backends log through a callback; the web runtime forwards `print`
     // and panics to the JS console, which the embedder already controls.
 }
 
@@ -704,7 +704,7 @@ webgpu_set_log_level :: proc(level: Log_Level, loc := #caller_location) {
 }
 
 webgpu_get_version :: proc(loc := #caller_location) -> u32 {
-    // There is no wgpu-native ABI to version on the web.
+    // There is no native ABI to version on the web.
     return 0
 }
 

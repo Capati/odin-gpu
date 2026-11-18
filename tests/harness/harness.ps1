@@ -55,14 +55,22 @@ Reuse existing binaries. Freshness is still checked, so this fails loudly if
 anything is stale.
 
 .PARAMETER SkipTests
-Skip `odin test gpu` in debug and -o:speed.
+Skip `odin test tests/unit` in debug and -o:speed.
 
 .PARAMETER NoMeasure
 Build without the frame-time instrument. Pacing then degrades to responsiveness
 and CPU progression only, which cannot detect a partial pacing regression.
 
 .PARAMETER Release
-Build release. See the note above about asserts being compiled out.
+Shorthand for -Modes release. Kept for compatibility.
+
+.PARAMETER Modes
+Build modes to cover. Defaults to both debug and release: every target is
+built, freshness-checked and paced once per mode, and the artifacts are kept
+side by side as build\<name>.debug.exe / build\<name>.release.exe so one
+mode's binary can never be mistaken for the other's. Release is in the matrix
+by default because the parity measurements run on release builds, and asserts
+compiled out can hide mistakes that debug catches with a clear message.
 
 .EXAMPLE
 .\tests\harness\harness.ps1 -Clean
@@ -72,6 +80,10 @@ From-scratch build, unit tests, and a paced pass over every example.
 .\tests\harness\harness.ps1 -Targets two_cubes,microui -PaceSeconds 4 -PaceCount 8
 Longer pacing window on the examples that exercise uniform writes and deferred
 deletion.
+
+.EXAMPLE
+.\tests\harness\harness.ps1 -Modes debug
+The old default: debug only, single artifact per example.
 #>
 [CmdletBinding()]
 param(
@@ -84,6 +96,7 @@ param(
     [switch]$SkipTests,
     [switch]$NoMeasure,
     [switch]$Release,
+    [string[]]$Modes = @('debug', 'release'),
     [string]$Cdb = "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe"
 )
 
@@ -156,6 +169,20 @@ if ($Targets.Count -eq 0) {
 
 $useMeasure = -not $NoMeasure
 
+# -Release is a shorthand for the single-mode invocation this script used to
+# support; the default matrix covers both modes.
+if ($Release) { $Modes = @('release') }
+
+# Artifacts are renamed per mode so build\<name>.exe can never silently be the
+# wrong mode's binary: build.bat writes both modes to the same path, and a
+# release binary that overwrote a debug one is indistinguishable from it until
+# an assert that should have fired does not. Move-Item preserves LastWriteTime,
+# so freshness still measures the compile.
+function Get-ArtifactPath {
+    param([string]$Target, [string]$Mode)
+    return Join-Path $buildDir "$Target.$Mode.exe"
+}
+
 function Get-FrameTimeLines {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
@@ -219,8 +246,7 @@ function Invoke-StackDump {
 # -----------------------------------------------------------------------------
 
 if (-not $SkipBuild) {
-    $mode = 'debug'
-    Write-Section "Build ($($Targets.Count) targets$(if ($Clean) { ', clean' })$(if ($useMeasure) { ', measure' }))"
+    Write-Section "Build ($($Targets.Count) targets, modes: $($Modes -join ', ')$(if ($Clean) { ', clean' })$(if ($useMeasure) { ', measure' }))"
 
     if ($Clean) {
         # Filter on the extension explicitly rather than via -Include: paired
@@ -231,11 +257,6 @@ if (-not $SkipBuild) {
             Remove-Item -Force -ErrorAction SilentlyContinue
     }
 
-    $buildArgs = @()
-    if ($Release) { $buildArgs += 'release' }
-    if ($useMeasure) { $buildArgs += 'measure' }
-    $buildArgs = $buildArgs -join ' '
-
     foreach ($t in $Targets) {
         $src = Join-Path $examplesDir $t
         if (-not (Test-Path -LiteralPath $src)) {
@@ -243,26 +264,42 @@ if (-not $SkipBuild) {
             continue
         }
 
-        $sw = [Diagnostics.Stopwatch]::StartNew()
-        # The CWD must be pinned: build.bat resolves OUT to .\build relative to
-        # whatever directory it is invoked from, so inheriting the caller's CWD
-        # silently writes the binary somewhere nothing will run.
-        Push-Location -LiteralPath $examplesDir
-        try {
-            $out = cmd /c "build.bat $t $buildArgs" 2>&1
-            $code = $LASTEXITCODE
-        }
-        finally {
-            Pop-Location
-        }
-        $sw.Stop()
+        foreach ($mode in $Modes) {
+            $buildArgs = @()
+            if ($mode -eq 'release') { $buildArgs += 'release' }
+            if ($useMeasure) { $buildArgs += 'measure' }
+            $buildArgs = $buildArgs -join ' '
 
-        if ($code -ne 0) {
-            $first = ($out | Select-String -Pattern 'error' | Select-Object -First 1)
-            Add-Failure "$t : build exit ${code}: $first"
-        }
-        else {
-            Write-Host ("  ok    {0,-24} {1,5:N1}s" -f $t, $sw.Elapsed.TotalSeconds)
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            # The CWD must be pinned: build.bat resolves OUT to .\build relative to
+            # whatever directory it is invoked from, so inheriting the caller's CWD
+            # silently writes the binary somewhere nothing will run.
+            Push-Location -LiteralPath $examplesDir
+            try {
+                $out = cmd /c "build.bat $t $buildArgs" 2>&1
+                $code = $LASTEXITCODE
+            }
+            finally {
+                Pop-Location
+            }
+            $sw.Stop()
+
+            if ($code -ne 0) {
+                $first = ($out | Select-String -Pattern 'error' | Select-Object -First 1)
+                Add-Failure "$t [$mode] : build exit ${code}: $first"
+                continue
+            }
+
+            # Stage the artifact under its mode's name; a plain copy would get a
+            # fresh LastWriteTime and defeat the freshness check.
+            $produced = Join-Path $buildDir "$t.exe"
+            $staged = Get-ArtifactPath -Target $t -Mode $mode
+            if (Test-Path -LiteralPath $staged) {
+                Remove-Item -LiteralPath $staged -Force
+            }
+            Move-Item -LiteralPath $produced -Destination $staged -Force
+
+            Write-Host ("  ok    {0,-24} {1,-7} {2,5:N1}s" -f $t, $mode, $sw.Elapsed.TotalSeconds)
         }
     }
 }
@@ -274,35 +311,37 @@ if (-not $SkipBuild) {
 Write-Section 'Artifact freshness'
 
 foreach ($t in $Targets) {
-    $exe = Join-Path $buildDir "$t.exe"
-    if (-not (Test-Path -LiteralPath $exe)) {
-        Add-Failure "$t : no executable at $exe"
-        continue
-    }
+    foreach ($mode in $Modes) {
+        $exe = Get-ArtifactPath -Target $t -Mode $mode
+        if (-not (Test-Path -LiteralPath $exe)) {
+            Add-Failure "$t [$mode] : no executable at $exe"
+            continue
+        }
 
-    $exeTime = (Get-Item -LiteralPath $exe).LastWriteTime
+        $exeTime = (Get-Item -LiteralPath $exe).LastWriteTime
 
-    $sources = @()
-    $sources += Get-ChildItem -LiteralPath $gpuDir -Filter *.odin -File -ErrorAction SilentlyContinue
-    $src = Join-Path $examplesDir $t
-    if (Test-Path -LiteralPath $src) {
-        $sources += Get-ChildItem -LiteralPath $src -Filter *.odin -File -Recurse -ErrorAction SilentlyContinue
-    }
-    $sources += Get-ChildItem -LiteralPath (Join-Path $repoRoot 'utils') -Filter *.odin -File -Recurse -ErrorAction SilentlyContinue
+        $sources = @()
+        $sources += Get-ChildItem -LiteralPath $gpuDir -Filter *.odin -File -ErrorAction SilentlyContinue
+        $src = Join-Path $examplesDir $t
+        if (Test-Path -LiteralPath $src) {
+            $sources += Get-ChildItem -LiteralPath $src -Filter *.odin -File -Recurse -ErrorAction SilentlyContinue
+        }
+        $sources += Get-ChildItem -LiteralPath (Join-Path $repoRoot 'utils') -Filter *.odin -File -Recurse -ErrorAction SilentlyContinue
 
-    if ($sources.Count -eq 0) {
-        Add-Warning "$t : no sources found to compare against"
-        continue
-    }
+        if ($sources.Count -eq 0) {
+            Add-Warning "$t [$mode] : no sources found to compare against"
+            continue
+        }
 
-    $newest = $sources | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($exeTime -lt $newest.LastWriteTime) {
-        Add-Failure ("{0} : STALE binary {1:HH:mm:ss} older than {2} at {3:HH:mm:ss}" -f
-            $t, $exeTime, $newest.Name, $newest.LastWriteTime)
-    }
-    else {
-        Write-Host ("  ok    {0,-24} exe {1:HH:mm:ss} >= src {2:HH:mm:ss}" -f
-            $t, $exeTime, $newest.LastWriteTime)
+        $newest = $sources | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($exeTime -lt $newest.LastWriteTime) {
+            Add-Failure ("{0} [{1}] : STALE binary {2:HH:mm:ss} older than {3} at {4:HH:mm:ss}" -f
+                $t, $mode, $exeTime, $newest.Name, $newest.LastWriteTime)
+        }
+        else {
+            Write-Host ("  ok    {0,-24} {1,-7} exe {2:HH:mm:ss} >= src {3:HH:mm:ss}" -f
+                $t, $mode, $exeTime, $newest.LastWriteTime)
+        }
     }
 }
 
@@ -311,27 +350,34 @@ foreach ($t in $Targets) {
 # -----------------------------------------------------------------------------
 
 if (-not $SkipTests) {
-    Write-Section 'Unit tests (gpu)'
+    Write-Section 'Unit + Vulkan backend tests'
 
-    foreach ($mode in @('debug', '-o:speed')) {
-        $testArgs = if ($mode -eq 'debug') { @('test', 'gpu') } else { @('test', 'gpu', '-o:speed') }
-        # `gpu` is a relative package path, so the CWD must be the repository
-        # root rather than wherever the caller happened to invoke the harness.
-        Push-Location -LiteralPath $repoRoot
-        try {
-            $out = & odin @testArgs 2>&1
-            $code = $LASTEXITCODE
-        }
-        finally {
-            Pop-Location
-        }
-        $summary = ($out | Select-String -Pattern 'Finished .* tests' | Select-Object -Last 1)
-        if ($code -eq 0 -and "$out" -match 'All tests were successful') {
-            Write-Host ("  ok    {0,-8} {1}" -f $mode, $summary)
-        }
-        else {
-            $err = ($out | Select-Object -Last 1)
-            Add-Failure "unit tests ${mode}: exit ${code}: $summary $err"
+    # Both suites are relative package paths, so the CWD must be the repository
+    # root rather than wherever the caller happened to invoke the harness.
+    # The readback/thread tests allocate on purpose, so leak checks stay on.
+    $testPackages = @('tests/unit', 'tests/vulkan')
+    foreach ($package in $testPackages) {
+        foreach ($mode in @('debug', '-o:speed')) {
+            $testArgs = @('test', $package, '-define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true')
+            if ($mode -eq '-o:speed') {
+                $testArgs += '-o:speed'
+            }
+            Push-Location -LiteralPath $repoRoot
+            try {
+                $out = & odin @testArgs 2>&1
+                $code = $LASTEXITCODE
+            }
+            finally {
+                Pop-Location
+            }
+            $summary = ($out | Select-String -Pattern 'Finished .* tests' | Select-Object -Last 1)
+            if ($code -eq 0 -and "$out" -match 'All tests were successful') {
+                Write-Host ("  ok    {0,-8} {1}" -f $mode, $summary)
+            }
+            else {
+                $err = ($out | Select-Object -Last 1)
+                Add-Failure "${package} tests ${mode}: exit ${code}: $summary $err"
+            }
         }
     }
 }
@@ -343,115 +389,117 @@ if (-not $SkipTests) {
 Write-Section "Paced liveness (${PaceSeconds}s x ${PaceCount} + ${WarmupSeconds}s warmup$(if ($useMeasure) { ', frame-time driven' }))"
 
 foreach ($t in $Targets) {
-    $exe = Join-Path $buildDir "$t.exe"
-    if (-not (Test-Path -LiteralPath $exe)) {
-        Write-Host ("  skip  {0,-24} no executable" -f $t)
-        continue
-    }
-
-    $stdout = Join-Path $logDir "$t.out"
-    $stderr = Join-Path $logDir "$t.err"
-    Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
-
-    $proc = Start-Process -FilePath $exe -WorkingDirectory $buildDir `
-        -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
-
-    if ($WarmupSeconds -gt 0) {
-        Start-Sleep -Seconds $WarmupSeconds
-    }
-
-    $exited = $false
-    $responding = $true
-    $cpuStart = $proc.CPU
-    $prevReports = (Get-FrameTimeLines -Path $stdout).Count
-    $timeline = @()
-    $stalls = 0
-
-    for ($i = 1; $i -le $PaceCount; $i++) {
-        Start-Sleep -Seconds $PaceSeconds
-        $proc.Refresh()
-
-        if ($proc.HasExited) { $exited = $true; break }
-        $responding = $proc.Responding
-
-        if ($useMeasure) {
-            $reports = (Get-FrameTimeLines -Path $stdout).Count
-            $delta = $reports - $prevReports
-            $prevReports = $reports
-            # The first tick gets a grace period: the instrument discards 30
-            # frames and then needs 120 more before its first report.
-            if ($delta -eq 0 -and $i -gt 1) { $stalls++ }
-            $timeline += ("    t={0,2}  reports=+{1} cpu={2:N2}s{3}" -f
-                ($i * $PaceSeconds), $delta, $proc.CPU, $(if (-not $responding) { '  NOT RESPONDING' } else { '' }))
-        }
-        else {
-            $timeline += ("    t={0,2}  cpu={1:N2}s{2}" -f
-                ($i * $PaceSeconds), $proc.CPU, $(if (-not $responding) { '  NOT RESPONDING' } else { '' }))
+    foreach ($mode in $Modes) {
+        $exe = Get-ArtifactPath -Target $t -Mode $mode
+        if (-not (Test-Path -LiteralPath $exe)) {
+            Write-Host ("  skip  {0,-24} {1,-7} no executable" -f $t, $mode)
+            continue
         }
 
-        if (-not $responding) { break }
-    }
+        $stdout = Join-Path $logDir "$t.$mode.out"
+        $stderr = Join-Path $logDir "$t.$mode.err"
+        Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
 
-    $stats = Get-FrameTimeStats -Path $stdout
-    $blockReason = Get-BlockedReason -Paths @($stdout, $stderr)
+        $proc = Start-Process -FilePath $exe -WorkingDirectory $buildDir `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 
-    if ($exited) {
-        if ($blockReason) {
-            # Not a regression: the example cannot run here at all.
-            Add-Blocked "$t : $blockReason"
-            $verdict = 'blocked (missing asset)'
-            $color = 'Magenta'
+        if ($WarmupSeconds -gt 0) {
+            Start-Sleep -Seconds $WarmupSeconds
         }
-        else {
-            $err = (Select-String -Path $stderr -Pattern '.' -ErrorAction SilentlyContinue | Select-Object -First 1)
-            Add-Failure "$t : exited during pacing : $err"
-            $verdict = 'exited during pacing'
+
+        $exited = $false
+        $responding = $true
+        $cpuStart = $proc.CPU
+        $prevReports = (Get-FrameTimeLines -Path $stdout).Count
+        $timeline = @()
+        $stalls = 0
+
+        for ($i = 1; $i -le $PaceCount; $i++) {
+            Start-Sleep -Seconds $PaceSeconds
+            $proc.Refresh()
+
+            if ($proc.HasExited) { $exited = $true; break }
+            $responding = $proc.Responding
+
+            if ($useMeasure) {
+                $reports = (Get-FrameTimeLines -Path $stdout).Count
+                $delta = $reports - $prevReports
+                $prevReports = $reports
+                # The first tick gets a grace period: the instrument discards 30
+                # frames and then needs 120 more before its first report.
+                if ($delta -eq 0 -and $i -gt 1) { $stalls++ }
+                $timeline += ("    t={0,2}  reports=+{1} cpu={2:N2}s{3}" -f
+                    ($i * $PaceSeconds), $delta, $proc.CPU, $(if (-not $responding) { '  NOT RESPONDING' } else { '' }))
+            }
+            else {
+                $timeline += ("    t={0,2}  cpu={1:N2}s{2}" -f
+                    ($i * $PaceSeconds), $proc.CPU, $(if (-not $responding) { '  NOT RESPONDING' } else { '' }))
+            }
+
+            if (-not $responding) { break }
+        }
+
+        $stats = Get-FrameTimeStats -Path $stdout
+        $blockReason = Get-BlockedReason -Paths @($stdout, $stderr)
+
+        if ($exited) {
+            if ($blockReason) {
+                # Not a regression: the example cannot run here at all.
+                Add-Blocked "$t [$mode] : $blockReason"
+                $verdict = 'blocked (missing asset)'
+                $color = 'Magenta'
+            }
+            else {
+                $err = (Select-String -Path $stderr -Pattern '.' -ErrorAction SilentlyContinue | Select-Object -First 1)
+                Add-Failure "$t [$mode] : exited during pacing : $err"
+                $verdict = 'exited during pacing'
+                $color = 'Red'
+            }
+        }
+        elseif (-not $responding) {
+            Invoke-StackDump -ProcessId $proc.Id -Target $t
+            Add-Failure "$t [$mode] : window stopped responding"
+            $verdict = 'FROZEN (window)'
             $color = 'Red'
         }
-    }
-    elseif (-not $responding) {
-        Invoke-StackDump -ProcessId $proc.Id -Target $t
-        Add-Failure "$t : window stopped responding"
-        $verdict = 'FROZEN (window)'
-        $color = 'Red'
-    }
-    elseif ($useMeasure -and $stalls -ge 2) {
-        # One quiet tick can be a scheduling blip; sustained silence means the
-        # render loop stopped advancing while the window still pumps messages.
-        Invoke-StackDump -ProcessId $proc.Id -Target $t
-        Add-Failure "$t : no frame-time reports for $stalls consecutive samples"
-        $verdict = "STALLED ($stalls quiet samples)"
-        $color = 'Red'
-    }
-    else {
-        $proc.Refresh()
-        $elapsed = $PaceSeconds * $PaceCount
-        $rate = if ($elapsed -gt 0) { (($proc.CPU - $cpuStart) / $elapsed) * 100 } else { 0 }
-        if ($rate -gt 85) {
-            Add-Warning "$t : responsive but pegged a core ({0:N0}%)" -f $rate
-        }
-        if ($stats) {
-            $verdict = "median={0:N2}ms p95={1:N2}ms max={2:N2}ms miss={3}/{4}" -f
-                $stats.Median, $stats.P95, $stats.Max, $stats.Miss, $stats.Frames
+        elseif ($useMeasure -and $stalls -ge 2) {
+            # One quiet tick can be a scheduling blip; sustained silence means the
+            # render loop stopped advancing while the window still pumps messages.
+            Invoke-StackDump -ProcessId $proc.Id -Target $t
+            Add-Failure "$t [$mode] : no frame-time reports for $stalls consecutive samples"
+            $verdict = "STALLED ($stalls quiet samples)"
+            $color = 'Red'
         }
         else {
-            $verdict = "responsive ${elapsed}s, no frame-time reports"
-            Add-Warning "$t : ran but emitted no frame-time reports"
+            $proc.Refresh()
+            $elapsed = $PaceSeconds * $PaceCount
+            $rate = if ($elapsed -gt 0) { (($proc.CPU - $cpuStart) / $elapsed) * 100 } else { 0 }
+            if ($rate -gt 85) {
+                Add-Warning "$t [$mode] : responsive but pegged a core ({0:N0}%)" -f $rate
+            }
+            if ($stats) {
+                $verdict = "median={0:N2}ms p95={1:N2}ms max={2:N2}ms miss={3}/{4}" -f
+                    $stats.Median, $stats.P95, $stats.Max, $stats.Miss, $stats.Frames
+            }
+            else {
+                $verdict = "responsive ${elapsed}s, no frame-time reports"
+                Add-Warning "$t [$mode] : ran but emitted no frame-time reports"
+            }
+            $color = 'Green'
         }
-        $color = 'Green'
-    }
 
-    foreach ($line in $timeline) { Write-Host $line }
-    Write-Host ("  {0,-24} {1}" -f $t, $verdict) -ForegroundColor $color
+        foreach ($line in $timeline) { Write-Host $line }
+        Write-Host ("  {0,-24} {1,-7} {2}" -f $t, $mode, $verdict) -ForegroundColor $color
 
-    if (-not $proc.HasExited) {
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    }
-    Start-Sleep -Milliseconds 300
+        if (-not $proc.HasExited) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Milliseconds 300
 
-    foreach ($p in (Get-ProblemLines -Paths @($stdout, $stderr))) {
-        $msg = "$t : $($p.Line.Trim())"
-        if ($exited -and $blockReason) { Add-Blocked $msg } else { Add-Warning $msg }
+        foreach ($p in (Get-ProblemLines -Paths @($stdout, $stderr))) {
+            $msg = "$t [$mode] : $($p.Line.Trim())"
+            if ($exited -and $blockReason) { Add-Blocked $msg } else { Add-Warning $msg }
+        }
     }
 }
 

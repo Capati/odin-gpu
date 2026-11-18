@@ -10,9 +10,6 @@ if not "%~1"=="" (
 
 for %%R in (
     tests
-	gpu
-	gpu/allocator
-	gpu/small_vec
 	utils/gltf
 	utils/tobj
 ) do call :scan "%%~fR"

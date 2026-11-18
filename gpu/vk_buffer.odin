@@ -1137,7 +1137,7 @@ post_device_create_buffer :: proc(
     )
 
     // A CPU-visible buffer starts zero-filled and defined, matching WebGPU's
-    // mapped-at-creation guarantee and C3's eager initialisation. Mapping marks
+    // mapped-at-creation guarantee and the backend's eager initialisation. Mapping marks
     // the whole allocation initialized.
     zero_buffer_mapping :: proc(buffer: Buffer, buffer_impl: ^VK_Buffer_Impl, size: u64) {
         ptr := buffer_map_sync(buffer, .Write, 0, uint(size))

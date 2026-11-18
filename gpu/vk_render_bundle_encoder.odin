@@ -92,7 +92,7 @@ vk_create_render_bundle_encoder :: proc(
     }
 
     if !valid {
-        // C3 keeps the handle valid but records nothing, so recording verbs and
+        // The handle stays valid but records nothing, so recording verbs and
         // finish behave as no-ops instead of reporting a second time.
     }
 

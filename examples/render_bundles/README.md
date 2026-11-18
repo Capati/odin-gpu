@@ -81,7 +81,7 @@ fixed part and a per-draw part. Release build, Vulkan, RTX 3060, 1200 frames x
 | bundle | 0.219 μs | 121 μs | 0.998 |
 
 The manual path measured 0.700 μs/draw in an earlier 600-frame sweep. The bundle
-row is the post-C9 value: the C9 batch gave the bundle its own compact replay
+row is the post-optimisation value: the optimisation batch gave the bundle its own compact replay
 stream with pre-resolved impls, moved the resource references to one per bundle,
 and collapsed the draw-time layout comparison to an identity check, taking it from
 0.401 to 0.219 μs/draw. The sweep's point spreads were 5.2–9.9% (above the 5%
@@ -104,9 +104,9 @@ bundle path, 1200 frames x 5 runs:
 \* count-sweep n=5000 median, spread 9.3%.
 \** shared re-take, spread 16.6% — above the gate, with the machine under light
 activity. The decomposition is therefore **indicative only** and should be
-re-taken on a quiet machine; the pre-C9 pair measured 2117 / 947 μs.
+re-taken on a quiet machine; the pre-optimisation pair measured 2117 / 947 μs.
 
-C9 re-shaped both buckets:
+The optimisation batch re-shaped both buckets:
 
 1. **The derivation bucket halved, 0.234 → ~0.116 μs/draw.** Pre-resolved group,
    pipeline and buffer impls removed the per-draw handle probes, and the layout

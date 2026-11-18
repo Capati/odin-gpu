@@ -1,7 +1,7 @@
 # CTS port
 
-WebGPU CTS rows ported from C3's `test/cts/` (which in turn ports the WebGPU
-CTS and WebGPU validation tables).
+WebGPU CTS rows, covering the WebGPU conformance suite and its validation
+tables.
 
 Run it normally; the process-wide loader and proc tables are thread-safe, so the
 runner may use as many threads as it likes:
@@ -197,7 +197,7 @@ Ported so far:
   destroyed/mapped-resource rules, queue-write refusals, and destroying mapped
   buffers.
 
-The full C3 CTS module set is ported (351 test functions).
+The full CTS module set is ported (351 test functions).
 
 Upstream additions:
 

@@ -73,45 +73,10 @@ ASTEROID_STEP    :: 250
 // without making a slider drag unusable.
 RECORD_AVERAGE_WEIGHT :: 1.0 / 128.0
 
-// Scripted measurement mode. The UI readout above is for watching the cost move
-// while dragging a slider; it is not a measurement, because the overlay has cost,
-// the asteroid count comes from a slider position, and the rolling average hides
-// the tail. This mode fixes the count and the path, runs a fixed number of frames,
-// and prints one machine-readable line with the median and p95 over the samples
-// after warm-up. `tools/measure_parity.ps1` parses that line.
-//
-// The identical defines and output format are duplicated in the comparison
-// example; the two files are deliberately independent so
-// that a change to one cannot silently move the other's numbers.
-MEASURE           :: #config(MEASURE, false)
-MEASURE_ASTEROIDS :: #config(MEASURE_ASTEROIDS, 5000)
-MEASURE_BUNDLE    :: #config(MEASURE_BUNDLE, true)
-MEASURE_FRAMES    :: #config(MEASURE_FRAMES, 1200)
-
-// Runtime overrides for the scripted run, mirroring the parity sample:
-// `--asteroids <n>`, `--bundle <0|1>`, `--frames <n>`.
-// The defaults keep the compile-time values, so a binary run without
-// arguments measures exactly what it did before the arguments existed.
-// Parsed once in `init`, outside the timed region, so the measured span is
-// unchanged - and a count sweep drives one binary through every count
-// instead of a rebuild per count.
-measure_runtime: struct {
-    asteroids: int,
-    bundle:    bool,
-    frames:    int,
-} = {
-    asteroids = MEASURE_ASTEROIDS,
-    bundle    = MEASURE_BUNDLE,
-    frames    = MEASURE_FRAMES,
-}
-
-// Command-line parsing for the scripted run lives in measure_args.odin
-// (native only; the web build has no argv and keeps the #config defaults).
-
 // Diagnostic variant: every draw uses the *same* bind group, vertex buffer and
 // index buffer, so the per-draw binds are redundant. Identical draw count, so the
 // difference against the normal scene is the cost of deriving a bind per draw
-// rather than of dispatching a draw. Duplicated in the comparison example.
+// rather than of dispatching a draw.
 SHARED_BINDS :: #config(SHARED_BINDS, false)
 
 // Five asteroid meshes are reused with different transforms, exactly as in the
@@ -199,15 +164,6 @@ State :: struct {
         depth_stencil_attachment: gpu.Render_Pass_Depth_Stencil_Attachment,
         descriptor:               gpu.Render_Pass_Descriptor,
     },
-
-    // Scripted-measurement samples, allocated only when `MEASURE` is on. Kept out
-    // of the UI average path entirely so the interactive build pays nothing.
-    measure_samples: [dynamic]f64,
-    measure_count:   int,
-
-    // Copied from the framework at init so the measure report can name the adapter
-    // and backend without reaching into `app`.
-    adapter_info: gpu.Adapter_Info,
 }
 
 state: State
@@ -790,23 +746,9 @@ rebuild_bundle :: proc(ctx: ^app.Application) {
 // -----------------------------------------------------------------------------
 
 init :: proc(ctx: ^app.Application) -> (ok: bool) {
-    when MEASURE {
-        // Scripted run: the count and the path come from the command line
-        // (defaults from the build), so nothing in the UI can move the number
-        // between runs.
-        measure_parse_args()
-        state.settings.use_bundle = measure_runtime.bundle
-        state.settings.asteroids = measure_runtime.asteroids
-    } else {
-        state.settings.use_bundle = true
-        state.settings.asteroids = ASTEROID_DEFAULT
-    }
+    state.settings.use_bundle = true
+    state.settings.asteroids = ASTEROID_DEFAULT
     state.start = time.tick_now()
-
-    when MEASURE {
-        state.measure_samples = make([dynamic]f64, 0, measure_runtime.frames)
-        state.adapter_info = ctx.info
-    }
 
     state.rpass.colors[0] = {
         view        = {}, // Assigned later
@@ -872,11 +814,7 @@ update_camera :: proc(ctx: ^app.Application) {
 
 iterate :: proc(ctx: ^app.Application, dt: f32) -> (ok: bool) {
     update_camera(ctx)
-    when !MEASURE {
-        // The overlay is both a cost and a source of UI-driven state changes; a
-        // scripted run has neither.
-        update_ui(ctx)
-    }
+    update_ui(ctx)
 
     frame := app.get_current_frame()
     if frame.skip {return true}
@@ -930,136 +868,20 @@ iterate :: proc(ctx: ^app.Application, dt: f32) -> (ok: bool) {
     total_ns := time.duration_nanoseconds(time.tick_since(record_start))
     sample := f64(max(i64(0), total_ns - overlay_ns)) / 1000.0
 
-    when MEASURE {
-        // Warm-up frames are discarded: the first frames after a bundle rebuild
-        // pay for pipeline/descriptor first-touch and are not the steady state.
-        warmup := measure_runtime.frames / 4
-        if state.measure_count >= warmup && len(state.measure_samples) < measure_runtime.frames - warmup {
-            append(&state.measure_samples, sample)
-        }
-        state.measure_count += 1
-
-        // One extra frame past the target, so the last recorded sample is the one
-        // that reaches here rather than the one after the loop check.
-        if state.measure_count >= measure_runtime.frames {
-            report_measurement(state.measure_samples[:])
-            app.quit()
-        }
+    // Exponential moving average: converges in a few dozen frames and stays
+    // stable afterwards. Seeded on the first sample so the readout does not
+    // ramp up from zero. Reset by `rebuild_bundle`, since the cost depends on
+    // the draw count.
+    if state.record_samples == 0 {
+        state.record_us = sample
     } else {
-        // Exponential moving average: converges in a few dozen frames and stays
-        // stable afterwards. Seeded on the first sample so the readout does not
-        // ramp up from zero. Reset by `rebuild_bundle`, since the cost depends on
-        // the draw count.
-        if state.record_samples == 0 {
-            state.record_us = sample
-        } else {
-            state.record_us += (sample - state.record_us) * RECORD_AVERAGE_WEIGHT
-        }
-        state.record_samples += 1
+        state.record_us += (sample - state.record_us) * RECORD_AVERAGE_WEIGHT
     }
+    state.record_samples += 1
+
     gpu.surface_texture_present(frame)
 
     return true
-}
-
-// Prints the one machine-readable line `tools/measure_parity.ps1` parses, plus a
-// convergence trace that says whether the run was long enough.
-//
-// Median and p95 rather than the mean: recording time has a right tail (scheduler
-// preemption, a driver call that occasionally blocks), and the mean moves with it
-// while the median does not.
-//
-// The `quarters` line exists because a rolling average that starts high and decays
-// can look identical to one that never settled. It splits the measured samples into
-// four blocks in time order and prints each block's median. If those medians are
-// still descending, the run was too short and the number must not be reported; if
-// they are flat, it settled. The final block is the one the headline number should
-// agree with.
-report_measurement :: proc(samples: []f64) {
-    // The adapter and backend travel with the number: a figure produced on a
-    // different GPU or a different backend is not comparable, and the parity script
-    // fails when this line disagrees between implementations.
-    info := state.adapter_info
-    fmt.printfln(
-        "MEASURE-GPU-ADAPTER %s %v %s",
-        info.name if info.name != "" else "unknown",
-        info.backend,
-        info.driver if info.driver != "" else "unknown",
-    )
-
-    if len(samples) == 0 {
-        fmt.printfln("MEASURE-GPU %s %d 0.0 0.0 0", measure_path(), measure_runtime.asteroids)
-        return
-    }
-
-    // Copy: the caller's slice is reported on afterwards by the caller, and
-    // sorting in place would reorder its own bookkeeping.
-    sorted := make([]f64, len(samples))
-    defer delete(sorted)
-    copy(sorted, samples)
-    slice.sort(sorted)
-    median := sorted[len(sorted) / 2]
-    p95 := sorted[min(len(sorted) - 1, int(f64(len(sorted)) * 0.95))]
-
-    fmt.printfln(
-        "MEASURE-GPU %s %d %.1f %.1f %d",
-        measure_path(),
-        measure_runtime.asteroids,
-        median,
-        p95,
-        len(sorted),
-    )
-
-    // Convergence trace, in time order. Each quarter is medianed separately.
-    quarter := len(samples) / 4
-    if quarter == 0 {
-        return
-    }
-
-    // Distribution shape, matching the comparison sample's output. A median far below
-    // p95 is either a right tail (most frames fast, a few stalled) or a bimodal
-    // split (two steady populations). A tail leaves the median meaningful; a
-    // bimodal split makes it depend on which mode the run landed in.
-    pct := proc(sorted: []f64, p: f64) -> f64 {
-        return sorted[min(len(sorted) - 1, int(f64(len(sorted) - 1) * p))]
-    }
-    fmt.printfln(
-        "MEASURE-GPU-DIST p5=%.0f p25=%.0f p50=%.0f p75=%.0f p95=%.0f max=%.0f",
-        pct(sorted, 0.05),
-        pct(sorted, 0.25),
-        pct(sorted, 0.50),
-        pct(sorted, 0.75),
-        pct(sorted, 0.95),
-        sorted[len(sorted) - 1],
-    )
-
-    block := make([]f64, quarter)
-    defer delete(block)
-
-    q_medians: [4]f64
-    for q in 0 ..< 4 {
-        copy(block, samples[q * quarter:q * quarter + quarter])
-        slice.sort(block)
-        q_medians[q] = block[quarter / 2]
-    }
-
-    // Settled means the second half is flat: no quarter drifts more than 2% from
-    // the mean of the last two. Anything else means the run was too short.
-    tail_mean := (q_medians[2] + q_medians[3]) / 2.0
-    drift := abs(q_medians[3] - q_medians[2]) / max(tail_mean, 1e-9)
-    fmt.printfln(
-        "MEASURE-GPU-QUARTERS %.1f %.1f %.1f %.1f %s",
-        q_medians[0],
-        q_medians[1],
-        q_medians[2],
-        q_medians[3],
-        "settled" if drift <= 0.02 else "NOT-SETTLED",
-    )
-}
-
-@(private = "file")
-measure_path :: proc() -> string {
-    return "bundle" if measure_runtime.bundle else "manual"
 }
 
 update_ui :: proc(ctx: ^app.Application) {
@@ -1117,10 +939,6 @@ event :: proc(ctx: ^app.Application, event: app.Event) {
 }
 
 quit :: proc(ctx: ^app.Application) {
-    when MEASURE {
-        delete(state.measure_samples)
-    }
-
     mur.uninit(&state.mu_renderer)
 
     gpu.render_bundle_release(state.bundle)

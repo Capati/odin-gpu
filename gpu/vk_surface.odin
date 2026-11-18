@@ -25,19 +25,14 @@ VK_Acquire_Slot :: struct {
 }
 
 VK_Surface_Impl :: struct {
-    instance:             Instance,
-    device:               Device,
-    config:               Surface_Configuration,
-    swapchain_textures:   [dynamic;VK_MAX_SWAPCHAIN_IMAGES]Texture,
-    swapchain_views:      [dynamic;VK_MAX_SWAPCHAIN_IMAGES]Texture_View,
-    acquire_slots:        [dynamic;VK_MAX_ACQUIRE_SLOTS]VK_Acquire_Slot,
-    allocator:            runtime.Allocator,
+    using base:           _Surface_Impl,
+    swapchain_textures:   [dynamic; VK_MAX_SWAPCHAIN_IMAGES]Texture,
+    acquire_slots:        [dynamic; VK_MAX_ACQUIRE_SLOTS]VK_Acquire_Slot,
     vk_swapchain:         vk.SwapchainKHR,
     vk_surface:           vk.SurfaceKHR,
     acquire_cursor:       u32,
     num_swapchain_images: u32,
     current_image_index:  u32,
-    ref:                  Ref_Count_Type,
     get_next_image:       bool,
     // Windows-only acquire fence for DXGI pacing. Null elsewhere.
     acquire_fence:        vk.Fence,
@@ -45,7 +40,7 @@ VK_Surface_Impl :: struct {
     // Plain dynamic: length follows latency, freed on unconfigure/release.
     submit_history:       [dynamic]VK_Submit_Handle,
     // Per-image present pools. Grow-only; freed at release after idle.
-    present_pools: [dynamic; VK_MAX_SWAPCHAIN_IMAGES]VK_Present_Pool,
+    present_pools:        [dynamic; VK_MAX_SWAPCHAIN_IMAGES]VK_Present_Pool,
     // Guards acquire/present/configure. Lock order: surface -> submit, never reverse.
     mtx:                  sync.Mutex,
     frame_cond:           sync.Cond,
@@ -84,11 +79,13 @@ vk_surface_scan_swapchain_touches :: proc(
     loc := #caller_location,
 ) {
     md := &buf.tracker.textures.metadata
-    it := resource_metadata_indices(md)
+    it: Metadata_Index_Iterator(Tracked_Texture)
+    metadata_index_iterator_init(&it, md)
     base := len(touches)
     found := 0
-    for index in bit_vector_iterator_next(&it) {
-        texture := md.resources[index]
+    index: Tracker_Index
+    for metadata_index_iterator_next(&it, &index) {
+        texture := resource_metadata_get(md, index).texture
         if texture == {} {
             continue
         }
@@ -102,7 +99,7 @@ vk_surface_scan_swapchain_touches :: proc(
             image   = texture_impl.swapchain_index,
         })
     }
-    assert(found == len(touches) - base)
+    ensure(found == len(touches) - base)
 }
 
 // Records a pending acquire. Surface lock held; takes submitter lock.
@@ -114,7 +111,7 @@ vk_surface_arm_acquire :: proc(
     loc := #caller_location,
 ) {
     sync.guard(&submitter.mtx)
-    append(&submitter.pending_acquires, VK_Pending_Acquire{
+    append(&submitter.pending_acquires, VK_Pending_Acquire {
         surface = surface,
         image   = image,
         sem     = sem,
@@ -149,7 +146,7 @@ vk_surface_present_pool_alloc_locked :: proc(
     loc := #caller_location,
 ) -> vk.Semaphore {
     impl := vk_surface_get_impl(surface, loc)
-    assert(image < VK_MAX_SWAPCHAIN_IMAGES, loc = loc)
+    ensure(image < VK_MAX_SWAPCHAIN_IMAGES, loc = loc)
     // Grow-only; freed at release after idle.
     for u32(len(impl.present_pools)) <= image {
         append(&impl.present_pools, VK_Present_Pool{})
@@ -167,18 +164,20 @@ vk_surface_present_pool_alloc_locked :: proc(
 }
 
 // True if the image has queued signals. Shared lock; hint only.
+@(require_results)
 vk_surface_present_pool_has_signals :: proc(
     impl: ^VK_Surface_Impl,
     submitter: ^VK_Submit_Context,
     image: u32,
 ) -> bool {
     sync.shared_guard(&submitter.mtx)
-    return image < u32(len(impl.present_pools)) &&
-        impl.present_pools[image].count > 0
+    return image < u32(len(impl.present_pools)) && impl.present_pools[image].count > 0
 }
 
 // Presents this image's signals atomically under the submitter lock.
-// (VUID-vkQueueSubmit-pSignalSemaphores-00067). Keeps the prefix on failure.
+// (VUID-vkQueueSubmit-pSignalSemaphores-00067). Keeps the prefix only for
+// allocation failures, whose semaphore waits are guaranteed not to run.
+@(require_results)
 vk_surface_present_pool_queue_present :: proc(
     impl: ^VK_Surface_Impl,
     submitter: ^VK_Submit_Context,
@@ -191,9 +190,9 @@ vk_surface_present_pool_queue_present :: proc(
 ) {
     device_impl := vk_device_get_impl(submitter.device, loc)
     sync.guard(&submitter.mtx)
-    assert(image < u32(len(impl.present_pools)), loc = loc)
+    ensure(image < u32(len(impl.present_pools)), loc = loc)
     pool := &impl.present_pools[image]
-    assert(pool.count > 0, "present image has no queued signal semaphore", loc)
+    ensure(pool.count > 0, "present image has no queued signal semaphore", loc)
 
     // Safe to alias: lock held across present, count reset after.
     present_info.waitSemaphoreCount = u32(pool.count)
@@ -201,7 +200,12 @@ vk_surface_present_pool_queue_present :: proc(
     result = device_impl.fp.QueuePresentKHR(submitter.queue, present_info)
 
     last_submit = submitter.last_submit_handle
-    if result == .SUCCESS || result == .SUBOPTIMAL_KHR {
+
+    // Rejected presents (OUT_OF_DATE, SURFACE_LOST, ...) are still enqueued,
+    // so their semaphore waits execute and consume the prefix. Presenting it
+    // again would violate VUID-vkQueuePresentKHR-pWaitSemaphores-03268. Only
+    // allocation failures leave the waits unexecuted and the prefix signaled.
+    if result != .ERROR_OUT_OF_HOST_MEMORY && result != .ERROR_OUT_OF_DEVICE_MEMORY {
         pool.count = 0
     }
     return
@@ -265,6 +269,44 @@ vk_surface_get_impl :: #force_inline proc "contextless" (
     return cast(^VK_Surface_Impl)surface
 }
 
+@(require_results)
+vk_surface_get_internal_impl :: #force_inline proc "contextless" (
+    surface: Surface,
+    loc := #caller_location,
+) -> ^_Surface_Impl {
+    return vk_surface_get_impl(surface, loc)
+}
+
+// Surface view formats may differ from the configured format only in sRGB-ness.
+@(require_results)
+vk_surface_view_formats_valid :: proc(
+    format: Texture_Format,
+    view_formats: []Texture_Format,
+) -> bool {
+    base := texture_format_remove_srgb_suffix(format)
+    for view_format in view_formats {
+        if view_format != format && texture_format_remove_srgb_suffix(view_format) != base {
+            return false
+        }
+    }
+    return true
+}
+
+@(require_results)
+vk_surface_get_configuration :: proc(
+    surface: Surface,
+    loc := #caller_location,
+) -> (
+    Surface_Configuration,
+    bool,
+) {
+    impl := vk_surface_get_impl(surface, loc)
+    if impl.vk_swapchain == {} {
+        return {}, false
+    }
+    return impl.config, true
+}
+
 vk_surface_configure :: proc(
     surface: Surface,
     config: Surface_Configuration,
@@ -289,8 +331,76 @@ vk_surface_configure :: proc(
     DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
     surface_capabilities: vk.SurfaceCapabilitiesKHR
-    vk_check(vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
-        adapter_impl.vk_physical_device, impl.vk_surface, &surface_capabilities))
+    vk_check(
+        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
+            adapter_impl.vk_physical_device,
+            impl.vk_surface,
+            &surface_capabilities,
+        ),
+    )
+
+    caps := vk_surface_fill_capabilities(
+        surface,
+        device_impl.adapter,
+        surface_capabilities,
+        ta,
+        loc,
+    )
+
+    limits := _device_get_internal_impl(config.device, loc).limits
+    if config.width > limits.max_texture_dimension_2d ||
+       config.height > limits.max_texture_dimension_2d {
+        gpu_report_validation_error(
+            config.device,
+            "surface extent exceeds max_texture_dimension_2d",
+            loc,
+        )
+        return
+    }
+
+    format_supported := false
+    format_caps: Surface_Format_Capabilities
+    for candidate in caps.format_capabilities {
+        if candidate.format == config.format {
+            format_caps = candidate
+            format_supported = true
+            break
+        }
+    }
+    if !format_supported {
+        gpu_report_validation_error(
+            config.device,
+            "surface does not support the configured format",
+            loc,
+        )
+        return
+    }
+    if config.color_space not_in format_caps.color_spaces {
+        gpu_report_validation_error(
+            config.device,
+            "surface format does not support the configured color space",
+            loc,
+        )
+        return
+    }
+    if caps.usages & config.usage != config.usage {
+        gpu_report_validation_error(
+            config.device,
+            "surface does not support the configured texture usage",
+            loc,
+        )
+        return
+    }
+
+    // Image count is latency + 1, clamped to the surface range.
+    image_count := max(
+        intr.saturating_add(config.desired_maximum_frame_latency, 1),
+        surface_capabilities.minImageCount,
+    )
+
+    if surface_capabilities.maxImageCount > 0 {
+        image_count = min(image_count, surface_capabilities.maxImageCount)
+    }
 
     find_extent :: proc(
         capabilities: vk.SurfaceCapabilitiesKHR,
@@ -302,30 +412,18 @@ vk_surface_configure :: proc(
 
         actual_extent: vk.Extent2D = {desired_width, desired_height}
 
-        actual_extent.width  = clamp(
+        actual_extent.width = clamp(
             actual_extent.width,
             capabilities.minImageExtent.width,
-            capabilities.maxImageExtent.width)
+            capabilities.maxImageExtent.width,
+        )
         actual_extent.height = clamp(
             actual_extent.height,
             capabilities.minImageExtent.height,
-            capabilities.maxImageExtent.height)
+            capabilities.maxImageExtent.height,
+        )
 
         return actual_extent
-    }
-
-    caps := vk_surface_fill_capabilities(
-        surface, device_impl.adapter, surface_capabilities, ta, loc)
-    assert(slice.contains(caps.formats, config.format), "VULKAN: Unsupported surface format", loc)
-
-    // Image count is latency + 1, clamped to the surface range.
-    image_count := max(
-        intr.saturating_add(config.desired_maximum_frame_latency, 1),
-        surface_capabilities.minImageCount,
-    )
-
-    if surface_capabilities.maxImageCount > 0 {
-        image_count = min(image_count, surface_capabilities.maxImageCount)
     }
 
     image_format := vk_conv_to_format(adapter_impl.caps, config.format)
@@ -340,19 +438,132 @@ vk_surface_configure :: proc(
     impl.config.width = image_extent.width
     impl.config.height = image_extent.height
     image_usage := vk_conv_to_image_usage_flags(config.usage, config.format)
-    composite_alpha := vk_conv_to_composite_alpha_flags(config.alpha_mode)
-    present_mode := vk_conv_to_present_mode(config.present_mode)
+
+    present_mode := config.present_mode
+    #partial switch present_mode {
+    case .Auto_Vsync:
+        if slice.contains(caps.present_modes, Present_Mode.Fifo_Relaxed) {
+            present_mode = .Fifo_Relaxed
+        } else if slice.contains(caps.present_modes, Present_Mode.Fifo) {
+            present_mode = .Fifo
+        } else {
+            gpu_report_validation_error(
+                config.device,
+                "surface supports no vsync present mode",
+                loc,
+            )
+            return
+        }
+    case .Auto_No_Vsync:
+        fallback: [3]Present_Mode = {.Immediate, .Mailbox, .Fifo}
+        resolved := false
+        for mode in fallback {
+            if slice.contains(caps.present_modes, mode) {
+                present_mode = mode
+                resolved = true
+                break
+            }
+        }
+        if !resolved {
+            gpu_report_validation_error(
+                config.device,
+                "surface supports no immediate present mode",
+                loc,
+            )
+            return
+        }
+    case:
+        if !slice.contains(caps.present_modes, present_mode) {
+            gpu_report_validation_error(
+                config.device,
+                "surface does not support the configured present mode",
+                loc,
+            )
+            return
+        }
+    }
+    impl.config.present_mode = present_mode
+
+    alpha_mode := config.alpha_mode
+    if alpha_mode == .Auto {
+        if slice.contains(caps.alpha_modes, Composite_Alpha_Mode.Opaque) {
+            alpha_mode = .Opaque
+        } else if slice.contains(caps.alpha_modes, Composite_Alpha_Mode.Inherit) {
+            alpha_mode = .Inherit
+        } else {
+            gpu_report_validation_error(
+                config.device,
+                "surface supports neither opaque nor inherit alpha",
+                loc,
+            )
+            return
+        }
+    } else if !slice.contains(caps.alpha_modes, alpha_mode) {
+        gpu_report_validation_error(
+            config.device,
+            "surface does not support the configured alpha mode",
+            loc,
+        )
+        return
+    }
+    impl.config.alpha_mode = alpha_mode
+
+    composite_alpha := vk_conv_to_composite_alpha_flags(alpha_mode)
+    vk_present_mode := vk_conv_to_present_mode(present_mode)
 
     flags: vk.SwapchainCreateFlagsKHR
-
+    format_list_info: vk.ImageFormatListCreateInfo
+    view_formats: [dynamic]vk.Format
+    view_formats.allocator = ta
+    has_view_formats := false
     if len(config.view_formats) > 0 {
-        flags |= {.MUTABLE_FORMAT}
-        // TODO
+        if !vk_surface_view_formats_valid(config.format, config.view_formats) {
+            gpu_report_validation_error(
+                config.device,
+                "surface view format differs from the configured format beyond sRGB",
+                loc,
+            )
+            return
+        }
+        for view_format in config.view_formats {
+            if view_format != config.format {
+                has_view_formats = true
+                break
+            }
+        }
     }
 
-    info := vk.SwapchainCreateInfoKHR{
+    if has_view_formats {
+        if !adapter_impl.caps.image_format_list ||
+           !vk_has_extension(
+                   adapter_impl.vk_properties.extensions,
+                   vk.KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME,
+               ) {
+            gpu_report_validation_error(
+                config.device,
+                "surface view formats require [VK_KHR_swapchain_mutable_format]",
+                loc,
+            )
+            return
+        }
+        flags |= {.MUTABLE_FORMAT}
+        append(&view_formats, image_format)
+        for view_format in config.view_formats {
+            vk_view_format := vk_conv_to_format(adapter_impl.caps, view_format)
+            if !slice.contains(view_formats[:], vk_view_format) {
+                append(&view_formats, vk_view_format)
+            }
+        }
+        format_list_info = vk.ImageFormatListCreateInfo {
+            sType           = .IMAGE_FORMAT_LIST_CREATE_INFO,
+            viewFormatCount = u32(len(view_formats)),
+            pViewFormats    = raw_data(view_formats),
+        }
+    }
+
+    info := vk.SwapchainCreateInfoKHR {
         sType                 = .SWAPCHAIN_CREATE_INFO_KHR,
-        pNext                 = nil,
+        pNext                 = has_view_formats ? &format_list_info : nil,
         flags                 = flags,
         surface               = impl.vk_surface,
         minImageCount         = image_count,
@@ -366,7 +577,7 @@ vk_surface_configure :: proc(
         pQueueFamilyIndices   = {},
         preTransform          = surface_capabilities.currentTransform,
         compositeAlpha        = composite_alpha,
-        presentMode           = present_mode,
+        presentMode           = vk_present_mode,
         clipped               = true,
         oldSwapchain          = {}, // assigned below
     }
@@ -402,6 +613,7 @@ vk_surface_configure :: proc(
     get_images :: proc(
         device: vk.Device,
         swapchain: vk.SwapchainKHR,
+        allocator: runtime.Allocator,
     ) -> (
         images: []vk.Image,
     ) {
@@ -410,7 +622,7 @@ vk_surface_configure :: proc(
         vk_check(vk.GetSwapchainImagesKHR(device, swapchain, &image_count, nil))
         image_count = min(image_count, VK_MAX_SWAPCHAIN_IMAGES)
 
-        images = make([]vk.Image, image_count, context.temp_allocator)
+        images = make([]vk.Image, image_count, allocator)
 
         vk_check(vk.GetSwapchainImagesKHR(device, swapchain, &image_count, raw_data(images)))
 
@@ -418,12 +630,12 @@ vk_surface_configure :: proc(
     }
 
     // Swapchain images and per-image wrappers.
-    swapchain_images := get_images(device_impl.vk_device, impl.vk_swapchain)
+    swapchain_images := get_images(device_impl.vk_device, impl.vk_swapchain, ta)
     impl.num_swapchain_images = u32(len(swapchain_images))
-    assert(impl.num_swapchain_images > 0, loc = loc)
+    ensure(impl.num_swapchain_images > 0, loc = loc)
 
     for vk_image, image_index in swapchain_images {
-        texture_impl, texture_handle := add_impl(&device_impl.textures, VK_Texture_Impl{
+        texture_impl, texture_handle := add_impl(&device_impl.textures, VK_Texture_Impl {
             usage              = config.usage,
             dimension          = .D2,
             size               = {image_extent.width, image_extent.height, 1},
@@ -443,67 +655,53 @@ vk_surface_configure :: proc(
             is_owning_vk_image = true,
             is_swapchain       = true,
             swapchain_index    = u32(image_index),
+            public_usage       = config.usage,
         })
 
         texture := new_handle(Texture, config.device, texture_handle)
 
         texture_impl.tracker_index = shared_tracker_index_allocator_alloc(
-            &device_impl.tracker_indices.textures)
-        texture_impl.full_range = Texture_Selector{
-            mips   = Range(u32){0, 1},
-            layers = Range(u32){0, 1},
+            &device_impl.tracker_indices.textures,
+        )
+        texture_impl.full_range = Texture_Selector {
+            mip_start   = 0,
+            mip_count   = 1,
+            layer_start = 0,
+            layer_count = 1,
+        }
+        texture_init_tracker_init(&texture_impl.init, device_impl.allocator, 1, 1, 1)
+
+        {
+            sync.guard(&device_impl.trackers_mtx)
+            device_texture_tracker_insert_single(
+                &device_impl.trackers.textures,
+                vk_tracked_texture(texture, texture_impl),
+                {.Uninitialized},
+            )
         }
 
-        device_texture_tracker_insert_single(
-            &device_impl.trackers.textures,
-            texture_impl.tracker_index,
-            texture,
-            {.Uninitialized},
-            loc)
-
-        vk_image_view := vk_texture_create_image_view(texture_impl,
-            type        = .D2,
-            format      = image_format,
-            aspect_mask = {.COLOR},
-            base_level  = 0,
-        )
-
-        _, texture_view_handle := add_impl(&device_impl.texture_views, VK_Texture_View_Impl {
-            device            = config.device,
-            texture           = texture,
-            vk_image_view     = vk_image_view,
-            format            = config.format,
-            dimension         = .D2,
-            aspect            = .All,
-            // Mip 0, layer 0.
-            selector = {
-                mips ={ 0, 1 },
-                layers ={ 0, 1 },
-            },
-            is_owning_vk_view = true,
-            is_swapchain      = true,
-        })
-
-        texture_view := new_handle(Texture_View, config.device, texture_view_handle)
-        texture_impl.texture_view = texture_view
-
         append(&impl.swapchain_textures, texture)
-        append(&impl.swapchain_views, texture_view)
     }
 
     // One slot per image; more would let the CPU run ahead and miss vsync.
     num_acquire_slots := min(impl.num_swapchain_images, VK_MAX_ACQUIRE_SLOTS)
     for _ in 0 ..< num_acquire_slots {
-        append(&impl.acquire_slots, VK_Acquire_Slot{
+        append(&impl.acquire_slots, VK_Acquire_Slot {
             semaphore = vk_utils_create_semaphore(
-                device_impl.fp, "Semaphore: swapchain-acquire", loc),
+                device_impl.fp,
+                "Semaphore: swapchain-acquire",
+                loc,
+            ),
         })
     }
 
     // Windows-only acquire fence for DXGI pacing.
     when ODIN_OS == .Windows {
         impl.acquire_fence = vk_utils_create_fence(
-            device_impl.fp, "Fence: swapchain-acquire", loc = loc)
+            device_impl.fp,
+            "Fence: swapchain-acquire",
+            loc = loc,
+        )
     }
 
     impl.acquire_cursor = 0
@@ -524,7 +722,11 @@ vk_surface_get_capabilities :: proc(
 
     surface_caps: vk.SurfaceCapabilitiesKHR
     if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
-            adapter_impl.vk_physical_device, impl.vk_surface, &surface_caps) != .SUCCESS {
+           adapter_impl.vk_physical_device,
+           impl.vk_surface,
+           &surface_caps,
+       ) !=
+       .SUCCESS {
         return
     }
 
@@ -553,14 +755,22 @@ vk_surface_fill_capabilities :: proc(
     // Supported formats.
     format_count: u32
     res := vk.GetPhysicalDeviceSurfaceFormatsKHR(
-        physical_device, impl.vk_surface, &format_count, nil)
+        physical_device,
+        impl.vk_surface,
+        &format_count,
+        nil,
+    )
     if res != .SUCCESS || format_count == 0 {
         return
     }
 
     vk_formats := make([]vk.SurfaceFormatKHR, format_count, ta)
     res = vk.GetPhysicalDeviceSurfaceFormatsKHR(
-        physical_device, impl.vk_surface, &format_count, raw_data(vk_formats))
+        physical_device,
+        impl.vk_surface,
+        &format_count,
+        raw_data(vk_formats),
+    )
     if res != .SUCCESS {
         return
     }
@@ -568,14 +778,22 @@ vk_surface_fill_capabilities :: proc(
     // Supported present modes.
     present_mode_count: u32
     res = vk.GetPhysicalDeviceSurfacePresentModesKHR(
-        physical_device, impl.vk_surface, &present_mode_count, nil)
+        physical_device,
+        impl.vk_surface,
+        &present_mode_count,
+        nil,
+    )
     if res != .SUCCESS || present_mode_count == 0 {
         return
     }
 
     vk_present_modes := make([]vk.PresentModeKHR, present_mode_count, ta)
     res = vk.GetPhysicalDeviceSurfacePresentModesKHR(
-        physical_device, impl.vk_surface, &present_mode_count, raw_data(vk_present_modes))
+        physical_device,
+        impl.vk_surface,
+        &present_mode_count,
+        raw_data(vk_present_modes),
+    )
     if res != .SUCCESS {
         return
     }
@@ -676,16 +894,14 @@ vk_surface_throttle_latency_locked :: proc(
     latency = max(latency, 1)
     // Drop retired submits, then wait while over latency.
     for len(impl.submit_history) > 0 {
-        if !vk_submit_context_is_ready(
-                &device_impl.submitter, impl.submit_history[0], loc = loc) {
+        if !vk_submit_context_is_ready(&device_impl.submitter, impl.submit_history[0], loc = loc) {
             break
         }
         ordered_remove(&impl.submit_history, 0)
     }
     // Wait while more than `latency` are outstanding.
     for u32(len(impl.submit_history)) > latency {
-        vk_submit_context_wait(
-            &device_impl.submitter, impl.submit_history[0], loc)
+        vk_submit_context_wait(&device_impl.submitter, impl.submit_history[0], loc)
         ordered_remove(&impl.submit_history, 0)
     }
 }
@@ -717,7 +933,11 @@ vk_surface_get_current_texture :: proc(
         timeout_ns := max(u64)
         if slot.submit_wait != {} {
             if !vk_submit_context_wait_timeout(
-                    &device_impl.submitter, slot.submit_wait, timeout_ns, loc) {
+                &device_impl.submitter,
+                slot.submit_wait,
+                timeout_ns,
+                loc,
+            ) {
                 surface_texture.status = .Timeout
                 return
             }
@@ -740,7 +960,8 @@ vk_surface_get_current_texture :: proc(
             slot.semaphore,
             // No fence off Windows: `submit_wait` already covers it.
             acquire_fence,
-            &image_index)
+            &image_index,
+        )
 
         #partial switch res {
         case .SUCCESS:
@@ -763,45 +984,73 @@ vk_surface_get_current_texture :: proc(
 
         // Windows: wait + reset the acquire fence.
         when ODIN_OS == .Windows {
-            vk_check(device_impl.fp.WaitForFences(
-                device_impl.vk_device, 1, &impl.acquire_fence, true, timeout_ns), loc = loc)
-            vk_check(device_impl.fp.ResetFences(
-                device_impl.vk_device, 1, &impl.acquire_fence), loc = loc)
+            vk_check(
+                device_impl.fp.WaitForFences(
+                    device_impl.vk_device,
+                    1,
+                    &impl.acquire_fence,
+                    true,
+                    timeout_ns,
+                ),
+                loc = loc,
+            )
+            vk_check(
+                device_impl.fp.ResetFences(device_impl.vk_device, 1, &impl.acquire_fence),
+                loc = loc,
+            )
         }
 
         // Intel quirk: bogus image index means Outdated; keep slot for reconfigure.
         if adapter_impl.vk_properties.vendorID == VENDOR_INTEL && image_index > 0x100 {
             device_impl.fp.DestroySemaphore(device_impl.vk_device, slot.semaphore, nil)
             slot.semaphore = vk_utils_create_semaphore(
-                device_impl.fp, "Semaphore: swapchain-acquire", loc)
+                device_impl.fp,
+                "Semaphore: swapchain-acquire",
+                loc,
+            )
             surface_texture.status = .Outdated
             return
         }
 
-        impl.acquire_cursor      = (impl.acquire_cursor + 1) % num_slots
+        impl.acquire_cursor = (impl.acquire_cursor + 1) % num_slots
         impl.current_image_index = image_index
-        impl.get_next_image      = false
+        impl.get_next_image = false
 
         // First submit touching this image waits on the acquire.
-        vk_surface_arm_acquire(
-            &device_impl.submitter, surface, image_index, slot.semaphore, loc)
+        vk_surface_arm_acquire(&device_impl.submitter, surface, image_index, slot.semaphore, loc)
 
-        assert(image_index < impl.num_swapchain_images, loc = loc)
+        ensure(image_index < impl.num_swapchain_images, loc = loc)
         surface_texture.texture = impl.swapchain_textures[image_index]
 
         // Acquired images arrive in present layout. Seed new images here;
         // repeats mid-frame must not clobber app state. Surface lock serializes this.
-        cur := device_texture_tracker_get_state(
-            &device_impl.trackers.textures, surface_texture.texture, loc)
-        if cur.is_single && cur.state == TEXTURE_USES_UNINITIALIZED {
-            device_texture_tracker_set_state(
-                &device_impl.trackers.textures, surface_texture.texture, {.Uninitialized})
-        } else {
-            device_texture_tracker_set_state(
-                &device_impl.trackers.textures, surface_texture.texture, {.Present})
+        texture_impl := vk_texture_get_impl(surface_texture.texture, loc)
+        tracked := vk_tracked_texture(surface_texture.texture, texture_impl)
+        {
+            // Keep the read and the re-seed in one critical section so another
+            // thread cannot advance the state between them.
+            sync.guard(&device_impl.trackers_mtx)
+            cur := device_texture_tracker_state_at(
+                &device_impl.trackers.textures,
+                texture_impl.tracker_index,
+                surface_texture.texture,
+            )
+            if cur == TEXTURE_USES_UNINITIALIZED {
+                device_texture_tracker_insert_single(
+                    &device_impl.trackers.textures,
+                    tracked,
+                    TEXTURE_USES_UNINITIALIZED,
+                )
+            } else {
+                device_texture_tracker_insert_single(
+                    &device_impl.trackers.textures,
+                    tracked,
+                    TEXTURE_USES_PRESENT,
+                )
+            }
         }
     } else {
-        assert(impl.current_image_index < impl.num_swapchain_images, loc = loc)
+        ensure(impl.current_image_index < impl.num_swapchain_images, loc = loc)
         surface_texture.texture = impl.swapchain_textures[impl.current_image_index]
     }
 
@@ -819,60 +1068,82 @@ vk_surface_submit_transition_locked :: proc(
 
     encoder := vk_create_command_encoder(impl.device, {}, loc)
     encoder_impl := vk_command_encoder_get_impl(encoder, loc)
-    err := texture_usage_scope_merge_single(
+    at: Texture_Selector
+    current: Texture_Uses
+    added: Texture_Uses
+    ok := texture_usage_scope_merge_single(
         &encoder_impl.cmdbuf.global_scope.textures,
-        texture,
+        vk_tracked_texture(texture, texture_impl),
+        true,
         texture_impl.full_range,
         {.Present},
-        loc,
+        &at,
+        &current,
+        &added,
     )
-    assert(err == nil, "failed to track surface texture for fallback present", loc)
+    ensure(ok, "failed to track surface texture for fallback present", loc)
 
     command_buffer := vk_command_encoder_finish(encoder, loc = loc)
     cmdbuf_impl := vk_command_buffer_get_impl(command_buffer, loc)
     // Drain emits barriers so signals follow layout transitions.
-    vk_record_commands(impl.device, cmdbuf_impl, loc)
-    last_submit := vk_submit_context_submit(
-        &device_impl.submitter, cmdbuf_impl, loc)
+    last_submit := vk_submit_context_submit(&device_impl.submitter, cmdbuf_impl, loc)
 
     vk_command_buffer_release(command_buffer, loc)
     vk_command_encoder_release(encoder, loc)
     return last_submit
 }
 
+@(require_results)
 vk_surface_present_impl :: proc(impl: ^VK_Surface_Impl, loc := #caller_location) -> Status {
+    // Queued host writes to the image must be submitted before the PRESENT
+    // transition below can be ordered against them. Flush before taking the
+    // surface lock: the flush itself submits and may need the submitter lock.
+    _ = vk_queue_flush_pending_writes(impl.device, loc)
+
     sync.guard(&impl.mtx)
     if impl.vk_swapchain == {} || impl.get_next_image {
         return .Error
     }
-    assert(impl.current_image_index < impl.num_swapchain_images, loc = loc)
+    ensure(impl.current_image_index < impl.num_swapchain_images, loc = loc)
     device_impl := vk_device_get_impl(impl.device, loc)
     submitter := &device_impl.submitter
 
     present_info := vk.PresentInfoKHR {
-        sType              = .PRESENT_INFO_KHR,
-        swapchainCount     = 1,
-        pSwapchains        = &impl.vk_swapchain,
-        pImageIndices      = &impl.current_image_index,
+        sType          = .PRESENT_INFO_KHR,
+        swapchainCount = 1,
+        pSwapchains    = &impl.vk_swapchain,
+        pImageIndices  = &impl.current_image_index,
     }
 
     texture := impl.swapchain_textures[impl.current_image_index]
-    texture_state := device_texture_tracker_get_state(
-        &device_impl.trackers.textures, texture, loc)
-    needs_present_transition := !texture_state.is_single ||
-        texture_state.state != Texture_Uses{.Present}
+    texture_impl := vk_texture_get_impl(texture, loc)
+    texture_state: Texture_Uses
+    {
+        sync.shared_guard(&device_impl.trackers_mtx)
+        texture_state = device_texture_tracker_state_at(
+            &device_impl.trackers.textures,
+            texture_impl.tracker_index,
+            texture,
+        )
+    }
+    needs_present_transition := texture_state != TEXTURE_USES_PRESENT
 
     // Present waits on pool signals, never the acquire directly. Ensure one
     // submit touched this image: transition if needed, or a signal-only submit
     // for empty frames.
     if needs_present_transition ||
-           !vk_surface_present_pool_has_signals(impl, submitter, impl.current_image_index) {
+       !vk_surface_present_pool_has_signals(impl, submitter, impl.current_image_index) {
         vk_surface_submit_transition_locked(impl, device_impl, loc)
     }
 
     // Present this image's signals; index keeps it safe if retirement lags.
     res, last_submit := vk_surface_present_pool_queue_present(
-        impl, submitter, impl.current_image_index, &present_info, loc)
+        impl,
+        submitter,
+        impl.current_image_index,
+        &present_info,
+        loc,
+    )
 
     // Retire the slot so next acquire can proceed; track it for the latency cap.
     impl.acquire_slots[vk_surface_acquired_slot(impl)].submit_wait = last_submit
@@ -895,40 +1166,66 @@ vk_surface_present_impl :: proc(impl: ^VK_Surface_Impl, loc := #caller_location)
     }
 }
 
+@(require_results)
 vk_surface_present :: proc(surface: Surface, loc := #caller_location) -> Status {
     impl := vk_surface_get_impl(surface, loc)
     return vk_surface_present_impl(impl, loc)
 }
 
+vk_surface_get_label :: proc(surface: Surface, loc := #caller_location) -> string {
+    impl := vk_surface_get_impl(surface, loc)
+    // The label store lives on the device, which only exists once configured.
+    if impl.device == {} {
+        return ""
+    }
+    device_impl := vk_device_get_impl(impl.device, loc)
+    return vk_label_get(&device_impl.labels, .Surface, u64(impl.vk_surface))
+}
+
 vk_surface_set_label :: proc(surface: Surface, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+    impl := vk_surface_get_impl(surface, loc)
+    // The label store lives on the device, which only exists once configured.
+    if impl.device == {} {
+        return
+    }
+    device_impl := vk_device_get_impl(impl.device, loc)
+    // A surface has no handle of its own; the VkSurfaceKHR is stable for the
+    // surface's whole lifetime and unique among live surfaces.
+    vk_label_set(&device_impl.labels, .Surface, u64(impl.vk_surface), label)
+    vk_utils_set_debug_object_name(device_impl.fp, .SURFACE_KHR, impl.vk_surface, label, loc)
 }
 
 vk_swapchain_destroy_resources :: proc(impl: ^VK_Surface_Impl, loc := #caller_location) {
-    assert(impl.vk_swapchain != {}, "Invalid vk.SwapchainKHR", loc)
-    assert(impl.device != {}, "Invalid VK_Device_Impl", loc)
+    ensure(impl.vk_swapchain != {}, "Invalid vk.SwapchainKHR", loc)
+    ensure(impl.device != {}, "Invalid VK_Device_Impl", loc)
 
     device_impl := vk_device_get_impl(impl.device, loc)
 
     // No DeviceWaitIdle: wait_all drains without stalling all surfaces.
     vk_submit_context_wait_all(&device_impl.submitter, loc)
 
-    // Textures.
+    // Textures and their cached views.
     for texture in impl.swapchain_textures {
         texture_impl := vk_texture_get_impl(texture, loc)
-        device_texture_tracker_remove(
-            &device_impl.trackers.textures, texture_impl.tracker_index)
+        for entry in texture_impl.swapchain_views {
+            vk_framebuffer_cache_invalidate_view(device_impl, entry.view, loc)
+            view_impl := vk_texture_view_get_impl(entry.view, loc)
+            device_impl.fp.DestroyImageView(device_impl.vk_device, view_impl.vk_image_view, nil)
+            remove_handle_impl(&device_impl.texture_views, view_impl.handle)
+        }
+        {
+            sync.guard(&device_impl.trackers_mtx)
+            device_texture_tracker_forget(
+                &device_impl.trackers.textures,
+                texture_impl.tracker_index,
+            )
+        }
+        texture_init_tracker_free(&texture_impl.init)
         shared_tracker_index_allocator_free(
-            &device_impl.tracker_indices.textures, texture_impl.tracker_index, loc)
+            &device_impl.tracker_indices.textures,
+            texture_impl.tracker_index,
+        )
         remove_handle_impl(&device_impl.textures, texture_impl.handle)
-    }
-
-    // Views.
-    for view in impl.swapchain_views {
-        vk_framebuffer_cache_invalidate_view(device_impl, view, loc)
-        view_impl := vk_texture_view_get_impl(view, loc)
-        device_impl.fp.DestroyImageView(device_impl.vk_device, view_impl.vk_image_view, nil)
-        remove_handle_impl(&device_impl.texture_views, view_impl.handle)
     }
 
     // Sync objects.
@@ -948,7 +1245,6 @@ vk_swapchain_destroy_resources :: proc(impl: ^VK_Surface_Impl, loc := #caller_lo
     //
     // NOTE: present pools survive reconfigure; freed at release.
     clear(&impl.swapchain_textures)
-    clear(&impl.swapchain_views)
     clear(&impl.acquire_slots)
     clear(&impl.submit_history)
     impl.acquire_cursor = 0
@@ -991,10 +1287,7 @@ vk_surface_wait_for_present_timeout_locked :: proc(
 
 // Drops an acquired-but-unpresented frame after the wait expired. Empty submit
 // consumes the chain wait; teardown purges the acquire later.
-vk_surface_abandon_frame_locked :: proc(
-    impl: ^VK_Surface_Impl,
-    loc := #caller_location,
-) {
+vk_surface_abandon_frame_locked :: proc(impl: ^VK_Surface_Impl, loc := #caller_location) {
     if impl.get_next_image {
         return
     }
@@ -1005,9 +1298,7 @@ vk_surface_abandon_frame_locked :: proc(
     command_buffer := vk_command_encoder_finish(encoder, loc = loc)
     cmdbuf_impl := vk_command_buffer_get_impl(command_buffer, loc)
     // Drain emits barriers so signals follow layout transitions.
-    vk_record_commands(impl.device, cmdbuf_impl, loc)
-    last_submit := vk_submit_context_submit(
-        &device_impl.submitter, cmdbuf_impl, loc)
+    last_submit := vk_submit_context_submit(&device_impl.submitter, cmdbuf_impl, loc)
     vk_command_buffer_release(command_buffer, loc)
     vk_command_encoder_release(encoder, loc)
 
@@ -1050,8 +1341,14 @@ vk_surface_release :: proc(surface: Surface, loc := #caller_location) {
     if release_ref(impl, loc) {
         context.allocator = impl.allocator
         instance_impl := vk_instance_get_impl(impl.instance, loc)
+        // Unconfigure drops the device reference and clears `impl.device`, so the
+        // label has to go first.
         {
             sync.guard(&impl.mtx)
+            if impl.device != {} {
+                device_impl := vk_device_get_impl(impl.device, loc)
+                vk_label_remove(&device_impl.labels, .Surface, u64(impl.vk_surface))
+            }
             if !vk_surface_wait_for_present_timeout_locked(impl) {
                 vk_surface_abandon_frame_locked(impl, loc)
             }

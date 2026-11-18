@@ -2,11 +2,13 @@
 package gpu
 
 // Core
+import intr "base:intrinsics"
 import hm "core:container/handle_map"
+import "core:sync"
 
 // Vendor
-import "lib/vma"
 import gpua "allocator"
+import "lib/vma"
 import vk "vendor:vulkan"
 
 VK_Texture_Memory_Allocation :: union {
@@ -16,15 +18,33 @@ VK_Texture_Memory_Allocation :: union {
 
 VK_Texture_Handle :: distinct hm.Handle64
 
+VK_Swapchain_View_Key :: struct {
+    format:      Texture_Format,
+    dimension:   Texture_View_Dimension,
+    aspect:      Texture_Aspect,
+    swizzle:     Texture_Component_Swizzle,
+    mip_start:   u32,
+    mip_count:   u32,
+    layer_start: u32,
+    layer_count: u32,
+}
+
+VK_MAX_SWAPCHAIN_IMAGE_VIEWS :: 4
+
+VK_Swapchain_View :: struct {
+    key:  VK_Swapchain_View_Key,
+    view: Texture_View,
+}
+
 VK_Texture_Impl :: struct {
-    using base:            Texture_Impl,
+    using base:            _Texture_Impl,
     allocation:            VK_Texture_Memory_Allocation,
     vk_format_properties:  vk.FormatProperties,
     vk_extent:             vk.Extent3D,
     surface:               Surface,
-    vk_image:              vk.Image,
-    texture_view:          Texture_View,
     mapped_ptr:            rawptr,
+    // Hot fields for the barrier / pass path.
+    vk_image:              vk.Image,
     vk_usage_flags:        vk.ImageUsageFlags,
     vk_type:               vk.ImageType,
     vk_image_format:       vk.Format,
@@ -37,12 +57,23 @@ VK_Texture_Impl :: struct {
     is_depth_format:       bool,
     is_stencil_format:     bool,
     is_swapchain:          bool,
+    public_usage:          Texture_Usages,
+    // See `VK_Buffer_Impl.deferred_holds`.
+    deferred_holds:        Ref_Count_Type,
+    destroy_enqueued:      bool,
     // Swapchain image position. Only meaningful when is_swapchain is set;
     // lets later phases resolve (surface, image) from the texture alone
     // without taking the surface lock.
     swapchain_index:       u32,
+    // Cold from the barrier path: only the swapchain-view cache and the global
+    // init tracker. They stay reachable via `base`/`init` when needed, but live
+    // after the hot fields so the common barrier reads do not pull them in.
+    swapchain_views:       [dynamic; VK_MAX_SWAPCHAIN_IMAGE_VIEWS]VK_Swapchain_View,
+    // Memory-initialisation state: which subresources hold defined contents.
+    init:                  Texture_Init_Tracker,
 }
 
+@(require_results)
 vk_create_texture :: proc(
     device: Device,
     descriptor: Texture_Descriptor,
@@ -52,24 +83,46 @@ vk_create_texture :: proc(
     adapter_impl := vk_adapter_get_impl(impl.adapter, loc)
 
     // Get the descriptor implementation
-    desc := resolve_texture_descriptor(device, descriptor, loc)
+    descriptor_copy := descriptor
+    desc, ok := _resolve_texture_descriptor(device, &descriptor_copy, loc)
+    if !ok {
+        return {}
+    }
+
+    // The descriptor keeps `view_formats` for later `texture_get_descriptor` and
+    // view validation, so own a copy instead of borrowing the caller's slice.
+    if len(desc.view_formats) > 0 {
+        owned := make([]Texture_Format, len(desc.view_formats), impl.allocator)
+        copy(owned, desc.view_formats)
+        desc.view_formats = owned
+    }
+    success := false
+    defer if !success && len(desc.view_formats) > 0 {
+        delete(desc.view_formats, impl.allocator)
+    }
 
     // Set create flags
     vk_create_flags: vk.ImageCreateFlags
 
-    // 3D textures used as color targets need 2D array compatible for slice rendering
-    if desc.dimension == .D3 && .Color_Target in desc.internal_usage {
+    // 3D textures used as color or depth targets need 2D array compatible for
+    // slice rendering.
+    if desc.dimension == .D3 &&
+       (.Color_Target in desc.internal_usage || .Depth_Write in desc.internal_usage) {
         vk_create_flags += {.D2_ARRAY_COMPATIBLE}
     }
 
     // Cubemap support
     if texture_descriptor_is_cube_compatible(desc) {
-        vk_create_flags += { .CUBE_COMPATIBLE }
+        vk_create_flags += {.CUBE_COMPATIBLE}
     }
 
-    // View format reinterpretation requires mutable format
-    if len(desc.view_formats) > 0 {
+    // View format reinterpretation requires mutable format; multi-planar
+    // formats also need extended usage for their plane views.
+    if len(desc.view_formats) > 0 || texture_format_is_multi_planar(desc.format) {
         vk_create_flags += {.MUTABLE_FORMAT}
+    }
+    if texture_format_is_multi_planar(desc.format) {
+        vk_create_flags += {.EXTENDED_USAGE}
     }
 
     // Convert Texture_Dimension to vk.ImageType
@@ -110,9 +163,9 @@ vk_create_texture :: proc(
     DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
     vk_format_list_info: vk.ImageFormatListCreateInfo
-    if view_format_count > 0 {
+    if view_format_count > 0 && adapter_impl.caps.image_format_list {
 
-        vk_view_formats = make([dynamic]vk.Format, 0, view_format_count+1, ta)
+        vk_view_formats = make([dynamic]vk.Format, 0, view_format_count + 1, ta)
 
         for f in desc.view_formats {
             append(&vk_view_formats, vk_conv_to_format(adapter_impl.caps, f))
@@ -120,9 +173,9 @@ vk_create_texture :: proc(
         // Include the base format itself
         append(&vk_view_formats, vk_format)
 
-        vk_format_list_info = vk.ImageFormatListCreateInfo{
+        vk_format_list_info = vk.ImageFormatListCreateInfo {
             sType           = .IMAGE_FORMAT_LIST_CREATE_INFO,
-            viewFormatCount = view_format_count,
+            viewFormatCount = view_format_count + 1,
             pViewFormats    = raw_data(vk_view_formats),
         }
         image_create_info.pNext = &vk_format_list_info
@@ -131,23 +184,30 @@ vk_create_texture :: proc(
     vk_image: vk.Image
 
     when USE_VMA {
-        vma_alloc_info := vma.AllocationCreateInfo{
+        vma_alloc_info := vma.AllocationCreateInfo {
             usage          = .AUTO,
             requiredFlags  = {.DEVICE_LOCAL},
             memoryTypeBits = impl.valid_memory_type_bits,
         }
         vma_allocation: vma.Allocation
-        vk_check(vma.CreateImage(
+        if res := vma.CreateImage(
             impl.vma_allocator,
             image_create_info,
             vma_alloc_info,
             &vk_image,
             &vma_allocation,
             nil,
-        ))
+        ); res != .SUCCESS {
+            vk_try(device, res, "vmaCreateImage", loc)
+            return {}
+        }
     } else {
         // Create the image
-        vk_check(impl.fp.CreateImage(impl.vk_device, &image_create_info, nil, &vk_image))
+        if res := impl.fp.CreateImage(impl.vk_device, &image_create_info, nil, &vk_image);
+           res != .SUCCESS {
+            vk_try(device, res, "vkCreateImage", loc)
+            return {}
+        }
 
         // Allocate memory
         requirements: vk.MemoryRequirements
@@ -155,10 +215,13 @@ vk_create_texture :: proc(
 
         masked_requirements := requirements
         masked_requirements.memoryTypeBits &= impl.valid_memory_type_bits
-        assert(masked_requirements.memoryTypeBits != 0,
-            "VULKAN: no valid memory type for image allocation", loc)
+        assert(
+            masked_requirements.memoryTypeBits != 0,
+            "VULKAN: no valid memory type for image allocation",
+            loc,
+        )
 
-        alloc_desc := gpua.VK_Allocation_Create_Desc{
+        alloc_desc := gpua.VK_Allocation_Create_Desc {
             name              = desc.label,
             requirements      = masked_requirements,
             location          = .Gpu_Only,
@@ -167,54 +230,61 @@ vk_create_texture :: proc(
         }
 
         gpu_allocation: gpua.VK_Allocation
-        gpua.gpu_alloc_check(gpua.vk_allocator_allocate(
-            &impl.gpu_allocator, alloc_desc, &gpu_allocation, loc))
+        gpua.gpu_alloc_check(
+            gpua.vk_allocator_allocate(&impl.gpu_allocator, alloc_desc, &gpu_allocation, loc),
+        )
 
         // Bind memory
-        vk_check(impl.fp.BindImageMemory(
+        if res := impl.fp.BindImageMemory(
             impl.vk_device,
             vk_image,
             gpu_allocation.device_memory,
-            vk.DeviceSize(gpu_allocation.offset)))
+            vk.DeviceSize(gpu_allocation.offset),
+        ); res != .SUCCESS {
+            vk_try(device, res, "vkBindImageMemory", loc)
+            // Leave nothing behind: the image exists but is unusable.
+            impl.fp.DestroyImage(impl.vk_device, vk_image, nil)
+            gpua.vk_allocator_free(&impl.gpu_allocator, &gpu_allocation)
+            return {}
+        }
     }
 
-    assert(vk_image != {}, "VULKAN: Failed to create vk.Image", loc)
+    ensure(vk_image != {}, "VULKAN: Failed to create vk.Image", loc)
 
-    tracker_index := shared_tracker_index_allocator_alloc(
-        &impl.tracker_indices.textures)
+    tracker_index := shared_tracker_index_allocator_alloc(&impl.tracker_indices.textures)
 
-    texture_impl, texture_handle := add_impl(&impl.textures, VK_Texture_Impl{
+    texture_impl, texture_handle := add_impl(
+    &impl.textures,
+    VK_Texture_Impl {
         // From descriptor
-        desc_impl                  = desc,
-        // usage                 = desc.usage,
-        // dimension             = desc.dimension,
-        // size                  = desc.size,
-        // format                = desc.format,
-        // mip_level_count       = desc.mip_level_count,
-        // sample_count          = desc.sample_count,
+        desc_impl = desc,
 
         // Backend
-        vk_format_properties  = {},
-        vk_extent             = vk_extent,
-        device                = device,
-        tracker_index         = tracker_index,
-        full_range            = Texture_Selector{
-            mips   = {0, desc.mip_level_count},
-            layers = {0, image_create_info.arrayLayers},
+        vk_format_properties = {},
+        vk_extent = vk_extent,
+        device = device,
+        tracker_index = tracker_index,
+        full_range = Texture_Selector {
+            mip_start   = 0,
+            mip_count   = desc.mip_level_count,
+            layer_start = 0,
+            layer_count = image_create_info.arrayLayers,
         },
-        vk_image              = vk_image,
-        vk_usage_flags        = vk_image_usage_flags,
-        vk_type               = vk_image_type,
-        vk_image_format       = vk_format,
-        vk_samples            = vk_samples,
-        num_levels            = desc.mip_level_count,
-        num_layers            = image_create_info.arrayLayers,
-        is_owning_vk_image    = false,
+        vk_image = vk_image,
+        vk_usage_flags = vk_image_usage_flags,
+        vk_type = vk_image_type,
+        vk_image_format = vk_format,
+        vk_samples = vk_samples,
+        num_levels = desc.mip_level_count,
+        num_layers = image_create_info.arrayLayers,
+        is_owning_vk_image = false,
         is_resolve_attachment = false,
-        is_depth_format       = texture_format_has_depth_aspect(desc.format),
-        is_stencil_format     = texture_format_has_stencil_aspect(desc.format),
-        is_swapchain          = false,
-    })
+        is_depth_format = texture_format_has_depth_aspect(desc.format),
+        is_stencil_format = texture_format_has_stencil_aspect(desc.format),
+        is_swapchain = false,
+        public_usage = desc.usage,
+    },
+    )
 
     when USE_VMA {
         texture_impl.allocation = vma_allocation
@@ -224,22 +294,40 @@ vk_create_texture :: proc(
 
     // The image is created with initialLayout .UNDEFINED, so its contents are
     // discarded and every subresource starts in the undefined layout.
-    device_texture_tracker_insert_single(
-        &impl.trackers.textures,
-        texture_impl.tracker_index,
-        new_handle(Texture, device, texture_handle),
-        {.Uninitialized},
-        loc,
+    aspect_count: u32 = 1
+    if texture_format_is_combined_depth_stencil_format(desc.format) {
+        aspect_count = 2
+    } else if texture_format_is_multi_planar(desc.format) {
+        aspect_count = max(1, texture_format_planes(desc.format))
+    }
+    texture_init_tracker_init(
+        &texture_impl.init,
+        impl.allocator,
+        desc.mip_level_count,
+        image_create_info.arrayLayers,
+        aspect_count,
     )
 
-    return new_handle(Texture, device, texture_handle)
+    texture_public := new_handle(Texture, device, texture_handle)
+    {
+        sync.guard(&impl.trackers_mtx)
+        device_texture_tracker_insert_single(
+            &impl.trackers.textures,
+            vk_tracked_texture(texture_public, texture_impl),
+            {.Uninitialized},
+        )
+    }
+    vk_label_set(&impl.labels, .Texture, pack_handle(texture_handle), descriptor.label)
+
+    success = true
+    return texture_public
 }
 
 @(require_results)
-vk_texture_get_public_impl :: #force_inline proc "contextless" (
+vk_texture_get_internal_impl :: #force_inline proc "contextless" (
     texture: Texture,
     loc := #caller_location,
-) -> ^Texture_Impl {
+) -> ^_Texture_Impl {
     return vk_texture_get_impl(texture, loc)
 }
 
@@ -252,63 +340,154 @@ vk_texture_get_impl :: #force_inline proc "contextless" (
     return get_handle_impl(&device_impl.textures, texture.handle, loc)
 }
 
+@(require_results)
 vk_texture_create_view :: proc(
     texture: Texture,
     descriptor: Texture_View_Descriptor = {},
     loc := #caller_location,
 ) -> Texture_View {
+    device_impl := vk_device_get_impl(texture.device, loc)
+    if !dhm_is_valid(&device_impl.textures, unpack_handle(VK_Texture_Handle, texture.handle)) {
+        gpu_report_validation_error(texture.device, "texture is not a live handle", loc)
+        return {}
+    }
+
     impl := vk_texture_get_impl(texture, loc)
 
+    descriptor_copy := descriptor
+    desc, ok := _resolve_texture_view_descriptor(texture, impl.device, descriptor_copy, loc)
+    if !ok {
+        return {}
+    }
+
     if impl.is_owning_vk_image {
-        return impl.texture_view
+        key := VK_Swapchain_View_Key {
+            format      = desc.format,
+            dimension   = desc.dimension,
+            aspect      = desc.range.aspect,
+            swizzle     = desc.swizzle,
+            mip_start   = desc.range.base_mip_level,
+            mip_count   = desc.range.mip_level_count,
+            layer_start = desc.range.base_array_layer,
+            layer_count = desc.range.array_layer_count,
+        }
+        surface_impl := vk_surface_get_impl(impl.surface)
+        sync.guard(&surface_impl.mtx)
+        for entry in impl.swapchain_views {
+            if entry.key == key {
+                texture_view_add_ref(entry.view, loc)
+                return entry.view
+            }
+        }
+
+        adapter_impl := vk_adapter_get_impl(device_impl.adapter, loc)
+        vk_image_view := vk_texture_create_image_view(
+            impl,
+            type = vk_conv_to_image_view_type(desc.dimension),
+            format = vk_conv_to_format(adapter_impl.caps, desc.format),
+            aspect_mask = vk_conv_to_image_aspect_flags(desc.range.aspect, desc.format),
+            base_level = desc.range.base_mip_level,
+            num_levels = desc.range.mip_level_count,
+            base_layer = desc.range.base_array_layer,
+            num_layers = desc.range.array_layer_count,
+            components = vk_conv_component_swizzle(desc.swizzle),
+            debug_name = desc.label,
+        )
+        _, texture_view_handle := add_impl(&device_impl.texture_views, VK_Texture_View_Impl {
+                device = impl.device,
+                texture = texture,
+                vk_image_view = vk_image_view,
+                is_owning_vk_view = true,
+                is_swapchain = true,
+                format = desc.format,
+                dimension = desc.dimension,
+                usage = desc.usage,
+                public_usage = descriptor.usage == {} ? impl.public_usage : descriptor.usage,
+                aspect = desc.range.aspect,
+                swizzle = desc.swizzle,
+                selector = {
+                    mip_start   = desc.range.base_mip_level,
+                    mip_count   = desc.range.mip_level_count,
+                    layer_start = desc.range.base_array_layer,
+                    layer_count = desc.range.array_layer_count,
+                },
+            })
+        view := new_handle(Texture_View, impl.device, texture_view_handle)
+        vk_label_set(
+            &device_impl.labels,
+            .Texture_View,
+            pack_handle(texture_view_handle),
+            desc.label,
+        )
+        if len(impl.swapchain_views) < VK_MAX_SWAPCHAIN_IMAGE_VIEWS {
+            // The cache keeps one ref; the caller gets another.
+            append(&impl.swapchain_views, VK_Swapchain_View{key = key, view = view})
+            texture_view_add_ref(view, loc)
+        } else {
+            // Degenerate callers cannot grow the table: hand out a normal owning
+            // view that releases its Vulkan object instead of caching it.
+            view_impl := vk_texture_view_get_impl(view, loc)
+            view_impl.is_owning_vk_view = false
+        }
+        return view
     } else {
-        device_impl := vk_device_get_impl(impl.device, loc)
         adapter_impl := vk_adapter_get_impl(device_impl.adapter, loc)
 
-        desc := resolve_texture_view_descriptor(texture, impl.device, descriptor, loc)
-
-        vk_image_view := vk_texture_create_image_view(impl,
-            type        = vk_conv_to_image_view_type(desc.dimension),
-            format      = vk_conv_to_format(adapter_impl.caps, desc.format),
+        vk_image_view := vk_texture_create_image_view(
+            impl,
+            type = vk_conv_to_image_view_type(desc.dimension),
+            format = vk_conv_to_format(adapter_impl.caps, desc.format),
             aspect_mask = vk_conv_to_image_aspect_flags(desc.range.aspect, desc.format),
-            base_level  = desc.range.base_mip_level,
-            num_levels  = desc.range.mip_level_count,
-            base_layer  = desc.range.base_array_layer,
-            num_layers  = desc.range.array_layer_count,
-            // debug_name  = desc.label,
+            base_level = desc.range.base_mip_level,
+            num_levels = desc.range.mip_level_count,
+            base_layer = desc.range.base_array_layer,
+            num_layers = desc.range.array_layer_count,
+            components = vk_conv_component_swizzle(desc.swizzle),
+            debug_name = desc.label,
         )
 
-        _, texture_view_handle := add_impl(&device_impl.texture_views, VK_Texture_View_Impl {
-            device            = impl.device,
-            texture           = texture,
-            vk_image_view     = vk_image_view,
-            is_swapchain      = false,
-            format            = desc.format,
-            dimension         = desc.dimension,
-            usage             = desc.usage,
-            aspect            = desc.range.aspect,
-            // `Texture_Selector` uses the tracker's exclusive `[start, end)`
-            // convention, not the descriptor's `{start, count}`.
-            selector          = {
-                mips   = {
-                    desc.range.base_mip_level,
-                    desc.range.base_mip_level + desc.range.mip_level_count,
-                },
-                layers = {
-                    desc.range.base_array_layer,
-                    desc.range.base_array_layer + desc.range.array_layer_count,
+        _, texture_view_handle := add_impl(
+            &device_impl.texture_views,
+            VK_Texture_View_Impl {
+                device = impl.device,
+                texture = texture,
+                vk_image_view = vk_image_view,
+                is_swapchain = false,
+                format = desc.format,
+                dimension = desc.dimension,
+                usage = desc.usage,
+                public_usage = descriptor.usage == {} ? impl.public_usage : descriptor.usage,
+                aspect = desc.range.aspect,
+                swizzle = desc.swizzle,
+                // The tracker selector is count-based, matching the descriptor.
+                selector = {
+                    mip_start   = desc.range.base_mip_level,
+                    mip_count   = desc.range.mip_level_count,
+                    layer_start = desc.range.base_array_layer,
+                    layer_count = desc.range.array_layer_count,
                 },
             },
-        })
+        )
 
         vk_texture_add_ref(texture, loc)
+        vk_label_set(
+            &device_impl.labels,
+            .Texture_View,
+            pack_handle(texture_view_handle),
+            desc.label,
+        )
 
         return new_handle(Texture_View, impl.device, texture_view_handle)
     }
 }
 
 vk_texture_destroy :: proc(texture: Texture, loc := #caller_location) {
-    unimplemented(loc = loc)
+    impl := vk_texture_get_impl(texture, loc)
+    // The handle stays valid until `texture_release` (WebGPU semantics). The
+    // image itself is destroyed by the deferred deletor then.
+    impl.destroyed = true
+    device_impl := vk_device_get_impl(impl.device, loc)
+    intr.atomic_add(&device_impl.destroyed_resources, 1)
 }
 
 vk_texture_get_depth_or_array_layers :: proc(texture: Texture, loc := #caller_location) -> u32 {
@@ -354,6 +533,34 @@ vk_texture_get_size :: proc(texture: Texture, loc := #caller_location) -> Extent
     return impl.desc.size
 }
 
+vk_texture_get_texture_binding_view_dimension :: proc(
+    texture: Texture,
+    loc := #caller_location,
+) -> Texture_View_Dimension {
+    impl := vk_texture_get_impl(texture, loc)
+    desc := impl.desc
+    #partial switch desc.dimension {
+    case .D1:
+        return .D1
+    case .D3:
+        return .D3
+    case .D2:
+        layers := desc.size.depth_or_array_layers
+        if layers == 1 {
+            return .D2
+        }
+        if texture_descriptor_is_cube_compatible(impl.desc_impl) {
+            return layers == 6 ? .Cube : .Cube_Array
+        }
+        return .D2_Array
+    }
+    return .D2
+}
+
+vk_texture_get_native_metal_texture :: proc(texture: Texture, loc := #caller_location) -> rawptr {
+    return nil
+}
+
 vk_texture_get_usage :: proc(texture: Texture, loc := #caller_location) -> Texture_Usages {
     impl := vk_texture_get_impl(texture, loc)
     return impl.desc.usage
@@ -364,8 +571,17 @@ vk_texture_get_width :: proc(texture: Texture, loc := #caller_location) -> u32 {
     return impl.desc.size.width
 }
 
+vk_texture_get_label :: proc(texture: Texture, loc := #caller_location) -> string {
+    impl := vk_texture_get_impl(texture, loc)
+    device_impl := vk_device_get_impl(impl.device, loc)
+    return vk_label_get(&device_impl.labels, .Texture, pack_handle(impl.handle))
+}
+
 vk_texture_set_label :: proc(texture: Texture, label: string, loc := #caller_location) {
-    unimplemented(loc = loc)
+    impl := vk_texture_get_impl(texture, loc)
+    device_impl := vk_device_get_impl(impl.device, loc)
+    vk_label_set(&device_impl.labels, .Texture, pack_handle(impl.handle), label)
+    vk_utils_set_debug_object_name(device_impl.fp, .IMAGE, impl.vk_image, label, loc)
 }
 
 vk_texture_add_ref :: proc(texture: Texture, loc := #caller_location) {
@@ -373,41 +589,107 @@ vk_texture_add_ref :: proc(texture: Texture, loc := #caller_location) {
     add_ref(impl, loc)
 }
 
-// Tracker references keep ordinary textures alive until their usage tracker is
-// cleared. Swapchain images are externally owned and are removed explicitly by
-// swapchain teardown, so tracker retains/releases for them are intentionally
-// no-ops. A command-buffer tracker can be cleared after that teardown, so the
-// release hook also tolerates the already-removed external texture handle.
-vk_tracker_texture_add_ref :: proc(texture: Texture, loc := #caller_location) {
-    impl := vk_texture_get_impl(texture, loc)
-    if !impl.is_owning_vk_image {
-        add_ref(impl, loc)
+// The full subresource range of a texture, in the tracker's count-based form.
+vk_texture_full_selector :: #force_inline proc "contextless" (
+    impl: ^VK_Texture_Impl,
+) -> Texture_Selector {
+    return {
+        mip_start   = 0,
+        mip_count   = impl.num_levels,
+        layer_start = 0,
+        layer_count = impl.num_layers,
     }
 }
 
-vk_tracker_texture_release :: proc(texture: Texture, loc := #caller_location) {
-    device_impl := vk_device_get_impl(texture.device, loc)
-    impl, ok := hm.dynamic_get(
-        &device_impl.textures.resources,
-        unpack_handle(VK_Texture_Handle, texture.handle),
-    )
-    if !ok || impl.is_owning_vk_image {
-        return
+// The tracker entry a texture is addressed by. `Tracked_Texture` carries the
+// public handle, because the tracker never dereferences it.
+vk_tracked_texture :: #force_inline proc "contextless" (
+    texture: Texture,
+    impl: ^VK_Texture_Impl,
+) -> Tracked_Texture {
+    return {
+        index   = impl.tracker_index,
+        texture = texture,
+        full    = vk_texture_full_selector(impl),
     }
-    vk_texture_release(texture, loc)
 }
 
 vk_texture_release :: proc(texture: Texture, loc := #caller_location) {
-    impl := vk_texture_get_impl(texture, loc)
+    vk_texture_release_impl(texture, {}, false, loc)
+}
 
-    if impl.is_owning_vk_image {
+// Releases a texture whose last use is the submission named by `wait_on`.
+vk_texture_release_after :: proc(
+    texture: Texture,
+    wait_on: VK_Submit_Handle,
+    loc := #caller_location,
+) {
+    impl := vk_texture_get_impl(texture, loc)
+    intr.atomic_sub(&impl.deferred_holds, 1)
+    vk_texture_release_impl(texture, wait_on, true, loc)
+}
+
+vk_texture_release_impl :: proc(
+    texture: Texture,
+    wait_on: VK_Submit_Handle,
+    have_wait_on: bool,
+    loc := #caller_location,
+) {
+    device_impl := vk_device_get_impl(texture.device, loc)
+    impl := dhm_get_if_valid(
+        &device_impl.textures,
+        unpack_handle(VK_Texture_Handle, texture.handle),
+    )
+    if impl == nil {
         return
     }
 
-    if release_ref(impl, loc) {
-        device_impl := vk_device_get_impl(impl.device, loc)
-        vk_deferred_add_resource(&device_impl.deferred, &device_impl.submitter,
-            VK_Deferred_Image{impl.vk_image, impl.tracker_index, impl.allocation})
+    if impl.is_owning_vk_image {
+        // Swapchain textures are owned by the surface. A deferred-write hold
+        // still took a ref; drop it without touching the surface's handle.
+        if have_wait_on {
+            _ = release_ref(impl, loc)
+        }
+        return
+    }
+
+    last := release_ref(impl, loc)
+
+    // See `vk_buffer_release_impl`: a public release that leaves only deferred
+    // holds is logically destroyed while the handle survives until the flush.
+    if !have_wait_on &&
+       !impl.destroyed &&
+       intr.atomic_load_explicit(&impl.ref, .Acquire) ==
+           intr.atomic_load_explicit(&impl.deferred_holds, .Acquire) {
+        impl.destroyed = true
+        intr.atomic_add(&device_impl.destroyed_resources, 1)
+    }
+
+    if last {
+        if !impl.destroy_enqueued {
+            deferred := VK_Deferred_Image {
+                image         = impl.vk_image,
+                tracker_index = impl.tracker_index,
+                allocation    = impl.allocation,
+                init          = impl.init,
+            }
+            if have_wait_on {
+                vk_deferred_add_resource_after(&device_impl.deferred, deferred, wait_on, loc)
+            } else {
+                vk_deferred_add_resource(
+                    &device_impl.deferred,
+                    &device_impl.submitter,
+                    deferred,
+                    loc,
+                )
+            }
+            impl.destroy_enqueued = true
+        }
+        vk_label_remove(&device_impl.labels, .Texture, pack_handle(impl.handle))
+        if len(impl.desc.view_formats) > 0 {
+            delete(impl.desc.view_formats, device_impl.allocator)
+            impl.desc.view_formats = nil
+        }
         remove_handle_impl(&device_impl.textures, impl.handle)
     }
 }

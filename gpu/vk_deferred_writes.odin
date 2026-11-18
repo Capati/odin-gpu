@@ -14,12 +14,14 @@ VK_Flush_Temp :: union {
 
 // Everything one queue submission needs while it is recording and flushing.
 VK_Flush_Batch :: struct {
-    encoder:      Command_Encoder,
-    temp:         [dynamic]VK_Flush_Temp,
-    buffers:      [dynamic]Buffer,
-    buffer_bits:  [dynamic]u64,
-    textures:     [dynamic]Texture,
-    texture_bits: [dynamic]u64,
+    encoder:            Command_Encoder,
+    temp:               [dynamic]VK_Flush_Temp,
+    buffers:            [dynamic]Buffer,
+    buffer_bits:        [dynamic]u64,
+    textures:           [dynamic]Texture,
+    texture_bits:       [dynamic]u64,
+    // Staging rings whose barrier this batch has already recorded.
+    transitioned_rings: [dynamic]^VK_Staging_Ring,
 }
 
 // Resources queued for the next queue submission.
@@ -75,6 +77,7 @@ vk_deferred_writes_batch_create :: proc(
     batch.buffer_bits.allocator = self.allocator
     batch.textures.allocator = self.allocator
     batch.texture_bits.allocator = self.allocator
+    batch.transitioned_rings.allocator = self.allocator
     return batch
 }
 
@@ -88,25 +91,36 @@ vk_deferred_writes_batch_destroy :: proc(
     delete(batch.buffer_bits)
     delete(batch.textures)
     delete(batch.texture_bits)
+    delete(batch.transitioned_rings)
     free(batch, self.allocator)
 }
 
 // Grow a dense bitset so `index` has a word, with the same power-of-two
 // overshoot as `Resource_Metadata`. The index is a dense tracker index.
+//
+// Batches are reused across flushes and `clear` keeps their capacity, so this
+// must grow in place: reallocating whenever `len` is short would put a fresh
+// allocation and free in every frame's flush path.
 vk_deferred_bitmap_grow :: proc(bits: ^[dynamic]u64, index: u32) {
-    words := index / 64 + 1
-    if u32(len(bits^)) < words {
-        new_size := words
-        if new_size < u32(len(bits^)) * 2 {
-            new_size = u32(len(bits^)) * 2
+    words := int(index / 64 + 1)
+    if cap(bits^) < words {
+        new_cap := words
+        if new_cap < cap(bits^) * 2 {
+            new_cap = cap(bits^) * 2
         }
-        if new_size < 4 {
-            new_size = 4
+        if new_cap < 4 {
+            new_cap = 4
         }
-        new_bits := make([dynamic]u64, new_size, bits.allocator)
-        copy(new_bits[:], bits^[:])
-        delete(bits^)
-        bits^ = new_bits
+        reserve(bits, new_cap)
+    }
+    if len(bits^) < words {
+        // Words behind the old length still hold the previous batch's bits
+        // because `clear` only drops the length, so zero them explicitly.
+        old_len := len(bits^)
+        resize(bits, words)
+        for i in old_len ..< words {
+            bits^[i] = 0
+        }
     }
 }
 
@@ -184,6 +198,22 @@ vk_deferred_writes_defer_staging_locked :: proc(
             },
         ),
     )
+}
+
+// Records the staging ring's `Map_Write -> Copy_Src` barrier unless this batch
+// already did. Caller must hold `mtx` for the whole recording operation.
+vk_deferred_writes_ring_ready_locked :: proc(self: ^VK_Deferred_Writes, ring: ^VK_Staging_Ring) {
+    ensure(self.active != nil, "no active flush batch")
+    for existing in self.active.transitioned_rings {
+        if existing == ring {
+            return
+        }
+    }
+    append(&self.active.transitioned_rings, ring)
+    barriers := [1]Buffer_State_Transition {
+        {buffer = ring.buffer, from = {.Map_Write}, to = {.Copy_Src}},
+    }
+    _command_encoder_transition_buffers(self.active.encoder, barriers[:])
 }
 
 vk_deferred_writes_contains_buffer :: proc(self: ^VK_Deferred_Writes, buffer: Buffer) -> bool {
@@ -274,6 +304,7 @@ vk_deferred_writes_recycle_batch :: proc(
     clear(&batch.buffer_bits)
     clear(&batch.textures)
     clear(&batch.texture_bits)
+    clear(&batch.transitioned_rings)
     if self.flushing == batch {
         self.flushing = nil
     }
@@ -350,7 +381,7 @@ vk_deferred_writes_clear_buffer_locked :: proc(
 
     // Internal padding clear: bypasses the public clearBuffer validation, which
     // works in terms of the application-visible size and usages.
-    vk_command_encoder_clear_buffer(encoder, buffer, offset, size, loc)
+    vk_command_encoder_clear_buffer_internal(encoder, buffer, offset, size, loc)
     buffer_init_tracker_mark_initialized(&buffer_impl.init, offset, offset + size)
 
     vk_deferred_writes_insert_buffer_locked(self, buffer)

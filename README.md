@@ -106,6 +106,7 @@ import "libs:gpu"
 │   ├── microui    # Micro UI renderer
 │   └── tobj       # OBJ loader
 ├── tests          # Some harness tests
+├── tools          # Perf/allocation harnesses and the backend checklist
 ├── wasm           # Browser shell (webgpu.js, index.html)
 ├── resources      # Vendored WebGPU headers
 └── CHANGELOG.md   # Release notes

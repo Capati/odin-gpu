@@ -2,8 +2,8 @@
 package gpu
 
 // Core
-import "core:strings"
 import hm "core:container/handle_map"
+import "core:strings"
 
 // Vendor
 import vk "vendor:vulkan"
@@ -11,14 +11,12 @@ import vk "vendor:vulkan"
 VK_Render_Pipeline_Handle :: distinct hm.Handle64
 
 VK_Render_Pipeline_Impl :: struct {
-    device:          Device,
-    layout:          Pipeline_Layout,
-    vk_pipeline:     vk.Pipeline,
-    handle:          VK_Render_Pipeline_Handle,
-    ref:             Ref_Count_Type,
-    is_empty_layout: bool,
+    using base:  _Render_Pipeline_Impl,
+    vk_pipeline: vk.Pipeline,
+    handle:      VK_Render_Pipeline_Handle,
 }
 
+@(require_results)
 vk_create_render_pipeline :: proc(
     device: Device,
     descriptor: Render_Pipeline_Descriptor,
@@ -27,14 +25,15 @@ vk_create_render_pipeline :: proc(
     impl := vk_device_get_impl(device, loc)
     adapter_impl := vk_adapter_get_impl(impl.adapter, loc)
 
+    if !_validate_render_pipeline_descriptor(device, descriptor, loc) {
+        return {}
+    }
+
     ta := default_temp_allocator()
     DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
     // Shader stages
-    vk_shader_stages: [dynamic;5]vk.PipelineShaderStageCreateInfo
-
-    assert(descriptor.vertex.module != {}, "Vertex shader module is required", loc)
-    assert(descriptor.vertex.entry_point != "", "Invalid vertex shader entry point", loc)
+    vk_shader_stages: [dynamic; 5]vk.PipelineShaderStageCreateInfo
 
     vertex_module_impl := vk_shader_module_get_impl(descriptor.vertex.module, loc)
 
@@ -46,8 +45,12 @@ vk_create_render_pipeline :: proc(
     })
 
     // Vertex input state
-    vertex_bindings := make([dynamic]vk.VertexInputBindingDescription,
-        0, len(descriptor.vertex.buffers), ta)
+    vertex_bindings := make(
+        [dynamic]vk.VertexInputBindingDescription,
+        0,
+        len(descriptor.vertex.buffers),
+        ta,
+    )
     vertex_attributes := make([dynamic]vk.VertexInputAttributeDescription, ta)
 
     for &buffer, binding in descriptor.vertex.buffers {
@@ -102,6 +105,9 @@ vk_create_render_pipeline :: proc(
     }
 
     multisample := descriptor.multisample
+    if multisample.count == 0 {
+        multisample.count = 1
+    }
     vk_sample_mask := vk.SampleMask(multisample.mask)
     vk_multisample_state := vk.PipelineMultisampleStateCreateInfo {
         sType                 = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
@@ -200,7 +206,7 @@ vk_create_render_pipeline :: proc(
             ds_layout = .DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL
         }
 
-        rp_key.depth_stencil = VK_Depth_Stencil_Attachment_Key{
+        rp_key.depth_stencil = VK_Depth_Stencil_Attachment_Key {
             format           = vk_ds_format,
             layout           = ds_layout,
             // Compatibility placeholders: pipeline/render-pass compatibility
@@ -211,20 +217,17 @@ vk_create_render_pipeline :: proc(
             stencil_load_op  = .Load,
             stencil_store_op = .Store,
         }
-        rp_key.depth_read_only   = depth_read_only
+        rp_key.depth_read_only = depth_read_only
         rp_key.stencil_read_only = stencil_read_only
     }
 
     // Optional fragment stage + color targets
-    color_blend_attachment_states:
-        [dynamic;MAX_COLOR_ATTACHMENTS]vk.PipelineColorBlendAttachmentState
+    color_blend_attachment_states: [dynamic;
+    MAX_COLOR_ATTACHMENTS]vk.PipelineColorBlendAttachmentState
     color_count := 0
 
     if descriptor.fragment != nil {
         frag := descriptor.fragment
-
-        assert(frag.module != {}, "Fragment shader module is required", loc)
-        assert(frag.entry_point != "", "Invalid fragment shader entry point", loc)
 
         fragment_module_impl := vk_shader_module_get_impl(frag.module, loc)
 
@@ -247,10 +250,10 @@ vk_create_render_pipeline :: proc(
                 attachment.blendEnable = true
                 attachment.srcColorBlendFactor = vk_conv_to_blend_factor(color.src_factor, loc)
                 attachment.dstColorBlendFactor = vk_conv_to_blend_factor(color.dst_factor, loc)
-                attachment.colorBlendOp        = vk_conv_to_blend_op(color.operation, loc)
+                attachment.colorBlendOp = vk_conv_to_blend_op(color.operation, loc)
                 attachment.srcAlphaBlendFactor = vk_conv_to_blend_factor(alpha.src_factor, loc)
                 attachment.dstAlphaBlendFactor = vk_conv_to_blend_factor(alpha.dst_factor, loc)
-                attachment.alphaBlendOp        = vk_conv_to_blend_op(alpha.operation, loc)
+                attachment.alphaBlendOp = vk_conv_to_blend_op(alpha.operation, loc)
             }
 
             attachment.colorWriteMask = vk_conv_to_color_component_flags(target.write_mask, loc)
@@ -259,13 +262,13 @@ vk_create_render_pipeline :: proc(
 
             append(&color_blend_attachment_states, attachment)
 
-            rp_key.colors[color_count] = VK_Color_Attachment_Key{
-                format   = attachment_format,
-                layout   = .COLOR_ATTACHMENT_OPTIMAL,
+            rp_key.colors[color_count] = VK_Color_Attachment_Key {
+                format       = attachment_format,
+                layout       = .COLOR_ATTACHMENT_OPTIMAL,
                 // Compatibility placeholder, as for load/store ops above.
                 final_layout = .COLOR_ATTACHMENT_OPTIMAL,
-                load_op  = .Load,  // compatibility placeholder
-                store_op = .Store, // compatibility placeholder
+                load_op      = .Load, // compatibility placeholder
+                store_op     = .Store, // compatibility placeholder
             }
             color_count += 1
         }
@@ -284,9 +287,12 @@ vk_create_render_pipeline :: proc(
 
     // Tag all state as dynamic but stencil masks and depth bias.
     vk_dynamic_states := []vk.DynamicState {
-        .VIEWPORT,     .SCISSOR,
-        .LINE_WIDTH,   .BLEND_CONSTANTS,
-        .DEPTH_BOUNDS, .STENCIL_REFERENCE,
+        .VIEWPORT,
+        .SCISSOR,
+        .LINE_WIDTH,
+        .BLEND_CONSTANTS,
+        .DEPTH_BOUNDS,
+        .STENCIL_REFERENCE,
     }
 
     vk_dynamic_state := vk.PipelineDynamicStateCreateInfo {
@@ -299,9 +305,9 @@ vk_create_render_pipeline :: proc(
     is_empty_layout: bool
 
     if descriptor.layout != {} {
-        vk_pipeline_impl := vk_pipeline_layout_get_impl(descriptor.layout, loc)
-        vk_pipeline_layout = vk_pipeline_impl.raw
-        vk_pipeline_layout_add_ref(descriptor.layout)
+        layout_impl := vk_pipeline_layout_get_impl(descriptor.layout, loc)
+        vk_pipeline_layout = layout_impl.raw
+        vk_pipeline_layout_borrow(descriptor.layout)
     } else {
         is_empty_layout = true
         vk_pipeline_layout = impl.vk_empty_pipeline_layout
@@ -329,26 +335,99 @@ vk_create_render_pipeline :: proc(
     }
 
     vk_pipeline: vk.Pipeline
-    vk_check(vk.CreateGraphicsPipelines(
-        impl.vk_device, {}, 1, &create_info, nil, &vk_pipeline), loc = loc)
+    if res := vk.CreateGraphicsPipelines(
+        impl.vk_device,
+        impl.pipeline_cache,
+        1,
+        &create_info,
+        nil,
+        &vk_pipeline,
+    ); res != .SUCCESS {
+        vk_try(device, res, "vkCreateGraphicsPipelines", loc)
+        return {}
+    }
 
-    _, render_pipeline_handle := add_impl(&impl.render_pipelines, VK_Render_Pipeline_Impl {
+    pipeline_impl := VK_Render_Pipeline_Impl {
         device          = device,
         layout          = descriptor.layout,
         vk_pipeline     = vk_pipeline,
         is_empty_layout = is_empty_layout,
-    })
+    }
+    if descriptor.fragment != nil {
+        pipeline_impl.color_count = min(
+            u32(len(descriptor.fragment.targets)),
+            u32(MAX_COLOR_ATTACHMENTS),
+        )
+        for target, i in descriptor.fragment.targets[:pipeline_impl.color_count] {
+            pipeline_impl.color_formats[i] = target.format
+        }
+    }
+    if descriptor.depth_stencil != nil {
+        pipeline_impl.has_depth_stencil = true
+        pipeline_impl.depth_format = descriptor.depth_stencil.format
+    }
+    pipeline_impl.sample_count = max(u32(1), descriptor.multisample.count)
+    pipeline_impl.topology = descriptor.primitive.topology
+    pipeline_impl.strip_index_format = descriptor.primitive.strip_index_format
+    for buffer, slot in descriptor.vertex.buffers {
+        if slot >= MAX_VERTEX_BUFFERS || len(buffer.attributes) == 0 {
+            continue
+        }
+        pipeline_impl.vertex_mask |= 1 << u32(slot)
+        pipeline_impl.vertex_stride[slot] = buffer.array_stride
+        pipeline_impl.vertex_step[slot] = buffer.step_mode
+        last := u64(0)
+        for attr in buffer.attributes {
+            attr_end := attr.offset + u64(vertex_format_size(attr.format))
+            last = max(last, attr_end)
+        }
+        pipeline_impl.vertex_last[slot] = last
+    }
+
+    _, render_pipeline_handle := add_impl(&impl.render_pipelines, pipeline_impl)
+    vk_label_set(
+        &impl.labels,
+        .Render_Pipeline,
+        pack_handle(render_pipeline_handle),
+        descriptor.label,
+    )
 
     return new_handle(Render_Pipeline, device, render_pipeline_handle)
 }
 
+@(require_results)
 vk_create_render_pipeline_async :: proc(
     device: Device,
     descriptor: Render_Pipeline_Descriptor,
     callback_info: Create_Render_Pipeline_Async_Callback_Info,
     loc := #caller_location,
 ) -> Future {
-    unimplemented(loc = loc)
+    pipeline := vk_create_render_pipeline(device, descriptor, loc)
+
+    if callback_info.callback != nil {
+        status := pipeline == {} ? Create_Pipeline_Async_Status.Validation_Error : .Success
+        callback_info.callback(
+            status,
+            pipeline,
+            "",
+            callback_info.userdata1,
+            callback_info.userdata2,
+        )
+    } else if pipeline != {} {
+        // No callback to hand the pipeline to; do not leak it.
+        vk_render_pipeline_release(pipeline, loc)
+    }
+
+    // Vulkan pipeline creation is synchronous here; the work is already done.
+    return {}
+}
+
+@(require_results)
+vk_render_pipeline_get_internal_impl :: #force_inline proc "contextless" (
+    render_pipeline: Render_Pipeline,
+    loc := #caller_location,
+) -> ^_Render_Pipeline_Impl {
+    return &vk_render_pipeline_get_impl(render_pipeline, loc).base
 }
 
 @(require_results)
@@ -360,12 +439,36 @@ vk_render_pipeline_get_impl :: #force_inline proc "contextless" (
     return get_handle_impl(&device_impl.render_pipelines, render_pipeline.handle, loc)
 }
 
+@(require_results)
 vk_render_pipeline_get_bind_group_layout :: proc(
     render_pipeline: Render_Pipeline,
     group_index: u32,
     loc := #caller_location,
 ) -> Bind_Group_Layout {
-    unimplemented(loc = loc)
+    impl := vk_render_pipeline_get_impl(render_pipeline, loc)
+    limits := _device_get_internal_impl(impl.device, loc).limits
+    if group_index >= limits.max_bind_groups {
+        gpu_report_validation_error(impl.device, "bind group index exceeds max_bind_groups", loc)
+        return {}
+    }
+    if impl.layout == {} {
+        return {}
+    }
+
+    layout_impl := vk_pipeline_layout_get_impl(impl.layout, loc)
+    if group_index >= layout_impl.bind_group_layout_count {
+        return {}
+    }
+    return layout_impl.bind_group_layouts[group_index]
+}
+
+vk_render_pipeline_get_label :: proc(
+    render_pipeline: Render_Pipeline,
+    loc := #caller_location,
+) -> string {
+    impl := vk_render_pipeline_get_impl(render_pipeline, loc)
+    device_impl := vk_device_get_impl(impl.device, loc)
+    return vk_label_get(&device_impl.labels, .Render_Pipeline, pack_handle(impl.handle))
 }
 
 vk_render_pipeline_set_label :: proc(
@@ -373,7 +476,10 @@ vk_render_pipeline_set_label :: proc(
     label: string,
     loc := #caller_location,
 ) {
-    unimplemented(loc = loc)
+    impl := vk_render_pipeline_get_impl(render_pipeline, loc)
+    device_impl := vk_device_get_impl(impl.device, loc)
+    vk_label_set(&device_impl.labels, .Render_Pipeline, pack_handle(impl.handle), label)
+    vk_utils_set_debug_object_name(device_impl.fp, .PIPELINE, impl.vk_pipeline, label, loc)
 }
 
 vk_render_pipeline_add_ref :: proc(render_pipeline: Render_Pipeline, loc := #caller_location) {
@@ -386,9 +492,10 @@ vk_render_pipeline_release :: proc(render_pipeline: Render_Pipeline, loc := #cal
     if release_ref(impl) {
         device_impl := vk_device_get_impl(impl.device, loc)
         if !impl.is_empty_layout {
-            vk_pipeline_layout_release(impl.layout)
+            vk_pipeline_layout_drop_borrow(impl.layout)
         }
         vk_deferred_add_resource(&device_impl.deferred, &device_impl.submitter, impl.vk_pipeline)
+        vk_label_remove(&device_impl.labels, .Render_Pipeline, pack_handle(impl.handle))
         remove_handle_impl(&device_impl.render_pipelines, impl.handle)
     }
 }

@@ -7,7 +7,7 @@ import la "core:math/linalg"
 
 // Note: Models centered on (0, 0, 0) will be halfway inside the clipping area.
 // This is for when you aren't using a camera matrix.
-OPEN_GL_TO_WGPU_MATRIX :: la.Matrix4f32 {
+OPEN_GL_TO_WEBGPU_MATRIX :: la.Matrix4f32 {
     1.0, 0.0, 0.0, 0.0,
     0.0, 1.0, 0.0, 0.0,
     0.0, 0.0, 0.5, 0.5,
@@ -22,7 +22,7 @@ create_view_projection_matrix :: proc "contextless" (aspect: f32) -> la.Matrix4f
         centre = {0.0, 0.0, 0.0},
         up = {0.0, 1.0, 0.0},
     )
-    return OPEN_GL_TO_WGPU_MATRIX * projection * view
+    return OPEN_GL_TO_WEBGPU_MATRIX * projection * view
 }
 
 value_or :: #force_inline proc "contextless" (val, def: $T) -> T

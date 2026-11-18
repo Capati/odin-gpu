@@ -259,7 +259,7 @@ update_transformation_matrix :: proc() {
 
             // // Fold in the GL -> WebGPU depth convention change, as
             // // `create_view_projection_matrix` does for single-matrix examples.
-            // state.model_view_projection[i] = app.OPEN_GL_TO_WGPU_MATRIX * mvp
+            // state.model_view_projection[i] = app.OPEN_GL_TO_WEBGPU_MATRIX * mvp
         }
     }
 }

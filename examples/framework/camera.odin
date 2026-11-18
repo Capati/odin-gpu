@@ -389,13 +389,13 @@ camera_projection_matrix_convert_clip_space_near_z :: proc(
         return
     }
 
-    OPENGL_TO_WGPU :: la.Matrix4f32{
+    OPENGL_TO_WEBGPU :: la.Matrix4f32{
         1, 0, 0,   0,
         0, 1, 0,   0,
         0, 0, 0.5, 0.5,
         0, 0, 0,   1,
     }
-    WGPU_TO_OPENGL :: la.Matrix4f32{
+    WEBGPU_TO_OPENGL :: la.Matrix4f32{
         1, 0, 0,  0,
         0, 1, 0,  0,
         0, 0, 2, -1,
@@ -403,9 +403,9 @@ camera_projection_matrix_convert_clip_space_near_z :: proc(
     }
 
     if destination == .Zero {
-        projection^ = OPENGL_TO_WGPU * projection^
+        projection^ = OPENGL_TO_WEBGPU * projection^
     } else {
-        projection^ = WGPU_TO_OPENGL * projection^
+        projection^ = WEBGPU_TO_OPENGL * projection^
     }
 }
 

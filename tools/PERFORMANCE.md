@@ -93,21 +93,24 @@ Rules that make the numbers usable:
 
 ## 4. Real-scene check
 
-The headless suites do not cover the full recording/submit boundary. Build the
-`render_bundles` example with `-define:MEASURE=true` and run the same count against
-the pre-change binary in the same session, interleaved:
+The headless suites drive the recording path directly; the `render_bundles` example
+is what proves the same work holds up in a real frame with a swapchain, a UI overlay
+and thousands of draws. It carries no measurement mode of its own any more — build
+it normally and read the rolling `record_us` the example prints, or rely on the
+headless suite for the number:
 
 ```powershell
-odin build examples/render_bundles -out:<candidate>.exe -o:speed -disable-assert -no-bounds-check -subsystem:windows -define:MEASURE=true -define:SHARED_BINDS=false
-<candidate>.exe --asteroids 5000 --bundle 1 --frames 1200
+odin build examples/render_bundles -out:<candidate>.exe -o:speed -disable-assert -no-bounds-check -subsystem:windows -define:SHARED_BINDS=false
+<candidate>.exe
 ```
 
-- Compare medians only within the session; the example prints `MEASURE-GPU` with
-  median and p95.
+- Compare medians only within the session; frame time drifts 20%+ between sessions.
 - Discard runs that lose vsync pacing, and require at least three clean runs per
   side before quoting a delta.
-- For a published per-draw number, run the count sweep (`--asteroids 0/2500/5000`)
-  and fit `a + b*n`; quote the spreads together with the fit.
+- This path is a smoke check, not a source of published numbers. For a per-draw
+  figure use the headless suite (§2), which is the only path that emits
+  `MEASURE-GPU` now, and fit `a + b*n` across the count sweep with the spreads
+  quoted alongside.
 
 ## 5. Frame pacing
 

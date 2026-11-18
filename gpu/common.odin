@@ -156,7 +156,7 @@ compare_function_needs_ref_value :: proc "contextless" (self: Compare_Function) 
 }
 
 // Status of an asynchronous request for shader module compilation information
-// (the status passed to the `WGPUCompilationInfoCallback`).
+// (the status passed to the WebGPU compilation-info callback).
 Compilation_Info_Request_Status :: enum i32 {
     // The request completed successfully. The `compilation_info` pointer is
     // valid and contains the messages.
@@ -186,9 +186,9 @@ Compilation_Message_Type :: enum i32 {
 // Specifies how a single color component (R, G, B, or A) of a texture view is
 // sourced when the texture is sampled or loaded in a shader.
 
-// This enum is used by the `WGPUTextureComponentSwizzle` structure (typically
-// chained onto a `WGPUTextureViewDescriptor` via the "texture_component_swizzle"
-// feature).
+// This enum is used by the WebGPU texture-component-swizzle structure
+// (typically chained onto a texture view descriptor via the
+// "texture_component_swizzle" feature).
 Component_Swizzle :: enum i32 {
     // Indicates that no explicit value was provided for this component. The
     // implementation applies the default (identity mapping): R → R, G → G, B →

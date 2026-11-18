@@ -1,7 +1,11 @@
-// Multithreaded Vulkan surface lifecycle stress test, standalone: no
-// example framework involved. Creates its own window, device and surface
-// directly through gpu plus GLFW. Worker threads repeatedly unconfigure and
-// reconfigure the surface while the main thread renders and presents.
+// Single-threaded Vulkan surface lifecycle stress test, standalone: no example
+// framework involved. Creates its own window, device and surface directly
+// through gpu plus GLFW, then repeatedly unconfigures and reconfigures the
+// surface between frames while exercising the abandonment paths (unfinished
+// encoders, unsubmitted command buffers, discarded frames, plain presents).
+//
+// The Vulkan backend is single-threaded by contract, so the reconfiguration is
+// performed inline between frames rather than from worker threads.
 // Exits on its own with an explicit PASS line.
 #+build windows
 package main
@@ -10,9 +14,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "core:thread"
 
-import intr "base:intrinsics"
 import win32 "core:sys/windows"
 
 // Vendor
@@ -25,52 +27,29 @@ TITLE  :: "Vulkan Surface Stress"
 WIDTH  :: 640
 HEIGHT :: 480
 
-SURFACE_STRESS_THREADS                 :: 3
-SURFACE_STRESS_RECONFIGURES_PER_THREAD :: 8
-SURFACE_STRESS_REQUIRED_FRAMES         :: 12
-
-Stress_Job :: struct {
-    surface:    gpu.Surface,
-    config:     gpu.Surface_Configuration,
-    operations: ^int,
-    remaining:  ^int,
-}
+SURFACE_STRESS_RECONFIGURES    :: 8
+SURFACE_STRESS_REQUIRED_FRAMES :: 12
 
 Stress_State :: struct {
-    instance: gpu.Instance,
-    adapter:  gpu.Adapter,
-    device:   gpu.Device,
-    queue:    gpu.Queue,
-    surface:  gpu.Surface,
-    config:   gpu.Surface_Configuration,
-    window:   glfw.WindowHandle,
+    instance:    gpu.Instance,
+    adapter:     gpu.Adapter,
+    device:      gpu.Device,
+    queue:       gpu.Queue,
+    surface:     gpu.Surface,
+    config:      gpu.Surface_Configuration,
+    window:      glfw.WindowHandle,
     render_pass: struct {
         colors:     [1]gpu.Render_Pass_Color_Attachment,
         descriptor: gpu.Render_Pass_Descriptor,
     },
-    jobs:             [SURFACE_STRESS_THREADS]Stress_Job,
-    workers:          [SURFACE_STRESS_THREADS]^thread.Thread,
-    worker_count:     int,
-    operations:       int,
-    remaining:        int,
-    frames:           int,
-    no_draw_frames:   int,
-    abandoned_encoders: int,
+    frames:                    int,
+    no_draw_frames:            int,
+    abandoned_encoders:        int,
     abandoned_command_buffers: int,
-    workers_started:  bool,
+    reconfigures:              int,
 }
 
 state: Stress_State
-
-stress_reconfigure_worker :: proc(raw: rawptr) {
-    job := cast(^Stress_Job)raw
-    for _ in 0 ..< SURFACE_STRESS_RECONFIGURES_PER_THREAD {
-        gpu.surface_unconfigure(job.surface)
-        gpu.surface_configure(job.surface, job.config)
-        intr.atomic_add(job.operations, 2)
-    }
-    intr.atomic_add(job.remaining, -1)
-}
 
 setup_window :: proc() -> glfw.WindowHandle {
     if !glfw.Init() {
@@ -177,20 +156,16 @@ framebuffer_size :: proc(window: glfw.WindowHandle) -> (width, height: u32) {
     return u32(iw), u32(ih)
 }
 
-start_stress_workers :: proc() {
-    state.remaining = SURFACE_STRESS_THREADS
-    for i in 0 ..< SURFACE_STRESS_THREADS {
-        state.jobs[i] = Stress_Job{
-            surface = state.surface,
-            config = state.config,
-            operations = &state.operations,
-            remaining = &state.remaining,
-        }
-        state.workers[i] = thread.create_and_start_with_poly_data(
-            rawptr(&state.jobs[i]), stress_reconfigure_worker)
-    }
-    state.worker_count = SURFACE_STRESS_THREADS
-    state.workers_started = true
+// Replaces the swapchain between frames. Must not run while an image is
+// acquired, which is why the main loop calls it after the frame was presented
+// or discarded.
+reconfigure_surface :: proc() {
+    gpu.surface_unconfigure(state.surface)
+    width, height := framebuffer_size(state.window)
+    state.config.width = width
+    state.config.height = height
+    gpu.surface_configure(state.surface, state.config)
+    state.reconfigures += 1
 }
 
 iterate :: proc() -> bool {
@@ -202,12 +177,6 @@ iterate :: proc() -> bool {
         return true
     }
     view := gpu.texture_create_view(tex.texture)
-
-    // Start while a real surface image is acquired. Reconfigure/unconfigure
-    // workers must wait for this frame's present before replacing its swapchain.
-    if !state.workers_started {
-        start_stress_workers()
-    }
 
     switch state.frames % 4 {
     case 0:
@@ -248,8 +217,6 @@ iterate :: proc() -> bool {
         defer gpu.command_buffer_release(command_buffer)
         gpu.queue_submit(state.queue, {command_buffer})
 
-        // Release our view reference before present wakes a reconfiguration
-        // worker. The command-buffer tracker keeps it alive through GPU completion.
         gpu.texture_view_release(view)
         gpu.texture_release(tex.texture)
         gpu.surface_texture_present(tex)
@@ -264,34 +231,26 @@ iterate :: proc() -> bool {
     }
 
     state.frames += 1
-    return intr.atomic_load(&state.remaining) != 0 ||
-        state.frames < SURFACE_STRESS_REQUIRED_FRAMES
+    return state.frames < SURFACE_STRESS_REQUIRED_FRAMES ||
+        state.reconfigures < SURFACE_STRESS_RECONFIGURES
 }
 
 teardown :: proc(window: glfw.WindowHandle) {
-    if state.workers_started {
-        thread.join_multiple(..state.workers[:state.worker_count])
-        for worker in state.workers[:state.worker_count] {
-            thread.destroy(worker)
-        }
-    }
-
-    expected_operations := SURFACE_STRESS_THREADS * SURFACE_STRESS_RECONFIGURES_PER_THREAD * 2
-    if state.frames < SURFACE_STRESS_REQUIRED_FRAMES || state.operations != expected_operations {
+    if state.frames < SURFACE_STRESS_REQUIRED_FRAMES ||
+       state.reconfigures != SURFACE_STRESS_RECONFIGURES {
         fmt.printfln(
-            "SURFACE_STRESS FAIL frames=%d operations=%d no_draws=%d abandoned_encoders=%d abandoned_command_buffers=%d expected_operations=%d",
+            "SURFACE_STRESS FAIL frames=%d reconfigures=%d no_draws=%d abandoned_encoders=%d abandoned_command_buffers=%d",
             state.frames,
-            state.operations,
+            state.reconfigures,
             state.no_draw_frames,
             state.abandoned_encoders,
             state.abandoned_command_buffers,
-            expected_operations,
         )
     } else {
         fmt.printfln(
-            "SURFACE_STRESS PASS frames=%d operations=%d no_draws=%d abandoned_encoders=%d abandoned_command_buffers=%d",
+            "SURFACE_STRESS PASS frames=%d reconfigures=%d no_draws=%d abandoned_encoders=%d abandoned_command_buffers=%d",
             state.frames,
-            state.operations,
+            state.reconfigures,
             state.no_draw_frames,
             state.abandoned_encoders,
             state.abandoned_command_buffers,
@@ -322,20 +281,26 @@ main :: proc() {
     }
 
     state.render_pass.colors[0] = {
-        ops = { .Clear, .Store, gpu.COLOR_BLUE },
+        ops = {.Clear, .Store, gpu.COLOR_BLUE},
     }
     state.render_pass.descriptor = {
-        label = "Surface stress pass",
+        label             = "Surface stress pass",
         color_attachments = state.render_pass.colors[:],
     }
 
-    for intr.atomic_load(&state.remaining) != 0 || state.frames < SURFACE_STRESS_REQUIRED_FRAMES {
+    for state.frames < SURFACE_STRESS_REQUIRED_FRAMES ||
+        state.reconfigures < SURFACE_STRESS_RECONFIGURES {
         glfw.PollEvents()
         if glfw.WindowShouldClose(window) {
             break
         }
         if !iterate() {
             break
+        }
+        // Between frames: no image is acquired here, so replacing the swapchain
+        // is legal.
+        if state.reconfigures < SURFACE_STRESS_RECONFIGURES && state.frames % 2 == 0 {
+            reconfigure_surface()
         }
     }
 

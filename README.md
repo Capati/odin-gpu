@@ -12,8 +12,9 @@
   </a>
 </p>
 
-A modern graphics API wrapper for [Odin Language][], inspired by the [WebGPU][] specification. This
-library provides abstractions over Vulkan, DirectX 11/12, Metal, OpenGL, and WebGPU backends.
+A modern graphics API wrapper for [Odin Language][], inspired by the [WebGPU][]
+specification. This library provides abstractions over Vulkan, DirectX 11/12,
+Metal, OpenGL, and WebGPU backends.
 
 ## Status
 
@@ -23,13 +24,14 @@ library provides abstractions over Vulkan, DirectX 11/12, Metal, OpenGL, and Web
 
 ## Overview
 
-The goal is to follow the WebGPU spec in a one-to-one manner not only in the native backend but in
-WebGPU itself as well. In case of any deviations due to constraints of native backends, the
-implementation of WebGPU should work the same way; deviations should exist under the hood of native
-backends and never affect the spec implementation.
+The goal is to follow the WebGPU spec in a one-to-one manner not only in the
+native backend but in WebGPU itself as well. In case of any deviations due to
+constraints of native backends, the implementation of WebGPU should work the
+same way; deviations should exist under the hood of native backends and never
+affect the spec implementation.
 
-Currently I'm working on [renderlink][] as a "proof of concept" for this library. You can also
-check [all examples](./examples).
+Currently I'm working on [renderlink][] as a "proof of concept" for this
+library. You can also check [all examples](./examples).
 
 ## Thread safety
 
@@ -43,8 +45,8 @@ using the device.
 
 ## Backends
 
-Current development focus is the Vulkan backend and WebGPU/WASM support. The other backends are
-parked until the Vulkan implementation stabilizes.
+Current development focus is the Vulkan backend and WebGPU/WASM support. The
+other backends are parked until the Vulkan implementation stabilizes.
 
 | Feature | Status | Notes |
 | --------- | -------- | ------- |
@@ -67,15 +69,15 @@ parked until the Vulkan implementation stabilizes.
 
 Tested in Odin version: `dev-2026-11`
 
-Only the `gpu/` folder is required to use the library. Copy this folder next
-to your project, then import it:
+Only the `gpu/` folder is required to use the library. Copy this folder next to
+your project, then import it:
 
 ```odin
 import "path/to/gpu"
 ```
 
-Alternatively, register it as an Odin collection so all your projects can use
-a stable import path:
+Alternatively, register it as an Odin collection so all your projects can use a
+stable import path:
 
 ```shell
 odin build . -collection:libs=<path-to-this-repo>
@@ -113,26 +115,29 @@ import "libs:gpu"
 
 ### Shader Model
 
-One major difference from the WebGPU specification is the shader language. WebGPU uses WGSL as its
-shading language, but Odin GPU does **not** require WGSL for native backends.
+One major difference from the WebGPU specification is the shader language.
+WebGPU uses WGSL as its shading language, but Odin GPU does **not** require
+WGSL for native backends.
 
-WGSL is only used when targeting WebAssembly/WebGPU in the browser. For native platforms, you’re
-free to bring your own shaders in whatever format or language your backend supports (SPIR-V, GLSL,
-DXIL, MSL and WGSL).
+WGSL is only used when targeting WebAssembly/WebGPU in the browser. For native
+platforms, you’re free to bring your own shaders in whatever format or language
+your backend supports (SPIR-V, GLSL, DXIL, MSL and WGSL).
 
-That said, we **strongly recommend using [Slang](https://github.com/shader-slang/slang)**. Slang
-lets you write modern HLSL-style shaders and compile them to multiple targets. The current examples
-is using slang to compile for the supported backends.
+That said, we **strongly recommend
+using [Slang](https://github.com/shader-slang/slang)**. Slang lets you write
+modern HLSL-style shaders and compile them to multiple targets. The current
+examples is using slang to compile for the supported backends.
 
 ### Bind Group Layout
 
-Unlike WebGPU `"auto"` layout that allows the API to infer bind group layouts from shader reflection
-at pipeline creation time, Odin GPU **requires explicit bind group layout creation**. The procedure
+Unlike WebGPU `"auto"` layout that allows the API to infer bind group layouts
+from shader reflection at pipeline creation time, Odin GPU **requires explicit
+bind group layout creation**. The procedure
 `render_pipeline_get_bind_group_layout()` is currently **not available**.
 
-You must explicitly create and provide `Bind_Group_Layout` objects when creating pipelines and bind
-groups. This gives you full control over resource bindings and makes the relationship between
-shaders and resources explicit.
+You must explicitly create and provide `Bind_Group_Layout` objects when creating
+pipelines and bind groups. This gives you full control over resource bindings
+and makes the relationship between shaders and resources explicit.
 
 ```odin
 // 1. Create the bind group layout first

@@ -19,7 +19,6 @@ VK_Stage_Access :: struct {
     access: vk.AccessFlags,
 }
 
-@(private = "file")
 vk_image_layout_get_stage_access :: #force_inline proc "contextless" (
     layout: vk.ImageLayout,
     queue_flags: vk.QueueFlags,
@@ -261,7 +260,7 @@ vk_texture_barrier :: proc "contextless" (
     }
 
     intr.atomic_add(&device.barrier_calls, 1)
-    vk.CmdPipelineBarrier(
+    device.fp.CmdPipelineBarrier(
         commandBuffer = vk_command_buffer,
         srcStageMask = stage_access.stage,
         dstStageMask = stage_access.stage,

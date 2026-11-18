@@ -1,7 +1,7 @@
 # CTS port
 
 WebGPU CTS rows ported from C3's `test/cts/` (which in turn ports the WebGPU
-CTS and Dawn validation tables).
+CTS and WebGPU validation tables).
 
 Run it normally; the process-wide loader and proc tables are thread-safe, so the
 runner may use as many threads as it likes:

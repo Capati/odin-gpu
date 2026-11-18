@@ -55,7 +55,7 @@ set (also absent upstream):
 
 1. **Timestamp slots were never reset.** `vkCmdWriteTimestamp` requires the query
    to be unavailable, and nothing reset it. Fixed by resetting the slot inline,
-   immediately before the write, as Dawn does — resetting a run of slots ahead of
+   immediately before the write, as required — resetting a run of slots ahead of
    a pass also wiped slots written by earlier buffers in the same submission.
 2. **`Query_Resolve` had no barrier mapping.** `vk_conv_buffer_uses_to_barrier`
    had no case for it, so a resolve then copy raced: `SYNC-HAZARD-READ-AFTER-WRITE`.

@@ -87,7 +87,6 @@ if "%CLEAN_BUILD%"=="true" (
 	if exist "%OUT%\*.exe" del /F /Q %OUT%\*.exe
 	if exist "%OUT%\*.pdb" del /F /Q %OUT%\*.pdb
 	if exist "%OUT%\*.wasm" del /F /Q %OUT%\*.wasm
-	if exist "%OUT%\wgpu.js" del /F /Q %OUT%\wgpu.js
 	if exist "%OUT%\odin.js" del /F /Q %OUT%\odin.js
 	if exist "%OUT%\utils.js" del /F /Q %OUT%\utils.js
 )

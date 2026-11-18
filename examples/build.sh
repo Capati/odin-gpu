@@ -95,7 +95,6 @@ if [ "$CLEAN_BUILD" = true ]; then
     rm -f "$OUT"/*.exe
     rm -f "$OUT"/*.pdb
     rm -f "$OUT"/*.wasm
-    rm -f "$OUT"/wgpu.js
     rm -f "$OUT"/odin.js
     rm -f "$OUT"/utils.js
 fi

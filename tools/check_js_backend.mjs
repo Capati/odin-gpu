@@ -99,7 +99,7 @@ const failures = [];
 		MipmapFilterMode: ['Mipmap_Filter_Mode', false],
 		TextureFormat: ['Texture_Format', true],
 		VertexFormat: ['Vertex_Format', false],
-		// WebGPU exposes fewer features than wgpu-native; the table is a prefix of
+		// WebGPU exposes fewer features than the native WebGPU implementation; the table is a prefix of
 		// the Odin enum, so ordinals below its length still line up.
 		FeatureName: ['Feature_Name', false, true],
 		InstanceFeatureName: ['Instance_Feature_Name', false],

@@ -1569,11 +1569,33 @@ test_tracker_records_stateless_resources :: proc(t: ^testing.T) {
     testing.expect(t, gpu.blas_tracker_contains(&tracker.blas_s, 5))
 
     bind_group := test_bind_group(1)
-    testing.expect_value(t, gpu.stateless_tracker_insert_single(&tracker.bind_groups, bind_group), bind_group)
+    handed_back, inserted := gpu.stateless_tracker_insert_single(
+        &tracker.bind_groups, bind_group)
+    testing.expect_value(t, handed_back, bind_group)
+    testing.expect(t, inserted)
     testing.expect(t, gpu.stateless_tracker_contains(&tracker.bind_groups, bind_group))
     testing.expect_value(t, gpu.stateless_tracker_len(&tracker.bind_groups), 1)
 
+    // The tracker is a set, not a command log: rebinding the same handle must not
+    // grow the list. This is what a compute pass does once per dispatch, and an
+    // append-per-bind list is what overran the reclaim batch cap.
+    other := test_bind_group(2)
+    for _ in 0 ..< 64 {
+        _, reinserted := gpu.stateless_tracker_insert_single(&tracker.bind_groups, bind_group)
+        testing.expect(t, !reinserted)
+    }
+    testing.expect_value(t, gpu.stateless_tracker_len(&tracker.bind_groups), 1)
+
+    // A different handle is still recorded, and insertion order is preserved.
+    _, other_inserted := gpu.stateless_tracker_insert_single(&tracker.bind_groups, other)
+    testing.expect(t, other_inserted)
+    testing.expect_value(t, gpu.stateless_tracker_len(&tracker.bind_groups), 2)
+    testing.expect_value(t, tracker.bind_groups.resources[0], bind_group)
+    testing.expect_value(t, tracker.bind_groups.resources[1], other)
+
     gpu.tracker_clear(&tracker)
+    testing.expect(t, !gpu.stateless_tracker_contains(&tracker.bind_groups, bind_group))
+    testing.expect(t, !gpu.stateless_tracker_contains(&tracker.bind_groups, other))
     testing.expect_value(t, gpu.query_set_tracker_count(&tracker.query_sets), 0)
     testing.expect(t, !gpu.blas_tracker_contains(&tracker.blas_s, 5))
     testing.expect_value(t, gpu.stateless_tracker_len(&tracker.bind_groups), 0)

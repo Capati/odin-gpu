@@ -31,6 +31,16 @@ backends and never affect the spec implementation.
 Currently I'm working on [renderlink][] as a "proof of concept" for this library. You can also
 check [all examples](./examples).
 
+## Thread safety
+
+All public `gpu` procedures may be called from any thread. Handles must not be
+used after `*_release`, and a mutable object must not be used concurrently: do
+not map/unmap one buffer from two threads, record into one encoder from two
+threads, or submit one command buffer twice.
+
+`device_destroy` and `device_release` are the exception: no other thread may be
+using the device.
+
 ## Backends
 
 Current development focus is the Vulkan backend and WebGPU/WASM support. The other backends are

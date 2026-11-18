@@ -392,7 +392,6 @@ vk_image_usage_flags_is_depth_attachment :: #force_inline proc "contextless" (
 // Create utils
 // -----------------------------------------------------------------------------
 
-@(disabled = !ODIN_DEBUG)
 vk_utils_set_debug_object_name :: proc(
     device: VK_Device_VTable,
     type: vk.ObjectType,
@@ -450,4 +449,3 @@ vk_utils_create_fence :: proc(
 
     return
 }
-

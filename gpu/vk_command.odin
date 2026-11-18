@@ -7,14 +7,6 @@ import "base:runtime"
 // Vendor
 import vk "vendor:vulkan"
 
-// Command-recording helpers.
-//
-// These are the pieces shared by every verb: a resource transition (which the
-// trackers hand over as abstract use sets), a buffer clear, and the lazy bind
-// group flush that turns WebGPU's sticky `setBindGroup` into Vulkan descriptor
-// set binds at draw time. Barrier encoding itself lives in `vk_state.odin`; this
-// file only resolves handles and calls it.
-
 vk_record_transition_buffer :: proc(
     device_impl: ^VK_Device_Impl,
     vk_cmdbuf: vk.CommandBuffer,
@@ -111,7 +103,7 @@ vk_record_clear_buffer :: proc(
         loc,
     )
 
-    vk.CmdFillBuffer(
+    device_impl.fp.CmdFillBuffer(
         vk_cmdbuf,
         dst_impl.vk_buffer,
         vk.DeviceSize(cmd.offset),
@@ -180,12 +172,9 @@ vk_command_buffer_allocate_recording :: proc(
     return buffer
 }
 
-// Closes the open buffer and opens a fresh one, leaving the closed buffer in the
-// submission sequence before whatever is recorded next.
-// Opens a buffer whose position in the submission sequence is not decided yet.
-// A render pass uses this because the barriers it needs are only known at its
-// end, and must be submitted *before* the pass even though they are recorded
-// after it.
+// Opens a buffer whose submission position is not decided yet. A render pass
+// uses it because its barriers are recorded after the pass but must be
+// submitted before it.
 vk_command_buffer_begin_isolated :: proc(
     cmdbuf: ^VK_Command_Buffer_Impl,
     loc := #caller_location,
@@ -196,41 +185,38 @@ vk_command_buffer_begin_isolated :: proc(
     cmdbuf.current_cmdbuf = cmdbuf.isolated_cmdbuf
 }
 
-// Closes the isolated buffer, lets `encode_transit` fill a buffer that is
-// submitted immediately before it, and resumes recording in a fresh buffer.
-// Transit is skipped when `encode_transit` records nothing.
 // One bind group slot's state within a render pass.
 //
-// WebGPU treats `setBindGroup` as assignment of sticky state, not as an immediate
-// binding: the group is validated against the bound pipeline at draw time, so a
-// group may be set before any pipeline is bound. `vkCmdBindDescriptorSets` takes
-// the `VkPipelineLayout` as a parameter and does not require a bound pipeline
-// either, but we cannot know the layout until one is set, so we record the intent
-// here and emit the descriptor set binding lazily.
+// `setBindGroup` assigns sticky state: the group is validated at draw time, so
+// it may be set before a pipeline. The descriptor set is bound lazily once the
+// pipeline layout is known.
 VK_Bind_Group_Slot :: struct {
-    group:           Bind_Group,
-    dynamic_offsets: []u32,
-    // The pipeline layout this group was last bound against. A group bound under
-    // a different layout is not guaranteed to be compatible with the draws that
-    // follow, so it is re-bound.
-    //
-    // Comparison is by handle, and this backend caches no pipeline layouts, so
-    // two structurally identical layouts compare unequal and over-trigger a
-    // re-bind. That is the safe direction: re-binding a compatible descriptor set
-    // is always legal, whereas skipping one is a validation error.
-    bound_layout:    Pipeline_Layout,
-    assigned:        bool,
+    group:            Bind_Group,
+    dynamic_offsets:  []u32,
+    // Pipeline layout this group was last bound against. Comparison is by
+    // handle, so structurally equal layouts re-bind (the safe direction).
+    bound_layout:     Pipeline_Layout,
+    assigned:         bool,
+    // Raw descriptor set, cached at assignment so the per-draw flush skips the
+    // handle probe. Valid while the pass holds the binding's reference.
+    descriptor_set:   vk.DescriptorSet,
+    // Resolved impl, cached at assignment; draw-time validation reads it
+    // instead of probing the handle map.
+    group_impl:       ^VK_Bind_Group_Impl,
+    // Layout this group was last validated against. Groups and layouts are
+    // immutable, so a repeat verdict is skipped; reset when the group changes.
+    validated_layout: Pipeline_Layout,
 }
 
-// Binds every layout slot not yet bound against `layout`. Called before each draw
-// to ensure all groups are bound and rebind those bound under a different
-// pipeline layout. The pass caches the bound pipeline's layout, so no handle is
-// resolved here on the steady-state path.
+// Binds every slot not yet bound against `layout` and rebinds slots bound under
+// a different layout. The resolved impl is passed in, so no handles are resolved
+// in the steady state.
 vk_flush_bind_groups :: proc(
     device_impl: ^VK_Device_Impl,
     cmdbuf: ^VK_Command_Buffer_Impl,
     slots: ^[MAX_BIND_GROUPS]VK_Bind_Group_Slot,
     layout: Pipeline_Layout,
+    layout_impl: ^VK_Pipeline_Layout_Impl,
     bind_point: vk.PipelineBindPoint = .GRAPHICS,
     loc: runtime.Source_Code_Location,
 ) {
@@ -240,7 +226,6 @@ vk_flush_bind_groups :: proc(
         return
     }
 
-    layout_impl := vk_pipeline_layout_get_impl(layout, loc)
     set_count := layout_impl.bind_group_layout_count
 
     // Bind consecutive dirty slots with one call. Dynamic offsets are
@@ -286,15 +271,14 @@ vk_flush_bind_groups :: proc(
                 loc,
             )
 
-            group_impl := vk_bind_group_get_impl(run_slot.group, loc)
-            set_descriptor_sets[count] = group_impl.descriptor_set.raw
+            set_descriptor_sets[count] = run_slot.descriptor_set
             append(&cmdbuf.bind_offsets_scratch, ..run_slot.dynamic_offsets)
             run_slot.bound_layout = layout
             count += 1
             slot_index += 1
         }
 
-        vk.CmdBindDescriptorSets(
+        device_impl.fp.CmdBindDescriptorSets(
             cmdbuf.current_cmdbuf,
             bind_point,
             layout_impl.raw,

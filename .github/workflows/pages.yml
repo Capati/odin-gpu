@@ -16,10 +16,17 @@
 #      example into site/out/; public/ files pass through untouched.
 #   4. site/out/ is uploaded and deployed; no binaries are committed to git.
 #
-# Odin version: built from source at the monthly tag tested by this repo
-# (see "Tested in Odin version" in the root README). To follow a newer
-# monthly, update `branch:` below. To float on the latest release instead,
-# replace `release: 'false'` + `branch:` with `release: latest`.
+# Odin version: installed from the prebuilt monthly release tested by this repo
+# (see "Tested in Odin version" in the root README). To follow a newer monthly,
+# update `release:` and `branch:` below. `release` downloads the tag's binaries;
+# `branch` is the fallback if that tag has no release assets, and builds from
+# source with `build-type: release`. To float on the latest release instead,
+# drop `branch:` and set `release: latest`.
+#
+# The runner is pinned to ubuntu-24.04 because it ships LLVM 18 (which provides
+# `wasm-ld`), so setup-odin does not touch apt at all. ubuntu-latest moved to
+# 26.04, where `apt-key` no longer exists and the action spends minutes
+# installing LLVM 18 before compiling Odin from source.
 
 # Manual only: run it from Actions -> Examples site -> Run workflow when you
 # want to refresh the showcase. Pushes to main intentionally do NOT rebuild
@@ -41,7 +48,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout (with assets submodule)
         uses: actions/checkout@v4
@@ -52,8 +60,9 @@ jobs:
         uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          release: "false"
+          release: dev-2026-11
           branch: dev-2026-11
+          build-type: release
 
       - name: Set up Node
         uses: actions/setup-node@v4

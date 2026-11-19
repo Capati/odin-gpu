@@ -1,4 +1,4 @@
-package wgpu_glfw
+package gpu_glfw
 
 // Vendor
 import "vendor:glfw"

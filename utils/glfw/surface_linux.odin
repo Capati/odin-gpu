@@ -1,5 +1,5 @@
 #+build linux
-package wgpu_glfw
+package gpu_glfw
 
 // Core
 import "vendor:glfw"

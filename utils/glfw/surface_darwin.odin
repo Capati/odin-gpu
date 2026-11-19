@@ -1,10 +1,8 @@
 #+build darwin
-package wgpu_glfw
-
-// Core
-import NS "core:sys/darwin/Foundation"
+package gpu_glfw
 
 // Vendor
+import NS "vendor:darwin/AppKit"
 import CA "vendor:darwin/QuartzCore"
 import "vendor:glfw"
 import "../../gpu"

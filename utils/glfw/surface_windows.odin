@@ -1,5 +1,5 @@
 #+build windows
-package wgpu_glfw
+package gpu_glfw
 
 // Core
 import win "core:sys/windows"

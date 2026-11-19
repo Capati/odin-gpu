@@ -82,7 +82,7 @@
   dense per-tracker-index destination arrays with presence bitsets, and one spare batch instead of
   per-array spare twins. The mechanism is Vulkan-only (`vk_deferred_writes.odin` is `!js`), so the
   shared queue impl and the WebGPU build no longer see staging-ring types and no js stub is needed.
-- Added `tests/vulkan/vk_thread_safety_tests.odin` and the `threaded_upload` example.
+- Added `tests/vulkan/vk_thread_safety_tests.odin`.
 - `vk_submit_context_drain_refs`: removed `VK_RECLAIM_BATCH_CAP`. The bound assumed a command
   buffer touches only a handful of distinct resources, but nothing in WebGPU caps binds per pass —
   a scene binding one group per draw drains thousands of refs from one finished buffer, which the

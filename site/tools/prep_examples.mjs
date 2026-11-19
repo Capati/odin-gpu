@@ -44,7 +44,9 @@ const ORDER = [
   "vertex_buffer", "coordinate_system", "cube", "rotating_cube", "two_cubes",
   "instanced_cube", "textured_cube", "fractal_cube", "cubemap", "texture_3d",
   "points", "prng", "out_of_bounds_viewport", "stencil_triangles",
-  "pristine_grid", "microui", "imgui", "gltf_cube", "obj_model", "gltf_viewer",
+  "pristine_grid", "compute_shader", "game_of_life", "timestamp_query",
+  "occlusion_query", "render_bundles", "microui", "imgui", "threaded_upload",
+  "gltf_cube", "obj_model", "gltf_viewer",
 ];
 
 const SHARED_FILES = ["odin.js", "webgpu.js", "utils.js"];
